@@ -63,6 +63,15 @@
       box-shadow: 0 0 18px 4px rgba(0, 255, 255, 0.7); /* Brighter glow for focus */
       transform: translateY(-2px) scale(1.03);
     }
+    /* Wide buttons that sit flush with a scrollable panel edge: keep the lift + glow
+       but skip the horizontal scale, which used to overflow the panel, spawn a
+       horizontal scrollbar and clip the button on hover. */
+    .futuristic-button.hover-lift:hover:not(:disabled) {
+      transform: translateY(-2px);
+    }
+    .futuristic-button.hover-lift:focus-visible:not(:disabled) {
+      transform: translateY(-2px);
+    }
     .futuristic-button:disabled {
       border-color: rgba(160, 160, 184, 0.3); /* muted-text border */
       background-image: none;

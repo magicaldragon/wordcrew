@@ -12,8 +12,28 @@ interface FileUploadButtonProps {
   disabled?: boolean;
 }
 
-const MAX_FILE_SIZE_MB = 5;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+// Formats the browser can reliably decode. Anything else (and anything the browser
+// reports as unplayable) is refused up front instead of silently failing at play time.
+export const ACCEPTED_AUDIO_FORMATS = ['.mp3', '.m4a', '.wav', '.ogg', '.oga', '.aac', '.webm'] as const;
+export const ACCEPTED_AUDIO_ACCEPT_ATTR = ACCEPTED_AUDIO_FORMATS.join(',');
+export const ACCEPTED_AUDIO_FORMATS_LABEL = 'MP3, M4A, WAV, OGG, AAC, WEBM';
+
+// Uploads are kept in the browser as base64 data URLs inside localStorage, whose quota
+// is only a few megabytes per origin and where base64 inflates the payload by ~33%.
+// A larger file plays once and then disappears on reload, so it is rejected up front.
+export const MAX_AUDIO_FILE_SIZE_MB = 1;
+const MAX_AUDIO_FILE_SIZE_BYTES = MAX_AUDIO_FILE_SIZE_MB * 1024 * 1024;
+
+const fileExtension = (fileName: string): string => {
+  const dotIndex = fileName.lastIndexOf('.');
+  return dotIndex === -1 ? '' : fileName.slice(dotIndex).toLowerCase();
+};
+
+const canBrowserDecode = (file: File): boolean => {
+  // Unknown MIME (common for .ogg/.aac on some systems): trust the extension instead.
+  if (!file.type || !file.type.startsWith('audio/')) return true;
+  return document.createElement('audio').canPlayType(file.type) !== '';
+};
 
 export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
   id,
@@ -37,14 +57,22 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
       };
 
       if (file) {
-        if (!file.type.startsWith('audio/')) {
-          alert(`Invalid file type. Please select an audio file (${accept}).`);
+        const isAcceptedFormat = (ACCEPTED_AUDIO_FORMATS as readonly string[]).includes(fileExtension(file.name));
+
+        if (!isAcceptedFormat) {
+          alert(`Unsupported file type. Please choose an audio file: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`);
           resetInput();
           return;
         }
 
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          alert(`File size exceeds ${MAX_FILE_SIZE_MB}MB limit. Please select a smaller file.`);
+        if (!canBrowserDecode(file)) {
+          alert(`This browser cannot play "${file.type}" audio. Please choose: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`);
+          resetInput();
+          return;
+        }
+
+        if (file.size > MAX_AUDIO_FILE_SIZE_BYTES) {
+          alert(`File size exceeds ${MAX_AUDIO_FILE_SIZE_MB}MB limit. Please pick a shorter clip or a lower bitrate file.`);
           resetInput();
           return;
         }
@@ -67,7 +95,7 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
         reader.readAsDataURL(file);
       }
     },
-    [onFileUpload, accept]
+    [onFileUpload]
   );
 
   const handleClick = () => {
