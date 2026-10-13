@@ -15,16 +15,16 @@
     {
       "binding": "DB",
       "database_name": "wordcrew-db",
-      // Replace with the id printed by: npx wrangler d1 create wordcrew-db
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "cf1901c3-549c-4558-8597-a31b440fa620"
     }
   ],
   "vars": {
-    // Bank short code used by qr.sepay.vn (MBBank, Vietcombank, TPBank, ...) and the
-    // numbered account that receives the transfers. Both must be filled in before
-    // the buy dialog can mint an order.
-    "SEPAY_BANK_NAME": "",
-    "SEPAY_BANK_ACCOUNT": "",
+    // Bank short code understood by qr.sepay.vn (MSB, MBBank, Vietcombank, TPBank, ...)
+    // and the numbered account that receives the transfers. These are plain vars rather
+    // than dashboard secrets on purpose: `wrangler deploy` overwrites every var declared
+    // here on each build, so keeping them in the repo is what stops them being wiped.
+    "SEPAY_BANK_NAME": "MSB",
+    "SEPAY_BANK_ACCOUNT": "7204061994",
     // Public price of the one-time licence. Change here, no app rebuild needed.
     "PRICE_VND": "199000",
     // Firebase project whose ID tokens the worker validates before minting an order.
