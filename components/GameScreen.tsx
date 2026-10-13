@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { GameSettings, CustomSoundFile, GameMode } from '../types'; 
 import CircularTimer from './CircularTimer'; // Import CircularTimer
 import { VolumeControls } from './VolumeControls';
@@ -65,23 +65,44 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
     }
   };
   
-  const getFontSizeClass = (wordText: string): string => {
-    const length = wordText.length;
-    if (length > 12) {
-      // For very long words, e.g., "advertisement"
-      return 'text-[clamp(2.5rem,10vw,6rem)]';
+  // Auto-fit: measure the available box and scale the word so it never spills out of
+  // the card, regardless of word length or viewport size. Replaces the old fixed
+  // clamp(vw) sizing that overflowed for wide words (e.g. "mother").
+  const measureBoxRef = useRef<HTMLDivElement>(null);
+  const wordTextRef = useRef<HTMLParagraphElement>(null);
+
+  useLayoutEffect(() => {
+    const box = measureBoxRef.current;
+    const textEl = wordTextRef.current;
+    if (!box || !textEl || !isWordVisible || !word) return;
+
+    const fit = () => {
+      const availableW = box.clientWidth;
+      const availableH = box.clientHeight;
+      if (availableW <= 0 || availableH <= 0) return;
+
+      // Measure the word at a fixed reference size, then scale it to fit both axes.
+      const REFERENCE_PX = 100;
+      textEl.style.setProperty('font-size', `${REFERENCE_PX}px`, 'important');
+      const textW = textEl.scrollWidth;
+      const textH = textEl.scrollHeight;
+      if (textW <= 0 || textH <= 0) return;
+
+      const scale = Math.min((availableW * 0.9) / textW, (availableH * 0.85) / textH);
+      const fitted = Math.max(14, Math.round(REFERENCE_PX * scale));
+      // Inline !important so it also wins over the short-landscape CSS override.
+      textEl.style.setProperty('font-size', `${fitted}px`, 'important');
+    };
+
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(box);
+    // Webfonts change the metrics after first paint — re-fit once Orbitron is ready.
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(fit).catch(() => {});
     }
-    if (length > 9) {
-      // For long words, e.g., "chocolate"
-      return 'text-[clamp(3rem,13vw,9rem)]';
-    }
-    if (length > 6) {
-      // For medium words, e.g., "bicycle"
-      return 'text-[clamp(4rem,16vw,12rem)]';
-    }
-    // For short words, e.g., "apple"
-    return 'text-[clamp(5rem,20vw,15rem)]';
-  };
+    return () => observer.disconnect();
+  }, [word, isWordVisible, animationKey]);
 
   const getPointsAnimationEmoji = () => {
     if (!pointsAwardedAnim) return "";
@@ -124,11 +145,12 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
       ref={wordCardRef}
       className={`relative futuristic-card text-light-text p-2 sm:p-2 md:p-3 rounded-xl shadow-xl w-full h-full flex items-center justify-center animate-fadeInScaleUp ${cardFlashClass} ${bounceClass} word-card-animated-border`}
     >
-      <div className="word-animation-container flex items-center justify-center">
-        <div className="relative">
+      <div ref={measureBoxRef} className="word-animation-container flex items-center justify-center">
+        <div className="relative max-w-full">
             <p
               key={animationKey} 
-              className={`font-heading font-bold text-center leading-none whitespace-nowrap ${getFontSizeClass(word)} ${animationClass || ''} ${textColorClass || 'text-light-text'}`}
+              ref={wordTextRef}
+              className={`font-heading font-bold text-center leading-none whitespace-nowrap ${animationClass || ''} ${textColorClass || 'text-light-text'}`}
               style={wordStyle}
             >
               {isWordVisible ? word : ''}
@@ -172,7 +194,6 @@ interface GameScreenProps {
   setActiveMusicOverride: (url: string | null) => void; 
   onSetRushHourActiveVisuals: (isActive: boolean) => void; 
   isAppRushHourActive: boolean; 
-  isFullscreen: boolean;
   isDemo?: boolean;
   musicVolume: number;
   onMusicVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -242,7 +263,6 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setActiveMusicOverride, 
     onSetRushHourActiveVisuals,
     isAppRushHourActive, 
-    isFullscreen,
     isDemo = false,
     musicVolume,
     onMusicVolumeChange,
@@ -1152,14 +1172,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const wordForCardDisplay = shuffledWords[currentWordIndex]; 
   const currentCountdownText = COUNTDOWN_STEPS[countdownStepIndex];
   
-  const getWordCardFontSizeClass = (wordText: string): string => {
-    const length = wordText.length;
-    const unit = isFullscreen ? 'vmin' : 'vw';
-    if (length > 12) return `text-[clamp(2.5rem,10${unit},6rem)]`;
-    if (length > 9) return `text-[clamp(3rem,13${unit},9rem)]`;
-    if (length > 6) return `text-[clamp(4rem,16${unit},12rem)]`;
-    return `text-[clamp(5rem,20${unit},15rem)]`;
-  };
+
 
   const getTextAnimationClass = () => {
     if (!wordTextAnimation) return '';

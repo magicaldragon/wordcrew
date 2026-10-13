@@ -10,7 +10,9 @@ interface BackgroundMusicPlayerProps {
 export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ volume, musicUrl }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentAudioSrcRef = useRef<string | null>(null); // Stores the src of the currently loaded audio
+  const wasPlayingBeforeHiddenRef = useRef(false); // Track playback so it can resume after the tab becomes visible again
   const [userInteracted, setUserInteracted] = useState(false);
+  const userInteractedRef = useRef(false); // Mirror of userInteracted, readable from stable lifecycle handlers
 
   const playAudio = useCallback(async () => {
     if (audioRef.current && audioRef.current.paused && currentAudioSrcRef.current /* Ensure a valid source is loaded */) {
@@ -93,6 +95,49 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       };
     }
   }, [userInteracted]); // Only re-run if userInteracted changes (which it does once)
+
+  // Keep the ref in sync so the stable lifecycle handlers below can read it.
+  useEffect(() => {
+    userInteractedRef.current = userInteracted;
+  }, [userInteracted]);
+
+  // Effect to guarantee playback stops when the page is hidden, unloaded or the
+  // component unmounts. Without this, a looping <audio> can keep the browser
+  // process alive (and audible) even after every window/tab has been closed.
+  useEffect(() => {
+    const pauseAudio = () => {
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+    };
+
+    const handlePageHide = () => {
+      pauseAudio();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        wasPlayingBeforeHiddenRef.current = !!audioRef.current && !audioRef.current.paused;
+        pauseAudio();
+      } else if (document.visibilityState === 'visible' && wasPlayingBeforeHiddenRef.current) {
+        // Resume only if the user had already enabled playback and music was playing.
+        if (userInteractedRef.current && audioRef.current && currentAudioSrcRef.current) {
+          audioRef.current.play().catch(() => { /* ignored: play may still be blocked */ });
+        }
+      }
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      pauseAudio();
+    };
+  }, []);
 
   return null; // This component does not render anything visible
 };

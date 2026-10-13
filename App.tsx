@@ -69,6 +69,9 @@ const App: React.FC = () => {
   const [activeMusicUrl, setActiveMusicUrl] = useState<string | null>(null);
   const [activeMusicOverride, setActiveMusicOverride] = useState<string | null>(null); 
   const initialLoadDone = useRef(false);
+  // Custom sounds are base64 audio stored in localStorage; warn once per session when the
+  // (small) quota is full, otherwise the upload would silently vanish on the next reload.
+  const storageWarningShown = useRef(false);
   const previousGamePhase = usePrevious(gamePhase);
 
   // Landing (marketing) screen is shown before the game shell on a fresh load.
@@ -264,6 +267,10 @@ const App: React.FC = () => {
         localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
         console.error(`Error saving ${key} to localStorage:`, e);
+        if (key.startsWith('custom') && !storageWarningShown.current) {
+            storageWarningShown.current = true;
+            window.alert('Browser storage is full, so this audio could not be saved and would be lost on reload. Remove a custom sound (or use "Reset all to default sounds") and upload a smaller file.');
+        }
     }
   }, []); 
 
@@ -537,7 +544,6 @@ const App: React.FC = () => {
                   setActiveMusicOverride={setActiveMusicOverride} 
                   onSetRushHourActiveVisuals={setIsAppRushHourActive} 
                   isAppRushHourActive={isAppRushHourActive}
-                  isFullscreen={isFullscreen}
                 />;
       case GamePhase.RESULTS:
         if (!gameEndDetails || !gameSettings) { // Ensure gameSettings is also available for gameMode
@@ -561,6 +567,9 @@ const App: React.FC = () => {
   // Never interrupt an active round: a pending major update is announced once the
   // player is back on a static screen.
   const isRoundInProgress = !showLanding && gamePhase === GamePhase.PLAYING;
+  // Escape hatch back to the landing page, offered on the setup screen only so a live
+  // round or the results screen can never be abandoned by a stray tap on the header.
+  const canExitToHome = !showLanding && gamePhase === GamePhase.SETUP;
 
   return (
     <div className={`h-screen bg-dark-metal flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${isFullscreen || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
@@ -602,17 +611,44 @@ const App: React.FC = () => {
             Only Talented Guessers
           </span>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold tracking-wider text-warning-yellow animate-goldPulseGlow">
-            WordCrew
+            {canExitToHome ? (
+              <button
+                type="button"
+                onClick={handleGoHome}
+                className="cursor-pointer rounded-md transition-transform duration-200 hover:scale-[1.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
+                title="Back to home"
+                aria-label="WordCrew — back to home"
+              >
+                WordCrew
+              </button>
+            ) : (
+              'WordCrew'
+            )}
           </h1>
           <p className="mt-1 sm:mt-2 text-md sm:text-lg text-muted-text font-sans">
             Describe the word on screen to your partner before time runs out!
           </p>
         </header>
-        <main 
-          className={`futuristic-card shadow-2xl rounded-xl w-full flex-grow overflow-y-auto ${getMainCardClass()}`}
-        >
-          {renderScreen()}
-        </main>
+        <div className="relative flex min-h-0 w-full flex-grow flex-col">
+          <main 
+            className={`futuristic-card shadow-2xl rounded-xl w-full min-h-0 flex-grow overflow-y-auto ${getMainCardClass()}`}
+          >
+            {renderScreen()}
+          </main>
+          {canExitToHome && (
+            <button
+              type="button"
+              onClick={handleGoHome}
+              className="absolute right-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full text-muted-text transition-colors hover:bg-cyber-purple/40 hover:text-light-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-electric-blue"
+              aria-label="Exit setup and return home"
+              title="Exit setup"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-5 w-5 sm:h-6 sm:w-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
         <footer className={`mt-3 sm:mt-4 text-xs sm:text-sm text-muted-text flex justify-between items-center w-full px-1 flex-shrink-0 ${rushHourBounceClass} max-w-4xl`}>
           <p className="footer-credit">Made by Mr. C <span role="img" aria-label="heart" className="text-danger-red">❤️</span></p>
           <div className="flex items-center fullscreen-toggle-container">
