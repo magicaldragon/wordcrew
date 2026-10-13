@@ -97,11 +97,11 @@ export const incrementDemoRounds = (): number => {
 };
 
 // Limits of the free demo. Anything outside this is unlocked by a valid access code.
-// The demo is meant to feel generous for a single round (full Normal Mode loop with
+// The demo is meant to showcase the real classroom loop (Normal + Team modes with
 // all power-ups, Rush Hour, combos and results) while withholding the content that
-// is worth paying for (extra modes, word packs, longer games, power-user settings).
+// is worth paying for (Hell Mode, extra word packs, longer games, power-user settings).
 export const DEMO_POLICY = {
-  freeModes: [GameMode.NORMAL] as GameMode[],
+  freeModes: [GameMode.NORMAL, GameMode.TEAM] as GameMode[],
   freePresets: [CEFRLevel.STARTERS] as CEFRLevel[],
   freeWordCounts: [5, 10, 20] as number[],
   maxWordsPerGame: 20,      // full version goes up to 60

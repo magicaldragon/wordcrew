@@ -290,14 +290,14 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
         <div className="w-full max-w-sm rounded-xl border border-warning-yellow/40 bg-warning-yellow/10 p-3 text-center animate-fadeInScaleUp">
           <p className="font-heading text-sm font-bold tracking-wide text-warning-yellow">
             {demoRounds >= 2
-              ? `🔥 ${demoRounds} rounds — still Normal Mode?`
-              : '🔥 That was just Normal Mode'}
+              ? `🔥 ${demoRounds} rounds — ready for more?`
+              : '🔥 That was only the demo'}
           </p>
           <p className="mt-1 font-sans text-xs text-muted-text">
             {demoRounds >= 2
-              ? <>Hell 💀, Team 🤝 and 3 more word packs are one code away.</>
-              : <>Unlock <strong className="text-light-text">Hell 💀</strong>,{' '}
-                  <strong className="text-light-text">Team 🤝</strong> and 3 more word packs.</>}
+              ? <>Hell 💀 and 5 more word packs are one code away.</>
+              : <>Unlock <strong className="text-light-text">Hell 💀</strong> and{' '}
+                  <strong className="text-light-text">5 more word packs</strong>.</>}
           </p>
           <button
             type="button"

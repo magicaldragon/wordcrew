@@ -8,8 +8,7 @@ interface UnlockDialogProps {
 
 const PERKS = [
   '💀 Hell Mode — brutal skips & double Rush Hour',
-  '🤝 Team Mode — two teams, turn by turn',
-  '📚 3 extra word packs (A1 · A2 · A2 Key)',
+  '📚 5 extra word packs (A1 · A2 · A2 Key · B1 · B2)',
   '⏱️ Up to 60 words & 10 minutes per game',
   '🎵 Custom sounds — upload your own music & SFX',
 ];
