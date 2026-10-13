@@ -3,6 +3,7 @@ import { GameSettings, CustomSoundFile, GameMode } from '../types';
 import { DEFAULT_TOTAL_TIME_LIMIT, MIN_TOTAL_TIME_LIMIT, MAX_TOTAL_TIME_LIMIT, DEMO_POLICY } from '../constants';
 import { FileUploadButton } from './FileUploadButton';
 import { UnlockDialog } from './UnlockDialog';
+import { VolumeControls } from './VolumeControls';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WordListCategories, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 
 interface SetupScreenProps {
@@ -10,6 +11,10 @@ interface SetupScreenProps {
   isUnlocked: boolean;
   onUnlock: (code: string) => boolean;
   onGameStart: (settings: GameSettings) => void;
+  musicVolume: number;
+  onMusicVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  effectsVolume: number;
+  onEffectsVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   customBackgroundMusic: CustomSoundFile | null;
   setCustomBackgroundMusic: (file: CustomSoundFile | null) => void;
   customGameMusic: CustomSoundFile | null;
@@ -53,6 +58,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   isUnlocked,
   onUnlock,
   onGameStart,
+  musicVolume, onMusicVolumeChange,
+  effectsVolume, onEffectsVolumeChange,
   customBackgroundMusic, setCustomBackgroundMusic,
   customGameMusic, setCustomGameMusic,
   customCorrectSounds, setCustomCorrectSounds,
@@ -74,6 +81,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const [error, setError] = useState<string>('');
   const [displaySoundSettingsSection, setDisplaySoundSettingsSection] = useState<boolean>(false);
   const [displayDevUtils, setDisplayDevUtils] = useState<boolean>(false);
+  const [displaySettingsSection, setDisplaySettingsSection] = useState<boolean>(false);
 
   const [selectedPreset, setSelectedPreset] = useState<CEFRLevel | ''>('');
   const [selectedWordTypes, setSelectedWordTypes] = useState<SelectedWordTypes>({
@@ -200,18 +208,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     onGameStart({ words: gameWords, totalTimeLimit, gameMode, timePerWord });
   }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPreset, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit]);
 
-  const handlePresetChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const valueFromSelect = event.target.value as CEFRLevel | '';
-    
-    setSelectedPreset(valueFromSelect);
-    if (valueFromSelect === '') { // Cleared preset selection in any mode
-        setError('');
-        setWordsInput(''); // Clear words from textarea
-    } else {
-        // When a preset is chosen, reset word types and count to defaults
-        setSelectedWordTypes({ nouns: true, verbs: true, adjectives: true });
-        setSelectedWordCountForPreset(WORD_COUNT_OPTIONS[2]); // Default count
-    }
+  const handlePresetSelect = (level: CEFRLevel) => {
+    setSelectedPreset(level);
+    // Reset word types and count to defaults when a new pack is picked.
+    setSelectedWordTypes({ nouns: true, verbs: true, adjectives: true });
+    setSelectedWordCountForPreset(WORD_COUNT_OPTIONS[2]);
+    setError('');
   };
 
   const handleWordTypeChange = (type: keyof SelectedWordTypes) => {
@@ -232,10 +234,6 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     setWordsInput('');
     setSelectedPreset('');
     setError('');
-    const selectElement = document.getElementById('cefrPreset') as HTMLSelectElement | null;
-    if (selectElement) {
-      selectElement.value = "";
-    }
   };
 
   const handleGameModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -362,24 +360,53 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   
   const disableStartDueToPresetAndNoTypes = isPresetEffectivelyActive && noWordTypesSelected;
 
+  // Everything held back from the free demo, surfaced as tappable chips so players
+  // discover what the Full Version adds without digging through closed dropdowns.
+  const lockedPerks: string[] = [
+    '💀 Hell Mode',
+    '🤝 Team Mode',
+    `📚 ${CEFRLevel.MOVERS.split(' (')[0]} pack`,
+    `📚 ${CEFRLevel.FLYERS.split(' (')[0]} pack`,
+    `📚 ${CEFRLevel.KET.split(' (')[0]} pack`,
+    '🔢 Up to 60 words',
+    '⏱️ Up to 10 minutes',
+    '🎵 Custom Sounds',
+  ];
 
   return (
     <div className="flex flex-col space-y-3 sm:space-y-4 items-center text-light-text h-full">
       <h2 className="text-2xl sm:text-3xl font-heading font-semibold text-electric-blue mb-1 sm:mb-2 setup-screen-title">Game Setup</h2>
 
       {!isUnlocked && (
-        <div className="w-full flex items-center justify-between gap-2 rounded-lg border border-warning-yellow/40 bg-warning-yellow/10 px-3 py-2">
-          <p className="text-left text-xs text-warning-yellow">
-            <strong className="font-heading tracking-wider">DEMO</strong> · Normal Mode · up to{' '}
-            {DEMO_POLICY.maxWordsPerGame} words · {DEMO_POLICY.maxTotalTimeLimit / 60} minutes
+        <div className="w-full rounded-lg border border-warning-yellow/40 bg-warning-yellow/10 px-3 py-2 text-left">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-warning-yellow">
+              <strong className="font-heading tracking-wider">DEMO</strong> · Normal Mode · up to{' '}
+              {DEMO_POLICY.maxWordsPerGame} words · {DEMO_POLICY.maxTotalTimeLimit / 60} minutes
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowUnlockDialog(true)}
+              className="futuristic-button shrink-0 rounded-md bg-cyber-purple/70 px-3 py-1.5 text-xs font-semibold text-light-text hover:bg-cyber-purple"
+            >
+              Unlock
+            </button>
+          </div>
+          <p className="mt-2 text-[0.65rem] font-semibold uppercase tracking-wider text-warning-yellow/80">
+            Locked in the demo — tap to unlock:
           </p>
-          <button
-            type="button"
-            onClick={() => setShowUnlockDialog(true)}
-            className="futuristic-button shrink-0 rounded-md bg-cyber-purple/70 px-3 py-1.5 text-xs font-semibold text-light-text hover:bg-cyber-purple"
-          >
-            Unlock
-          </button>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {lockedPerks.map(perk => (
+              <button
+                key={perk}
+                type="button"
+                onClick={() => setShowUnlockDialog(true)}
+                className="futuristic-button rounded-full border border-warning-yellow/40 bg-dark-metal/60 px-2.5 py-1 text-[0.7rem] text-warning-yellow/90 hover:border-warning-yellow hover:text-warning-yellow"
+              >
+                {perk} 🔒
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -418,38 +445,47 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       {/* CEFR Preset Section — only in the "Suggest & Curate" flow */}
       {entryMode === 'suggest' && (
       <div className="w-full mb-1 p-2 sm:p-3 border border-cyber-purple/30 rounded-lg">
-        <label htmlFor="cefrPreset" className="block text-sm font-semibold text-electric-blue mb-1 text-left uppercase tracking-wider setup-screen-label">
+        <span className="block text-sm font-semibold text-electric-blue mb-1 text-left uppercase tracking-wider setup-screen-label">
           Word Pack (suggests words):
-        </label>
-        <div className="flex space-x-2 items-center mb-2">
-          <select
-            id="cefrPreset"
-            value={selectedPreset}
-            onChange={handlePresetChange}
-            className={`flex-grow p-2 sm:p-3 rounded-lg shadow-sm focus:ring-2 focus:ring-neon-green focus:border-neon-green transition duration-150 ease-in-out futuristic-input text-sm sm:text-base setup-screen-input`}
-            aria-label="Select CEFR word preset"
-          >
-            <option value="">-- Pick a pack --</option>
-            {Object.values(CEFRLevel).map(level => {
-              const locked = !isUnlocked && !DEMO_POLICY.freePresets.includes(level);
-              return (
-                <option key={level} value={level} disabled={locked}>
-                  {level}{locked ? ' 🔒 Full Version' : ''}
-                </option>
-              );
-            })}
-          </select>
-          {selectedPreset && (
-            <button
-              type="button"
-              onClick={handleClearPreset}
-              className="futuristic-button bg-danger-red/70 hover:bg-danger-red text-light-text py-2 px-3 sm:py-2.5 sm:px-4 rounded-md text-xs sm:text-sm"
-              title="Clear loaded preset from textarea"
-            >
-              Clear
-            </button>
-          )}
+        </span>
+        <div className="grid grid-cols-2 gap-2 mb-2" role="group" aria-label="Word packs">
+          {Object.values(CEFRLevel).map(level => {
+            const locked = !isUnlocked && !DEMO_POLICY.freePresets.includes(level);
+            const active = selectedPreset === level;
+            const packName = level.includes(' (') ? level.split(' (')[0] : level;
+            const packBand = level.includes(' (') ? `(${level.split(' (')[1]}` : '';
+            return (
+              <button
+                key={level}
+                type="button"
+                onClick={() => (locked ? setShowUnlockDialog(true) : handlePresetSelect(level))}
+                aria-pressed={active}
+                title={locked ? `${packName} — Unlock Full Version` : `Suggest words from the ${packName} pack`}
+                className={`futuristic-button flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs sm:text-sm ${
+                  active
+                    ? 'bg-gradient-to-r from-cyber-purple to-electric-blue font-semibold text-dark-metal'
+                    : locked
+                    ? 'border border-warning-yellow/30 bg-dark-metal text-warning-yellow/60 hover:border-warning-yellow/70'
+                    : 'bg-dark-metal text-electric-blue hover:bg-cyber-purple/30'
+                }`}
+              >
+                <span>{packName}</span>
+                {packBand && <span className="text-[0.6rem] opacity-70">{packBand}</span>}
+                {locked && <span aria-hidden="true">🔒</span>}
+              </button>
+            );
+          })}
         </div>
+        {selectedPreset && (
+          <button
+            type="button"
+            onClick={handleClearPreset}
+            className="futuristic-button mb-2 bg-danger-red/70 hover:bg-danger-red text-light-text py-1.5 px-3 rounded-md text-xs sm:text-sm"
+            title="Clear the loaded pack from the word list"
+          >
+            Clear pack
+          </button>
+        )}
 
         {isPresetEffectivelyActive && (
           <div className="animate-fadeInScaleUp">
@@ -623,6 +659,36 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     {!isUnlocked && ' · Unlock for up to 10m'}
                 </p>
             </div>
+        )}
+      </div>
+
+      {/* Settings — audio levels live here and in the in-game pause menu (Esc). */}
+      <div className="w-full">
+        <button
+          type="button"
+          onClick={() => setDisplaySettingsSection(!displaySettingsSection)}
+          className="futuristic-button w-full rounded-md bg-dark-metal px-3 py-1.5 text-xs text-electric-blue hover:bg-cyber-purple/30 sm:px-4 sm:py-2 sm:text-sm"
+          aria-expanded={displaySettingsSection}
+          aria-controls="setup-settings-panel"
+        >
+          ⚙️ Settings {displaySettingsSection ? '▴' : '▾'}
+        </button>
+        {displaySettingsSection && (
+          <div
+            id="setup-settings-panel"
+            className="mt-2 animate-fadeInScaleUp rounded-lg border border-electric-blue/30 p-2 sm:p-3"
+          >
+            <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-electric-blue">
+              Sound
+            </p>
+            <VolumeControls
+              idPrefix="setup"
+              musicVolume={musicVolume}
+              onMusicVolumeChange={onMusicVolumeChange}
+              effectsVolume={effectsVolume}
+              onEffectsVolumeChange={onEffectsVolumeChange}
+            />
+          </div>
         )}
       </div>
 

@@ -371,19 +371,28 @@ const App: React.FC = () => {
     setActiveMusicOverride(null); 
   }, [customPlayAgainSound, effectsVolume]);
 
-  const handleMusicVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(event.target.value);
-     if (!isNaN(newVolume) && newVolume >= 0 && newVolume <= 1) {
-        setMusicVolume(newVolume);
-    }
-  };
+  // Results screen "Home" button: return to the marketing/landing page.
+  const handleGoHome = useCallback(() => {
+    setGameSettings(null);
+    setGameEndDetails(null);
+    setIsAppRushHourActive(false);
+    setActiveMusicOverride(null);
+    setShowLanding(true);
+  }, []);
 
-  const handleEffectsVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMusicVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const newVolume = parseFloat(event.target.value);
-     if (!isNaN(newVolume) && newVolume >= 0 && newVolume <= 1) {
-        setEffectsVolume(newVolume);
+    if (!isNaN(newVolume) && newVolume >= 0 && newVolume <= 1) {
+      setMusicVolume(newVolume);
     }
-  };
+  }, []);
+
+  const handleEffectsVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(event.target.value);
+    if (!isNaN(newVolume) && newVolume >= 0 && newVolume <= 1) {
+      setEffectsVolume(newVolume);
+    }
+  }, []);
   
   const getInstructionCardClass = () => {
     if (gamePhase !== GamePhase.INSTRUCTION || !gameSettings) return '';
@@ -416,6 +425,10 @@ const App: React.FC = () => {
                   isUnlocked={isUnlocked}
                   onUnlock={handleUnlock}
                   onGameStart={handleGameStart}
+                  musicVolume={musicVolume}
+                  onMusicVolumeChange={handleMusicVolumeChange}
+                  effectsVolume={effectsVolume}
+                  onEffectsVolumeChange={handleEffectsVolumeChange}
                   customBackgroundMusic={customBackgroundMusic}
                   setCustomBackgroundMusic={setCustomBackgroundMusic}
                   customGameMusic={customGameMusic} 
@@ -465,6 +478,9 @@ const App: React.FC = () => {
                   isDemo={!!gameSettings.isDemo}
                   onGameEnd={handleGameEnd} 
                   effectsVolume={effectsVolume} 
+                  musicVolume={musicVolume}
+                  onMusicVolumeChange={handleMusicVolumeChange}
+                  onEffectsVolumeChange={handleEffectsVolumeChange}
                   customCorrectSounds={customCorrectSounds}
                   customSkipSounds={customSkipSounds}
                   customCountdownGoSound={customCountdownGoSound}
@@ -485,7 +501,7 @@ const App: React.FC = () => {
         }
         return <ResultsScreen 
                   {...gameEndDetails}
-                  onPlayAgain={handlePlayAgain}
+                  onHome={handleGoHome}
                   gameMode={gameSettings.gameMode}
                   isUnlocked={isUnlocked}
                   onUnlock={handleUnlock}
@@ -524,58 +540,26 @@ const App: React.FC = () => {
         >
           {renderScreen()}
         </main>
-        <footer className={`mt-3 sm:mt-4 text-xs sm:text-sm text-muted-text flex flex-col sm:flex-row justify-between items-center w-full px-1 flex-shrink-0 ${rushHourBounceClass} max-w-4xl`}>
-          <p className="mb-1 sm:mb-0 footer-credit">Made by Mr. C <span role="img" aria-label="heart" className="text-danger-red">❤️</span></p>
-          <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-3 volume-controls-container">
-            <div className="flex items-center volume-control-item">
-              <label htmlFor="musicVolumeControl" className="mr-1.5 text-xs">Music:</label>
-              <input
-                type="range"
-                id="musicVolumeControl"
-                min="0"
-                max="1"
-                step="0.01"
-                value={musicVolume}
-                onChange={handleMusicVolumeChange}
-                className="w-16 sm:w-20 h-1.5 sm:h-2 bg-cyber-purple rounded-lg appearance-none cursor-pointer accent-electric-blue"
-                aria-label="Music volume"
-              />
-               <span className="ml-1.5 text-xs w-7 sm:w-8 text-left">{(musicVolume * 100).toFixed(0)}%</span>
-            </div>
-            <div className="flex items-center volume-control-item">
-              <label htmlFor="effectsVolumeControl" className="mr-1.5 text-xs">Effects:</label>
-              <input
-                type="range"
-                id="effectsVolumeControl"
-                min="0"
-                max="1"
-                step="0.01"
-                value={effectsVolume}
-                onChange={handleEffectsVolumeChange}
-                className="w-16 sm:w-20 h-1.5 sm:h-2 bg-cyber-purple rounded-lg appearance-none cursor-pointer accent-neon-green"
-                aria-label="Effects volume"
-              />
-               <span className="ml-1.5 text-xs w-7 sm:w-8 text-left">{(effectsVolume * 100).toFixed(0)}%</span>
-            </div>
-            <div className="flex items-center fullscreen-toggle-container">
-                <button
-                    type="button"
-                    onClick={toggleFullScreen}
-                    className="p-1.5 ml-1 sm:ml-2 rounded-full text-muted-text hover:text-light-text hover:bg-cyber-purple/50 transition-colors"
-                    aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-                    title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-                >
-                    {isFullscreen ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-4 w-4 sm:h-5 sm:w-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5M15 15l5.25 5.25" />
-                    </svg>
-                    ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-4 w-4 sm:h-5 sm:w-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9m11.25 11.25v-4.5m0 4.5h-4.5m4.5 0L15 15m-11.25 4.5v-4.5m0 4.5h4.5m-4.5 0L9 15m11.25-11.25v4.5m0-4.5h-4.5m4.5 0L15 9" />
-                    </svg>
-                    )}
-                </button>
-            </div>
+        <footer className={`mt-3 sm:mt-4 text-xs sm:text-sm text-muted-text flex justify-between items-center w-full px-1 flex-shrink-0 ${rushHourBounceClass} max-w-4xl`}>
+          <p className="footer-credit">Made by Mr. C <span role="img" aria-label="heart" className="text-danger-red">❤️</span></p>
+          <div className="flex items-center fullscreen-toggle-container">
+              <button
+                  type="button"
+                  onClick={toggleFullScreen}
+                  className="p-1.5 rounded-full text-muted-text hover:text-light-text hover:bg-cyber-purple/50 transition-colors"
+                  aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+                  title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+              >
+                  {isFullscreen ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-4 w-4 sm:h-5 sm:w-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5M15 15l5.25 5.25" />
+                  </svg>
+                  ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-4 w-4 sm:h-5 sm:w-5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9m11.25 11.25v-4.5m0 4.5h-4.5m4.5 0L15 15m-11.25 4.5v-4.5m0 4.5h4.5m-4.5 0L9 15m11.25-11.25v4.5m0-4.5h-4.5m4.5 0L15 9" />
+                  </svg>
+                  )}
+              </button>
           </div>
         </footer>
       </div>

@@ -8,7 +8,7 @@ interface ResultsScreenProps {
   finalScore?: number;
   teamAScore?: number;
   teamBScore?: number;
-  onPlayAgain: () => void;
+  onHome: () => void;
   gameMode: GameMode;
   isUnlocked: boolean;
   onUnlock: (code: string) => boolean;
@@ -247,7 +247,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
   finalScore,
   teamAScore,
   teamBScore,
-  onPlayAgain,
+  onHome,
   gameMode,
   isUnlocked,
   onUnlock,
@@ -256,9 +256,9 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
 
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
-  const handlePlayAgainClick = useCallback(() => {
-    onPlayAgain();
-  }, [onPlayAgain]);
+  const handleHomeClick = useCallback(() => {
+    onHome();
+  }, [onHome]);
   
   const resultCardClass = gameMode === GameMode.HELL 
     ? 'border-2 border-danger-red/70 shadow-danger-red/40'
@@ -277,11 +277,11 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
 
       <button
         type="button"
-        onClick={handlePlayAgainClick}
-        className="bg-gradient-to-r from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green text-dark-metal font-bold py-2.5 sm:py-3 px-6 sm:px-8 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg mt-2 sm:mt-3 play-again-button"
-        aria-label="Play again button"
+        onClick={handleHomeClick}
+        className="bg-gradient-to-r from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green text-dark-metal font-bold py-2.5 sm:py-3 px-6 sm:px-8 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg mt-2 sm:mt-3 home-button"
+        aria-label="Back to home"
       >
-        Play Again?
+        Home
       </button>
 
       {/* Conversion touchpoint: offered at the emotional peak, right after the score.

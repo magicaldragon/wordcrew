@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GameSettings, CustomSoundFile, GameMode } from '../types'; 
 import CircularTimer from './CircularTimer'; // Import CircularTimer
+import { VolumeControls } from './VolumeControls';
 import { 
     playSound, CORRECT_SOUNDS, SKIP_SOUNDS, SINGLE_SOUND_EFFECTS,
     COMBO_ACTIVATION_THRESHOLD, COMBO_POINT_BONUS, 
@@ -173,6 +174,9 @@ interface GameScreenProps {
   isAppRushHourActive: boolean; 
   isFullscreen: boolean;
   isDemo?: boolean;
+  musicVolume: number;
+  onMusicVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onEffectsVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 // ... (constants and helper functions)
@@ -240,6 +244,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     isAppRushHourActive, 
     isFullscreen,
     isDemo = false,
+    musicVolume,
+    onMusicVolumeChange,
+    onEffectsVolumeChange,
 }) => {
   const isTeamMode = settings.gameMode === GameMode.TEAM;
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -296,6 +303,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   });
   const [isGamePaused, setIsGamePaused] = useState(false);
   const [surpriseBoxInfo, setSurpriseBoxInfo] = useState<{ team: Team } | null>(null);
+  // Player-facing pause menu (Esc / ⏸ button) + in-game "end game?" confirmation.
+  const [isPauseMenuOpen, setIsPauseMenuOpen] = useState(false);
+  const [showEndGameConfirm, setShowEndGameConfirm] = useState(false);
+  // Anything that must freeze the timers and block round input.
+  const isPaused = isGamePaused || isPauseMenuOpen || showEndGameConfirm;
   const [revealedEffect, setRevealedEffect] = useState<{ id: string; description: string } | null>(null);
   const [turnTimeLeft, setTurnTimeLeft] = useState(settings.timePerWord ?? 20);
 
@@ -352,6 +364,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setTimeUpEffect(false);
     onSetRushHourActiveVisuals(false); 
     setActiveMusicOverrideRef.current(null);
+    setIsPauseMenuOpen(false);
+    setShowEndGameConfirm(false);
 
     if (isTeamMode) {
         setTurnTimeLeft(settings.timePerWord ?? 20);
@@ -546,7 +560,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     if (isProcessingWord || !showGameUI) return;
     
     if (isTeamMode) {
-        if (isGamePaused) return;
+        if (isPaused) return;
         setIsProcessingWord(true);
         if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
         let awardedPointsThisTurn = 0;
@@ -800,13 +814,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     effectsVolume, remainingSkipsHellMode, wordKey,
     customPowerupCollectedSound, customPowerupTimeFreezeSound, customPowerupSkipFreebieUsedSound, 
     customRushHourActivationSound, customRushHourMusicLoop, onSetRushHourActiveVisuals,
-    teamScores, currentTurn, wordStartTime, teamMilestones, permanentBuffs, isGamePaused, customSkipSounds,
+    teamScores, currentTurn, wordStartTime, teamMilestones, permanentBuffs, isPaused, customSkipSounds,
     onGameEndRef, setActiveMusicOverrideRef, triggerGameMessage, triggerHappyAnimations, triggerSadAnimation
   ]);
 
   // Single Player Game Timer
   useEffect(() => {
-    if (isTeamMode || !showGameUI || isProcessingWord || isTimerFrozen || isGamePaused) {
+    if (isTeamMode || !showGameUI || isProcessingWord || isTimerFrozen || isPaused) {
         if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
         return;
     }
@@ -842,12 +856,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     return () => {
         if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
     };
-  }, [gameTimeLeft, currentScore, showGameUI, isProcessingWord, isTimerFrozen, isRushHourActiveState, onSetRushHourActiveVisuals, isTeamMode, isGamePaused]);
+  }, [gameTimeLeft, currentScore, showGameUI, isProcessingWord, isTimerFrozen, isRushHourActiveState, onSetRushHourActiveVisuals, isTeamMode, isPaused]);
 
 
     // Team Mode Turn Timer
     useEffect(() => {
-        if (!isTeamMode || !showGameUI || isProcessingWord || isGamePaused) {
+        if (!isTeamMode || !showGameUI || isProcessingWord || isPaused) {
             if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
             return;
         }
@@ -867,7 +881,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         return () => {
             if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
         };
-    }, [isTeamMode, showGameUI, isProcessingWord, isGamePaused, turnTimeLeft, advanceWord]);
+    }, [isTeamMode, showGameUI, isProcessingWord, isPaused, turnTimeLeft, advanceWord]);
 
 
   // ... (Rush Hour useEffect, wordTextAnimation useEffect, wordStatus useEffect)
@@ -942,15 +956,25 @@ export const GameScreen: React.FC<GameScreenProps> = ({
    useEffect(() => {
     if (!showGameUI || isProcessingWord) return;
 
+    // Don't hijack typing or native button activation (Enter on a focused button).
+    const isInteractiveTarget = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      return !!el && ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(el.tagName);
+    };
+
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
-      if (isGamePaused) return;
+      if (isPaused) return;
       const isTimeUp = isTeamMode ? turnTimeLeft <= 0 : gameTimeLeft <= 0;
       if (isTimeUp) return;
 
-      if (event.key === 'ArrowLeft') {
+      // Team Mode shortcuts: Enter = Correct, S = Skip.
+      const isTeamCorrectKey = isTeamMode && event.key === 'Enter' && !isInteractiveTarget(event.target);
+      const isTeamSkipKey = isTeamMode && (event.key === 's' || event.key === 'S') && !isInteractiveTarget(event.target);
+
+      if (event.key === 'ArrowLeft' || isTeamCorrectKey) {
         event.preventDefault();
         handleCorrect();
-      } else if (event.key === 'ArrowRight') {
+      } else if (event.key === 'ArrowRight' || isTeamSkipKey) {
         event.preventDefault();
         handleSkip();
       }
@@ -960,7 +984,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     return () => {
       document.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [showGameUI, isProcessingWord, gameTimeLeft, turnTimeLeft, isTeamMode, handleCorrect, handleSkip, isGamePaused]);
+  }, [showGameUI, isProcessingWord, gameTimeLeft, turnTimeLeft, isTeamMode, handleCorrect, handleSkip, isPaused]);
 
   // Anti-cheat (hot-seat): tự hiện từ trong WORD_AUTO_HIDE_MS rồi ẩn đi.
   useEffect(() => {
@@ -983,7 +1007,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       return !!el && ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(el.tagName);
     };
     const handleRevealKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || isGamePaused || isTypingTarget(event.target)) return;
+      if (event.code !== 'Space' || isPaused || isTypingTarget(event.target)) return;
       event.preventDefault();
       setIsPeeking(true);
     };
@@ -998,41 +1022,75 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       document.removeEventListener('keydown', handleRevealKeyDown);
       document.removeEventListener('keyup', handleRevealKeyUp);
     };
-  }, [showGameUI, isGamePaused]);
+  }, [showGameUI, isPaused]);
 
   const handleWordPointerDown = useCallback(() => {
-    if (!showGameUI || isGamePaused || isProcessingWord) return;
+    if (!showGameUI || isPaused || isProcessingWord) return;
     setIsPeeking(true);
-  }, [showGameUI, isGamePaused, isProcessingWord]);
+  }, [showGameUI, isPaused, isProcessingWord]);
 
   const handleWordPointerUp = useCallback(() => setIsPeeking(false), []);
 
   const isWordVisible = isWordAutoRevealed || isPeeking;
 
 
-  const handleEndGameEarly = useCallback(() => {
+  // == In-game pause menu (Esc on desktop, ⏸ button on touch) ==
+  const openPauseMenu = useCallback(() => {
+    if (isProcessingWord || surpriseBoxInfo) return;
+    setShowEndGameConfirm(false);
+    setIsPauseMenuOpen(true);
+    setIsGamePaused(true);
+  }, [isProcessingWord, surpriseBoxInfo]);
+
+  const closePauseMenu = useCallback(() => {
+    setIsPauseMenuOpen(false);
+    setIsGamePaused(false);
+  }, []);
+
+  useEffect(() => {
+    if (!showGameUI) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (isProcessingWord || surpriseBoxInfo) return;
+      event.preventDefault();
+      if (isPauseMenuOpen) {
+        closePauseMenu();
+      } else {
+        openPauseMenu();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showGameUI, isProcessingWord, surpriseBoxInfo, isPauseMenuOpen, openPauseMenu, closePauseMenu]);
+
+  // "End Game" now opens an in-game confirmation instead of a browser dialog.
+  const requestEndGame = useCallback(() => {
     if (!showGameUI || isProcessingWord) return;
     const isTimeUp = isTeamMode ? false : gameTimeLeft <= 0; // Team mode ends on words, not time
-    if(isTimeUp) return;
+    if (isTimeUp) return;
+    setShowEndGameConfirm(true);
+    setIsGamePaused(true);
+  }, [showGameUI, isProcessingWord, isTeamMode, gameTimeLeft]);
 
-    // Guard against accidental taps on "End Game" (P0 audit fix).
-    const confirmed = window.confirm(
-      isTeamMode
-        ? 'End the game now? The current team scores will go to the results screen.'
-        : 'End the game now? Your current score will go to the results screen.'
-    );
-    if (!confirmed) return;
+  const cancelEndGame = useCallback(() => {
+    setShowEndGameConfirm(false);
+    // Keep the game paused only if the pause menu sits behind this dialog.
+    if (!isPauseMenuOpen) setIsGamePaused(false);
+  }, [isPauseMenuOpen]);
 
+  const confirmEndGame = useCallback(() => {
     if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
     if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
-    onSetRushHourActiveVisuals(false); 
+    onSetRushHourActiveVisuals(false);
+    setShowEndGameConfirm(false);
+    setIsPauseMenuOpen(false);
     if (isTeamMode) {
         onGameEndRef.current({ teamAScore: teamScores.A, teamBScore: teamScores.B });
     } else {
-        onGameEndRef.current({ baseScore: currentScore, timeLeftSeconds: 0 }); 
+        onGameEndRef.current({ baseScore: currentScore, timeLeftSeconds: 0 });
     }
-    setActiveMusicOverrideRef.current(null); 
-  }, [currentScore, showGameUI, isProcessingWord, gameTimeLeft, onSetRushHourActiveVisuals, isTeamMode, teamScores]);
+    setActiveMusicOverrideRef.current(null);
+  }, [currentScore, onSetRushHourActiveVisuals, isTeamMode, teamScores]);
 
   // ... (Team Mode functions)
   // == Team Mode Specific Functions ==
@@ -1111,14 +1169,105 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const rushHourBounceClass = isAppRushHourActive && showGameUI ? 'animate-rushHourBounce' : '';
   const isHellModeSkipDisabled = settings.gameMode === GameMode.HELL && remainingSkipsHellMode <= 0 && skipFreebiesAvailable <= 0;
 
+  // Floating pause control (touch-friendly 44px target) + the pause / confirm overlays.
+  // Rendered in both the Team and single-player layouts.
+  const pauseButton = showGameUI ? (
+    <button
+      type="button"
+      onClick={openPauseMenu}
+      className="futuristic-button absolute right-1 top-1 z-30 flex h-11 w-11 items-center justify-center rounded-lg border border-electric-blue/40 bg-dark-metal/80 text-lg text-light-text hover:bg-cyber-purple/50"
+      aria-label="Pause game"
+      title="Pause (Esc)"
+    >
+      ⏸️
+    </button>
+  ) : null;
+
+  const pauseOverlays = (
+    <>
+      {isPauseMenuOpen && (
+        <div
+          className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-dark-metal/95 p-4 animate-fadeInScaleUp"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Game paused"
+        >
+          <h2 className="font-heading text-3xl font-bold text-electric-blue">Paused</h2>
+          <div className="w-full max-w-xs rounded-lg border border-cyber-purple/40 bg-dark-metal/60 p-3">
+            <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-electric-blue">Sound</p>
+            <VolumeControls
+              idPrefix="pause"
+              musicVolume={musicVolume}
+              onMusicVolumeChange={onMusicVolumeChange}
+              effectsVolume={effectsVolume}
+              onEffectsVolumeChange={onEffectsVolumeChange}
+            />
+          </div>
+          <div className="flex w-full max-w-xs flex-col gap-2">
+            <button
+              type="button"
+              onClick={closePauseMenu}
+              className="futuristic-button w-full rounded-lg bg-gradient-to-r from-neon-green to-green-500 px-4 py-2.5 font-bold text-dark-metal"
+            >
+              ▶️ Resume
+            </button>
+            <button
+              type="button"
+              onClick={requestEndGame}
+              className="futuristic-button w-full rounded-lg bg-cyber-purple/70 px-4 py-2.5 font-semibold text-light-text hover:bg-cyber-purple"
+            >
+              ⏹️ End Game &amp; See Score
+            </button>
+          </div>
+          <p className="text-xs text-muted-text">Press Esc to resume</p>
+        </div>
+      )}
+
+      {showEndGameConfirm && (
+        <div
+          className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm ending the game"
+        >
+          <div className="w-full max-w-sm rounded-xl border border-warning-yellow/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
+            <p className="font-heading text-lg font-bold text-warning-yellow">End the game now?</p>
+            <p className="mt-1 text-sm text-muted-text">
+              {isTeamMode
+                ? 'The current team scores will go to the results screen.'
+                : 'Your current score will go to the results screen.'}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={cancelEndGame}
+                className="futuristic-button rounded-lg bg-dark-metal px-4 py-2 text-sm text-light-text hover:bg-cyber-purple/30"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmEndGame}
+                className="futuristic-button rounded-lg bg-gradient-to-r from-danger-red to-red-700 px-4 py-2 text-sm font-bold text-light-text"
+              >
+                End Game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   if (isTeamMode) {
-    const teamAClasses = currentTurn === 'A' && !isGamePaused ? 'border-cyan-400 animate-teamAPulse' : 'border-gray-600/50';
-    const teamBClasses = currentTurn === 'B' && !isGamePaused ? 'border-orange-400 animate-teamBPulse' : 'border-gray-600/50';
+    const teamAClasses = currentTurn === 'A' && !isPaused ? 'border-cyan-400 animate-teamAPulse' : 'border-gray-600/50';
+    const teamBClasses = currentTurn === 'B' && !isPaused ? 'border-orange-400 animate-teamBPulse' : 'border-gray-600/50';
     const teamColorClass = currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400';
 
     return (
         <div ref={gameScreenRootRef} className="relative flex flex-col items-center space-y-2 text-light-text w-full h-full overflow-hidden">
+            {pauseButton}
+            {pauseOverlays}
             {/* Surprise Box Modal */}
             {surpriseBoxInfo && (
                 <div className="absolute inset-0 bg-dark-metal/90 z-40 flex flex-col items-center justify-center animate-fadeInScaleUp" role="dialog" aria-modal="true">
@@ -1144,7 +1293,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             )}
 
             {/* Top Row: Scores and Timer */}
-            <div className="w-full grid grid-cols-3 items-center gap-2 flex-shrink-0">
+            <div className={`w-full grid grid-cols-3 items-center gap-2 flex-shrink-0 ${showGameUI ? 'pr-12' : ''}`}>
                 <div ref={teamAScoreBoxRef} className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamAClasses}`}>
                     <p className="text-base sm:text-lg font-semibold text-cyan-300">Team A</p>
                     <p className="text-3xl sm:text-4xl font-bold font-heading">{teamScores.A}</p>
@@ -1160,7 +1309,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             
              {/* Turn Indicator */}
             <div className="h-8 flex items-center justify-center w-full relative">
-                {showGameUI && !isGamePaused && <p className="text-2xl sm:text-3xl font-bold animate-fadeInScaleUp">Team <span className={currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{currentTurn}</span>'s Turn!</p>}
+                {showGameUI && !isPaused && <p className="text-2xl sm:text-3xl font-bold animate-fadeInScaleUp">Team <span className={currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{currentTurn}</span>'s Turn!</p>}
             </div>
             
              {/* Word Counter */}
@@ -1206,15 +1355,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({
              {showGameUI && (
                 <div className="w-full flex-shrink-0 mt-auto pt-2">
                     <div className="grid grid-cols-2 gap-2 sm:gap-2.5 w-full gamescreen-buttons">
-                        <button ref={correctButtonRef} type="button" onClick={handleCorrect} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isGamePaused} className="w-full bg-gradient-to-r from-neon-green to-green-500 hover:from-green-400 hover:to-neon-green text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg">
+                        <button ref={correctButtonRef} type="button" onClick={handleCorrect} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="w-full bg-gradient-to-r from-neon-green to-green-500 hover:from-green-400 hover:to-neon-green text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg">
                             CORRECT ✔️
                         </button>
-                        <button ref={skipButtonRef} type="button" onClick={handleSkip} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isGamePaused} className="w-full bg-gradient-to-r from-warning-yellow to-amber-500 hover:from-amber-400 hover:to-warning-yellow text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg">
+                        <button ref={skipButtonRef} type="button" onClick={handleSkip} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="w-full bg-gradient-to-r from-warning-yellow to-amber-500 hover:from-amber-400 hover:to-warning-yellow text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg">
                             SKIP ✖️
                         </button>
                     </div>
                      <div className="w-full mt-1.5 sm:mt-2 gamescreen-buttons">
-                        <button type="button" onClick={handleEndGameEarly} disabled={!wordForCardDisplay || isProcessingWord || isGamePaused} className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-lg shadow futuristic-button text-md sm:text-lg">
+                        <button type="button" onClick={requestEndGame} disabled={!wordForCardDisplay || isProcessingWord || isPaused} className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-lg shadow futuristic-button text-md sm:text-lg">
                             End Game & See Score
                         </button>
                     </div>
@@ -1242,13 +1391,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   return (
     <div ref={gameScreenRootRef} className="relative flex flex-col items-center space-y-1 sm:space-y-1.5 text-light-text w-full h-full">
+      {pauseButton}
+      {pauseOverlays}
       {isDemo && (
-        <span className="pointer-events-none absolute right-1 top-0 z-20 rounded bg-cyber-purple/25 px-1.5 py-0.5 font-sans text-[0.6rem] uppercase tracking-widest text-light-text/40">
+        <span className="pointer-events-none absolute right-14 top-2 z-20 rounded bg-cyber-purple/25 px-1.5 py-0.5 font-sans text-[0.6rem] uppercase tracking-widest text-light-text/40">
           Demo
         </span>
       )}
       {/* Top Row: Points and Timer */}
-      <div className={`w-full flex justify-between items-center px-1 sm:px-1.5 gap-2 flex-shrink-0 ${rushHourBounceClass}`}>
+      <div className={`w-full flex justify-between items-center px-1 sm:px-1.5 gap-2 flex-shrink-0 ${rushHourBounceClass} ${showGameUI ? 'pr-12' : ''}`}>
         <div className="text-md sm:text-lg font-semibold text-neon-green text-left relative flex-1 score-display">
           POINTS: <span className="text-xl sm:text-2xl font-bold">{currentScore}</span>
         </div>
@@ -1460,7 +1611,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             <div className="w-full mt-1.5 sm:mt-2 gamescreen-buttons">
                 <button
                     type="button"
-                    onClick={handleEndGameEarly}
+                    onClick={requestEndGame}
                     disabled={!wordForCardDisplay || gameTimeLeft <= 0 || isProcessingWord || !!wordTextAnimation}
                     className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-lg shadow futuristic-button text-md sm:text-lg"
                     aria-label="End game and see score"
