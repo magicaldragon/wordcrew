@@ -1,6 +1,7 @@
 
 
-import { CustomSoundFile } from './types';
+import { CustomSoundFile, GameMode } from './types';
+import { CEFRLevel } from './cefrWordLists';
 
 export const DEFAULT_TOTAL_TIME_LIMIT = 180; // seconds (e.g., 3 minutes)
 export const MIN_TOTAL_TIME_LIMIT = 60;    // seconds (e.g., 1 minute)
@@ -52,6 +53,37 @@ export const DEFAULT_EFFECTS_VOLUME = 0.7; // 70% for sound effects
 // a security boundary; a real licence check must be verified server-side.
 export const ACCESS_CODE = 'skillup';
 export const UNLOCK_STORAGE_KEY = 'wordcrew_unlocked';
+
+export const readUnlockFlag = (): boolean => {
+  try {
+    return localStorage.getItem(UNLOCK_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+export const writeUnlockFlag = (): void => {
+  try {
+    localStorage.setItem(UNLOCK_STORAGE_KEY, '1');
+  } catch {
+    /* Storage unavailable: the unlock simply lasts for this session. */
+  }
+};
+
+export const isUnlockCodeValid = (code: string): boolean =>
+  code.trim().toLowerCase() === ACCESS_CODE;
+
+// Limits of the free demo. Anything outside this is unlocked by a valid access code.
+// The demo is meant to feel generous for a single round (full Normal Mode loop with
+// all power-ups, Rush Hour, combos and results) while withholding the content that
+// is worth paying for (extra modes, word packs, longer games, power-user settings).
+export const DEMO_POLICY = {
+  freeModes: [GameMode.NORMAL] as GameMode[],
+  freePresets: [CEFRLevel.STARTERS] as CEFRLevel[],
+  freeWordCounts: [5, 10, 20] as number[],
+  maxWordsPerGame: 20,      // full version goes up to 60
+  maxTotalTimeLimit: 180,   // full version goes up to 600 seconds
+} as const;
 
 // ** 3. CORRECT GUESS SOUNDS **
 // This is an array of URLs. Add more URLs for multiple random correct sounds.

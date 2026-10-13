@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { GameMode } from '../types';
-import { ACCESS_CODE, UNLOCK_STORAGE_KEY } from '../constants';
+import { DEMO_POLICY } from '../constants';
+import { UnlockDialog } from './UnlockDialog';
 
 interface LandingScreenProps {
+  isUnlocked: boolean;
+  onUnlock: (code: string) => boolean;
   onPlay: (mode: GameMode) => void;
 }
 
@@ -51,33 +54,16 @@ const MODES: ModeInfo[] = [
   },
 ];
 
-export const LandingScreen: React.FC<LandingScreenProps> = ({ onPlay }) => {
-  const [unlocked, setUnlocked] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(UNLOCK_STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [showCodeBox, setShowCodeBox] = useState<boolean>(false);
-  const [codeInput, setCodeInput] = useState<string>('');
-  const [codeError, setCodeError] = useState<string>('');
+export const LandingScreen: React.FC<LandingScreenProps> = ({ isUnlocked, onUnlock, onPlay }) => {
+  const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
-  const handleUnlock = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (codeInput.trim().toLowerCase() === ACCESS_CODE) {
-      setUnlocked(true);
-      try {
-        localStorage.setItem(UNLOCK_STORAGE_KEY, '1');
-      } catch {
-        /* Storage unavailable: the unlock simply lasts for this session. */
-      }
-      setCodeError('');
-      setCodeInput('');
-      setShowCodeBox(false);
-    } else {
-      setCodeError('Invalid access code. Please try again.');
+  const handleModeClick = (mode: GameMode) => {
+    const isLocked = !DEMO_POLICY.freeModes.includes(mode);
+    if (isLocked && !isUnlocked) {
+      setShowUnlockDialog(true);
+      return;
     }
+    onPlay(mode);
   };
 
   return (
@@ -108,68 +94,28 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onPlay }) => {
               type="button"
               onClick={() => onPlay(GameMode.NORMAL)}
               className={`futuristic-button mt-8 w-full max-w-xs rounded-xl bg-gradient-to-r px-8 py-4 font-bold text-dark-metal shadow-lg transition sm:w-auto ${
-                unlocked
+                isUnlocked
                   ? 'from-neon-green to-electric-blue hover:from-electric-blue hover:to-neon-green'
                   : 'from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green'
               }`}
             >
               <span className="font-heading text-base tracking-wide sm:text-lg">
-                {unlocked ? '▶ Play Full Version' : '▶ Play Free Demo'}
+                {isUnlocked ? '▶ Play Full Version' : '▶ Play Free Demo'}
               </span>
             </button>
             <p className="mt-3 font-sans text-xs text-muted-text">Free · No sign-up · Works offline</p>
 
-            {unlocked ? (
+            {isUnlocked ? (
               <p className="mt-4 font-sans text-xs text-neon-green">
                 <span role="img" aria-hidden="true">
                   🔓
                 </span>{' '}
                 Full version unlocked on this device
               </p>
-            ) : showCodeBox ? (
-              <form onSubmit={handleUnlock} className="mt-5 w-full max-w-xs">
-                <label
-                  htmlFor="accessCode"
-                  className="mb-1 block text-left font-sans text-xs text-muted-text"
-                >
-                  Teacher access code
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="accessCode"
-                    type="password"
-                    autoComplete="off"
-                    value={codeInput}
-                    onChange={(e) => {
-                      setCodeInput(e.target.value);
-                      if (codeError) setCodeError('');
-                    }}
-                    className="futuristic-input min-w-0 flex-grow rounded-lg px-3 py-3 text-sm"
-                    placeholder="Enter code"
-                    aria-describedby={codeError ? 'accessCodeError' : undefined}
-                    autoFocus
-                  />
-                  <button
-                    type="submit"
-                    className="futuristic-button rounded-lg bg-cyber-purple/70 px-4 py-3 text-sm font-semibold text-light-text hover:bg-cyber-purple"
-                  >
-                    Unlock
-                  </button>
-                </div>
-                {codeError && (
-                  <p
-                    id="accessCodeError"
-                    role="alert"
-                    className="mt-1.5 text-left font-sans text-xs text-danger-red"
-                  >
-                    {codeError}
-                  </p>
-                )}
-              </form>
             ) : (
               <button
                 type="button"
-                onClick={() => setShowCodeBox(true)}
+                onClick={() => setShowUnlockDialog(true)}
                 className="mt-5 font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
               >
                 🔑 Have a teacher access code?
@@ -186,24 +132,32 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onPlay }) => {
               Tap a mode to jump straight in
             </p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {MODES.map((m) => (
-                <button
-                  key={m.mode}
-                  type="button"
-                  onClick={() => onPlay(m.mode)}
-                  aria-label={`Play ${m.title} mode`}
-                  className={`group flex flex-col items-start rounded-xl border bg-white/5 p-5 text-left backdrop-blur-sm transition duration-200 hover:-translate-y-1 ${m.accentBorder} ${m.glow}`}
-                >
-                  <span className="text-3xl" role="img" aria-hidden="true">
-                    {m.emoji}
-                  </span>
-                  <span className={`mt-2 font-heading text-lg font-bold ${m.accentText}`}>{m.title}</span>
-                  <span className="font-sans text-[0.7rem] uppercase tracking-wider text-muted-text/80">
-                    {m.players}
-                  </span>
-                  <span className="mt-1.5 font-sans text-sm leading-snug text-muted-text">{m.tagline}</span>
-                </button>
-              ))}
+              {MODES.map((m) => {
+                const isLocked = !DEMO_POLICY.freeModes.includes(m.mode) && !isUnlocked;
+                return (
+                  <button
+                    key={m.mode}
+                    type="button"
+                    onClick={() => handleModeClick(m.mode)}
+                    aria-label={isLocked ? `Unlock ${m.title} mode (Full Version)` : `Play ${m.title} mode`}
+                    className={`group relative flex flex-col items-start rounded-xl border bg-white/5 p-5 text-left backdrop-blur-sm transition duration-200 hover:-translate-y-1 ${m.accentBorder} ${m.glow}`}
+                  >
+                    {isLocked && (
+                      <span className="absolute right-3 top-3 font-sans text-[0.6rem] uppercase tracking-widest text-muted-text/80">
+                        🔒 Full
+                      </span>
+                    )}
+                    <span className="text-3xl" role="img" aria-hidden="true">
+                      {m.emoji}
+                    </span>
+                    <span className={`mt-2 font-heading text-lg font-bold ${m.accentText}`}>{m.title}</span>
+                    <span className="font-sans text-[0.7rem] uppercase tracking-wider text-muted-text/80">
+                      {m.players}
+                    </span>
+                    <span className="mt-1.5 font-sans text-sm leading-snug text-muted-text">{m.tagline}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 
@@ -215,6 +169,12 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onPlay }) => {
           </footer>
         </div>
       </div>
+
+      <UnlockDialog
+        isOpen={showUnlockDialog}
+        onClose={() => setShowUnlockDialog(false)}
+        onUnlock={onUnlock}
+      />
     </div>
   );
 };

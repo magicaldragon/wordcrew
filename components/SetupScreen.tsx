@@ -1,11 +1,14 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { GameSettings, CustomSoundFile, GameMode } from '../types';
-import { DEFAULT_TOTAL_TIME_LIMIT, MIN_TOTAL_TIME_LIMIT, MAX_TOTAL_TIME_LIMIT } from '../constants';
+import { DEFAULT_TOTAL_TIME_LIMIT, MIN_TOTAL_TIME_LIMIT, MAX_TOTAL_TIME_LIMIT, DEMO_POLICY } from '../constants';
 import { FileUploadButton } from './FileUploadButton';
+import { UnlockDialog } from './UnlockDialog';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WordListCategories, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 
 interface SetupScreenProps {
   initialGameMode: GameMode;
+  isUnlocked: boolean;
+  onUnlock: (code: string) => boolean;
   onGameStart: (settings: GameSettings) => void;
   customBackgroundMusic: CustomSoundFile | null;
   setCustomBackgroundMusic: (file: CustomSoundFile | null) => void;
@@ -47,6 +50,8 @@ const TIME_PER_WORD_OPTIONS = [10, 15, 20, 25, 30, 45];
 
 export const SetupScreen: React.FC<SetupScreenProps> = ({
   initialGameMode,
+  isUnlocked,
+  onUnlock,
   onGameStart,
   customBackgroundMusic, setCustomBackgroundMusic,
   customGameMusic, setCustomGameMusic,
@@ -78,6 +83,9 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   });
   const [selectedWordCountForPreset, setSelectedWordCountForPreset] = useState<number>(WORD_COUNT_OPTIONS[2]);
   const [gameMode, setGameMode] = useState<GameMode>(initialGameMode);
+  // Two explicit word-entry flows: let the app suggest words to curate, or type your own.
+  const [entryMode, setEntryMode] = useState<'suggest' | 'manual'>('suggest');
+  const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
   const updateWordsFromPreset = useCallback(() => {
     if (selectedPreset === '' || !cefrWordLists[selectedPreset]) {
@@ -114,6 +122,39 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     }
   }, [selectedPreset, selectedWordTypes, selectedWordCountForPreset, updateWordsFromPreset]);
 
+  // Demo guard: keep the time limit and game mode inside the free allowance.
+  const effectiveMaxTimeLimit = isUnlocked ? MAX_TOTAL_TIME_LIMIT : DEMO_POLICY.maxTotalTimeLimit;
+
+  useEffect(() => {
+    setTotalTimeLimit(prev => Math.min(prev, effectiveMaxTimeLimit));
+  }, [effectiveMaxTimeLimit]);
+
+  useEffect(() => {
+    if (!isUnlocked && !DEMO_POLICY.freeModes.includes(gameMode)) {
+      setGameMode(GameMode.NORMAL);
+    }
+  }, [isUnlocked, gameMode]);
+
+  // Words currently in the textarea, used for the live counter and validation.
+  const parsedWordCount = wordsInput
+    .split(/[\n,]+/)
+    .map(word => word.trim())
+    .filter(word => word.length > 0).length;
+  const isOverDemoWordCap = !isUnlocked && parsedWordCount > DEMO_POLICY.maxWordsPerGame;
+
+  const handleEntryModeChange = (mode: 'suggest' | 'manual') => {
+    if (mode === entryMode) return;
+    setEntryMode(mode);
+    setError('');
+    if (mode === 'manual') {
+      // Hand-written list: drop anything the preset flow had suggested.
+      setSelectedPreset('');
+      setWordsInput('');
+      setSelectedWordTypes({ nouns: true, verbs: true, adjectives: true });
+      setSelectedWordCountForPreset(WORD_COUNT_OPTIONS[2]);
+    }
+  };
+
 
   const handleStartGame = useCallback(() => {
     const gameWords: string[] = wordsInput
@@ -126,8 +167,13 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       return;
     }
 
-    if (gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > MAX_TOTAL_TIME_LIMIT)) {
-      setError(`Game time must be between ${MIN_TOTAL_TIME_LIMIT / 60} and ${MAX_TOTAL_TIME_LIMIT / 60} minutes.`);
+    if (!isUnlocked && gameWords.length > DEMO_POLICY.maxWordsPerGame) {
+      setError(`The free demo plays up to ${DEMO_POLICY.maxWordsPerGame} words per game. Unlock the Full Version for up to 60.`);
+      return;
+    }
+
+    if (gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > effectiveMaxTimeLimit)) {
+      setError(`Game time must be between ${MIN_TOTAL_TIME_LIMIT / 60} and ${effectiveMaxTimeLimit / 60} minutes.`);
       return;
     }
 
@@ -141,7 +187,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
     setError('');
     onGameStart({ words: gameWords, totalTimeLimit, gameMode, timePerWord });
-  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPreset, selectedWordTypes, timePerWord]);
+  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPreset, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit]);
 
   const handlePresetChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const valueFromSelect = event.target.value as CEFRLevel | '';
@@ -297,19 +343,34 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
   // Helper booleans for the start button's disabled logic
   const isWordsInputEmpty = wordsInput.trim().length === 0;
-  const isTimeLimitInvalid = gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > MAX_TOTAL_TIME_LIMIT);
+  const isTimeLimitInvalid = gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > effectiveMaxTimeLimit);
   
   const isPresetEffectivelyActive = selectedPreset !== '';
   
   const noWordTypesSelected = !selectedWordTypes.nouns && !selectedWordTypes.verbs && !selectedWordTypes.adjectives;
   
   const disableStartDueToPresetAndNoTypes = isPresetEffectivelyActive && noWordTypesSelected;
-  const isWordsTextareaReadOnly: boolean = selectedPreset !== '';
 
 
   return (
     <div className="flex flex-col space-y-3 sm:space-y-4 items-center text-light-text h-full">
       <h2 className="text-2xl sm:text-3xl font-heading font-semibold text-electric-blue mb-1 sm:mb-2 setup-screen-title">Game Setup</h2>
+
+      {!isUnlocked && (
+        <div className="w-full flex items-center justify-between gap-2 rounded-lg border border-warning-yellow/40 bg-warning-yellow/10 px-3 py-2">
+          <p className="text-left text-xs text-warning-yellow">
+            <strong className="font-heading tracking-wider">DEMO</strong> · Normal Mode · up to{' '}
+            {DEMO_POLICY.maxWordsPerGame} words · {DEMO_POLICY.maxTotalTimeLimit / 60} minutes
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowUnlockDialog(true)}
+            className="futuristic-button shrink-0 rounded-md bg-cyber-purple/70 px-3 py-1.5 text-xs font-semibold text-light-text hover:bg-cyber-purple"
+          >
+            Unlock
+          </button>
+        </div>
+      )}
 
       {/* Game Mode Selection */}
       <div className="w-full mb-1 p-2 sm:p-3 border border-cyber-purple/30 rounded-lg">
@@ -322,9 +383,18 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           onChange={handleGameModeChange}
           className="w-full p-2 sm:p-3 rounded-lg shadow-sm focus:ring-2 focus:ring-neon-green focus:border-neon-green transition duration-150 ease-in-out futuristic-input text-sm sm:text-base setup-screen-input"
         >
-          <option value={GameMode.NORMAL}>😊 Normal Mode</option>
-          <option value={GameMode.TEAM}>🤝 Team Mode</option>
-          <option value={GameMode.HELL}>💀 Hell Mode</option>
+          {[
+            { value: GameMode.NORMAL, label: '😊 Normal Mode' },
+            { value: GameMode.TEAM, label: '🤝 Team Mode' },
+            { value: GameMode.HELL, label: '💀 Hell Mode' },
+          ].map(({ value, label }) => {
+            const locked = !isUnlocked && !DEMO_POLICY.freeModes.includes(value);
+            return (
+              <option key={value} value={value} disabled={locked}>
+                {label}{locked ? ' 🔒 Full Version' : ''}
+              </option>
+            );
+          })}
         </select>
         {gameMode === GameMode.TEAM && (
             <p className="text-xs text-cyan-300 mt-1 text-left setup-screen-small-text">Two teams take turns guessing words. Rack up points and sabotage your rivals!</p>
@@ -334,10 +404,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         )}
       </div>
 
-      {/* CEFR Preset Section */}
+      {/* CEFR Preset Section — only in the "Suggest & Curate" flow */}
+      {entryMode === 'suggest' && (
       <div className="w-full mb-1 p-2 sm:p-3 border border-cyber-purple/30 rounded-lg">
         <label htmlFor="cefrPreset" className="block text-sm font-semibold text-electric-blue mb-1 text-left uppercase tracking-wider setup-screen-label">
-          Load Word Preset (Optional):
+          Word Pack (suggests words):
         </label>
         <div className="flex space-x-2 items-center mb-2">
           <select
@@ -347,12 +418,15 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             className={`flex-grow p-2 sm:p-3 rounded-lg shadow-sm focus:ring-2 focus:ring-neon-green focus:border-neon-green transition duration-150 ease-in-out futuristic-input text-sm sm:text-base setup-screen-input`}
             aria-label="Select CEFR word preset"
           >
-            <option value="">-- Select a Level --</option>
-            {Object.values(CEFRLevel).map(level => (
-              <option key={level} value={level}>
-                {level}
-              </option>
-            ))}
+            <option value="">-- Pick a pack --</option>
+            {Object.values(CEFRLevel).map(level => {
+              const locked = !isUnlocked && !DEMO_POLICY.freePresets.includes(level);
+              return (
+                <option key={level} value={level} disabled={locked}>
+                  {level}{locked ? ' 🔒 Full Version' : ''}
+                </option>
+              );
+            })}
           </select>
           {selectedPreset && (
             <button
@@ -392,18 +466,34 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
               <label htmlFor="wordCountPreset" className="block text-xs sm:text-sm font-semibold text-electric-blue mb-1 uppercase tracking-wider setup-screen-label">
                 Number of Words:
               </label>
-              <select
-                id="wordCountPreset"
-                value={selectedWordCountForPreset}
-                onChange={(e) => setSelectedWordCountForPreset(Number(e.target.value))}
-                className="w-full p-2 sm:p-3 rounded-lg shadow-sm futuristic-input text-sm sm:text-base setup-screen-input"
-                aria-label="Select number of words from preset pool"
-                disabled={!selectedWordTypes.nouns && !selectedWordTypes.verbs && !selectedWordTypes.adjectives}
-              >
-                {WORD_COUNT_OPTIONS.map(count => (
-                  <option key={count} value={count}>{count} words</option>
-                ))}
-              </select>
+              <div className="flex gap-2 items-center">
+                <select
+                  id="wordCountPreset"
+                  value={selectedWordCountForPreset}
+                  onChange={(e) => setSelectedWordCountForPreset(Number(e.target.value))}
+                  className="flex-grow p-2 sm:p-3 rounded-lg shadow-sm futuristic-input text-sm sm:text-base setup-screen-input"
+                  aria-label="Select number of words from preset pool"
+                  disabled={!selectedWordTypes.nouns && !selectedWordTypes.verbs && !selectedWordTypes.adjectives}
+                >
+                  {WORD_COUNT_OPTIONS.map(count => {
+                    const locked = !isUnlocked && !DEMO_POLICY.freeWordCounts.includes(count);
+                    return (
+                      <option key={count} value={count} disabled={locked}>
+                        {count} words{locked ? ' 🔒' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button
+                  type="button"
+                  onClick={updateWordsFromPreset}
+                  disabled={!selectedWordTypes.nouns && !selectedWordTypes.verbs && !selectedWordTypes.adjectives}
+                  className="futuristic-button shrink-0 rounded-md bg-dark-metal hover:bg-cyber-purple/30 text-electric-blue py-2 px-3 text-xs sm:text-sm disabled:opacity-40"
+                  title="Shuffle a new set of words from this pack"
+                >
+                  🎲 Shuffle
+                </button>
+              </div>
                {(!selectedWordTypes.nouns && !selectedWordTypes.verbs && !selectedWordTypes.adjectives) && (
                 <p className="text-xs text-danger-red mt-1 setup-screen-small-text">Select word type(s) to choose count.</p>
               )}
@@ -411,12 +501,47 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           </div>
         )}
       </div>
+      )}
 
+
+      {/* Word entry flow selector */}
+      <div className="w-full">
+        <span className="mb-1 block text-sm font-semibold text-electric-blue text-left uppercase tracking-wider setup-screen-label">
+          Word List
+        </span>
+        <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="How to build your word list">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryMode === 'suggest'}
+            onClick={() => handleEntryModeChange('suggest')}
+            className={`futuristic-button rounded-lg py-2 px-3 text-xs sm:text-sm ${entryMode === 'suggest' ? 'bg-electric-blue text-dark-metal' : 'bg-dark-metal text-electric-blue hover:bg-cyber-purple/30'}`}
+          >
+            🎲 Suggest &amp; Curate
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryMode === 'manual'}
+            onClick={() => handleEntryModeChange('manual')}
+            className={`futuristic-button rounded-lg py-2 px-3 text-xs sm:text-sm ${entryMode === 'manual' ? 'bg-electric-blue text-dark-metal' : 'bg-dark-metal text-electric-blue hover:bg-cyber-purple/30'}`}
+          >
+            ✍️ Enter my own
+          </button>
+        </div>
+        <p className="mt-1 text-left text-xs text-muted-text setup-screen-small-text">
+          {entryMode === 'suggest'
+            ? 'Pick a pack above — we suggest words. Edit, add or remove any of them.'
+            : 'Type your own list — comma or new line separated.'}
+        </p>
+      </div>
 
       <div className="w-full">
         <label htmlFor="wordsInput" className="block text-sm font-semibold text-electric-blue mb-1 text-left uppercase tracking-wider setup-screen-label">
-          Enter Your Words
-          <span className="text-xs text-muted-text normal-case"> (comma/new line, min 3, or load preset)</span>:
+          Your Words
+          <span className={`text-xs normal-case ${isOverDemoWordCap ? 'text-danger-red font-semibold' : 'text-muted-text'}`}>
+            {' '}({parsedWordCount} {parsedWordCount === 1 ? 'word' : 'words'}, min 3{!isUnlocked ? `, demo max ${DEMO_POLICY.maxWordsPerGame}` : ''})
+          </span>:
         </label>
         <textarea
           id="wordsInput"
@@ -424,21 +549,22 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           onChange={(e) => {
             setWordsInput(e.target.value);
           }}
-          rows={4} /* Reduced rows */
+          rows={4}
           className="w-full p-2 sm:p-3 rounded-lg shadow-sm futuristic-input text-sm sm:text-base setup-screen-input"
           placeholder={
-            isWordsTextareaReadOnly
-              ? "Words (based on preset) appear here..."
-              : "E.g., Apple, Banana, Cherry OR Load a preset"
+            entryMode === 'suggest'
+              ? "Words from the pack appear here — edit them freely..."
+              : "E.g., Apple, Banana, Cherry"
           }
-          aria-label="Enter words for the game or view preset words"
-          readOnly={isWordsTextareaReadOnly}
+          aria-label="Word list for the game"
         />
-         {selectedPreset !== '' && (
-            <p className="text-xs text-muted-text mt-1 text-left setup-screen-small-text">
-                Words loaded from preset. Clear preset to enter words manually.
-            </p>
-        )}
+        <p className="text-xs text-muted-text mt-1 text-left setup-screen-small-text">
+          {entryMode === 'suggest'
+            ? (selectedPreset
+                ? 'Suggested from your pack. Edit freely, or press 🎲 Shuffle for a new set.'
+                : 'Pick a pack above to get suggestions, or just type your own words.')
+            : 'One word per line, or separated by commas.'}
+        </p>
       </div>
 
       <div className="w-full">
@@ -470,25 +596,37 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     onChange={(e) => {
                         const val = parseInt(e.target.value, 10);
                         if (!isNaN(val)) {
-                        setTotalTimeLimit(val);
+                        setTotalTimeLimit(Math.min(val, effectiveMaxTimeLimit));
                         } else if (e.target.value === '') {
                         setTotalTimeLimit(MIN_TOTAL_TIME_LIMIT);
                         }
                     }}
                     min={MIN_TOTAL_TIME_LIMIT}
-                    max={MAX_TOTAL_TIME_LIMIT}
+                    max={effectiveMaxTimeLimit}
                     step="30"
                     className="w-full p-2 sm:p-3 rounded-lg shadow-sm futuristic-input text-sm sm:text-base setup-screen-input"
                     aria-label="Set total game time in seconds"
                 />
                 <p className="text-xs text-muted-text mt-1 text-left setup-screen-small-text">
-                    {Math.floor(totalTimeLimit / 60)}m {totalTimeLimit % 60}s. ({MIN_TOTAL_TIME_LIMIT/60}m - {MAX_TOTAL_TIME_LIMIT/60}m)
+                    {Math.floor(totalTimeLimit / 60)}m {totalTimeLimit % 60}s. ({MIN_TOTAL_TIME_LIMIT/60}m - {effectiveMaxTimeLimit/60}m)
+                    {!isUnlocked && ' · Unlock for up to 10m'}
                 </p>
             </div>
         )}
       </div>
 
       <div className="w-full border-t border-cyber-purple/20 pt-2 sm:pt-3 mt-1 sm:mt-2">
+        {!isUnlocked && (
+          <button
+            type="button"
+            onClick={() => setShowUnlockDialog(true)}
+            className="futuristic-button w-full rounded-md bg-dark-metal hover:bg-cyber-purple/30 text-electric-blue py-1.5 px-3 text-xs sm:text-sm"
+          >
+            🔒 Custom Sounds — Unlock Full Version
+          </button>
+        )}
+        {isUnlocked && (
+        <>
         <div className="flex flex-col sm:flex-row sm:space-x-2 mb-2 w-full">
           <button
             type="button"
@@ -564,6 +702,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
 
       {error && <p className="text-danger-red text-xs sm:text-sm bg-red-500/20 p-1.5 sm:p-2 rounded-md border border-danger-red mt-2 sm:mt-3">{error}</p>}
@@ -575,6 +715,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           disabled={
             isWordsInputEmpty ||
             isTimeLimitInvalid ||
+            isOverDemoWordCap ||
             disableStartDueToPresetAndNoTypes
           }
           className="w-full bg-gradient-to-r from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green text-dark-metal font-bold py-2.5 sm:py-3 px-6 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg setup-screen-button"
@@ -583,6 +724,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           Start Game!
         </button>
       </div>
+
+      <UnlockDialog
+        isOpen={showUnlockDialog}
+        onClose={() => setShowUnlockDialog(false)}
+        onUnlock={onUnlock}
+      />
     </div>
   );
 };

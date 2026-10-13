@@ -1,5 +1,6 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { GameMode } from '../types'; // Import GameMode
+import { UnlockDialog } from './UnlockDialog';
 
 interface ResultsScreenProps {
   baseScore?: number;
@@ -9,6 +10,8 @@ interface ResultsScreenProps {
   teamBScore?: number;
   onPlayAgain: () => void;
   gameMode: GameMode;
+  isUnlocked: boolean;
+  onUnlock: (code: string) => boolean;
 }
 
 const complimentTiers = {
@@ -245,7 +248,11 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
   teamBScore,
   onPlayAgain,
   gameMode,
+  isUnlocked,
+  onUnlock,
 }) => {
+
+  const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
   const handlePlayAgainClick = useCallback(() => {
     onPlayAgain();
@@ -274,6 +281,32 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
       >
         Play Again?
       </button>
+
+      {/* Conversion touchpoint: offered at the emotional peak, right after the score. */}
+      {!isUnlocked && (
+        <div className="w-full max-w-sm rounded-xl border border-warning-yellow/40 bg-warning-yellow/10 p-3 text-center animate-fadeInScaleUp">
+          <p className="font-heading text-sm font-bold tracking-wide text-warning-yellow">
+            🔥 That was just Normal Mode
+          </p>
+          <p className="mt-1 font-sans text-xs text-muted-text">
+            Unlock <strong className="text-light-text">Hell 💀</strong>,{' '}
+            <strong className="text-light-text">Team 🤝</strong> and 3 more word packs.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowUnlockDialog(true)}
+            className="futuristic-button mt-2 w-full rounded-lg bg-gradient-to-r from-warning-yellow to-amber-500 px-4 py-2 font-bold text-dark-metal"
+          >
+            🔓 Unlock Full Version
+          </button>
+        </div>
+      )}
+
+      <UnlockDialog
+        isOpen={showUnlockDialog}
+        onClose={() => setShowUnlockDialog(false)}
+        onUnlock={onUnlock}
+      />
     </div>
   );
 };

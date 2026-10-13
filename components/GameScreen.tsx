@@ -172,6 +172,7 @@ interface GameScreenProps {
   onSetRushHourActiveVisuals: (isActive: boolean) => void; 
   isAppRushHourActive: boolean; 
   isFullscreen: boolean;
+  isDemo?: boolean;
 }
 
 // ... (constants and helper functions)
@@ -238,6 +239,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     onSetRushHourActiveVisuals,
     isAppRushHourActive, 
     isFullscreen,
+    isDemo = false,
 }) => {
   const isTeamMode = settings.gameMode === GameMode.TEAM;
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -1240,6 +1242,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   return (
     <div ref={gameScreenRootRef} className="relative flex flex-col items-center space-y-1 sm:space-y-1.5 text-light-text w-full h-full">
+      {isDemo && (
+        <span className="pointer-events-none absolute right-1 top-0 z-20 rounded bg-cyber-purple/25 px-1.5 py-0.5 font-sans text-[0.6rem] uppercase tracking-widest text-light-text/40">
+          Demo
+        </span>
+      )}
       {/* Top Row: Points and Timer */}
       <div className={`w-full flex justify-between items-center px-1 sm:px-1.5 gap-2 flex-shrink-0 ${rushHourBounceClass}`}>
         <div className="text-md sm:text-lg font-semibold text-neon-green text-left relative flex-1 score-display">

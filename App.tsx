@@ -9,7 +9,8 @@ import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
-    SKIP_SOUNDS, BACKGROUND_MUSIC_URL, GAME_MUSIC_URL, DEFAULT_EFFECTS_VOLUME 
+    SKIP_SOUNDS, BACKGROUND_MUSIC_URL, GAME_MUSIC_URL, DEFAULT_EFFECTS_VOLUME,
+    readUnlockFlag, writeUnlockFlag, isUnlockCodeValid
 } from './constants';
 
 interface GameEndDetails {
@@ -72,6 +73,16 @@ const App: React.FC = () => {
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // Mode the player picked on the landing screen; pre-selected in SetupScreen.
   const [initialGameMode, setInitialGameMode] = useState<GameMode>(GameMode.NORMAL);
+  // Single source of truth for the demo/full state. Mirrored to localStorage so a
+  // classroom machine stays unlocked between sessions.
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => readUnlockFlag());
+
+  const handleUnlock = useCallback((code: string): boolean => {
+    if (!isUnlockCodeValid(code)) return false;
+    setIsUnlocked(true);
+    writeUnlockFlag();
+    return true;
+  }, []);
 
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -279,13 +290,13 @@ const App: React.FC = () => {
 
 
   const handleGameStart = useCallback((settings: GameSettings) => {
-    setGameSettings(settings);
+    setGameSettings({ ...settings, isDemo: !isUnlocked });
     setGameEndDetails(null); 
     playSound(customStartGameSound?.data || SINGLE_SOUND_EFFECTS.START_GAME_SOUND, effectsVolume);
     setIsAppRushHourActive(false); 
     setGamePhase(GamePhase.INSTRUCTION); 
     setActiveMusicOverride(null); 
-  }, [customStartGameSound, effectsVolume]);
+  }, [customStartGameSound, effectsVolume, isUnlocked]);
 
   const handleProceedToPlaying = useCallback(() => {
     setIsAppRushHourActive(false); 
@@ -394,6 +405,8 @@ const App: React.FC = () => {
       case GamePhase.SETUP:
         return <SetupScreen 
                   initialGameMode={initialGameMode}
+                  isUnlocked={isUnlocked}
+                  onUnlock={handleUnlock}
                   onGameStart={handleGameStart}
                   customBackgroundMusic={customBackgroundMusic}
                   setCustomBackgroundMusic={setCustomBackgroundMusic}
@@ -441,6 +454,7 @@ const App: React.FC = () => {
         }
         return <GameScreen 
                   settings={gameSettings} 
+                  isDemo={!!gameSettings.isDemo}
                   onGameEnd={handleGameEnd} 
                   effectsVolume={effectsVolume} 
                   customCorrectSounds={customCorrectSounds}
@@ -465,6 +479,8 @@ const App: React.FC = () => {
                   {...gameEndDetails}
                   onPlayAgain={handlePlayAgain}
                   gameMode={gameSettings.gameMode}
+                  isUnlocked={isUnlocked}
+                  onUnlock={handleUnlock}
                 />;
       default:
         return <p className="text-light-text animate-subtlePulse">Initializing Interface...</p>;
@@ -480,7 +496,7 @@ const App: React.FC = () => {
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
       />
       {showLanding ? (
-        <LandingScreen onPlay={handleEnterGame} />
+        <LandingScreen isUnlocked={isUnlocked} onUnlock={handleUnlock} onPlay={handleEnterGame} />
       ) : (
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
