@@ -53,6 +53,14 @@ export const DEFAULT_EFFECTS_VOLUME = 0.7; // 70% for sound effects
 // a security boundary; a real licence check must be verified server-side.
 export const ACCESS_CODE = 'skillup';
 export const UNLOCK_STORAGE_KEY = 'wordcrew_unlocked';
+// What the licence unlocks. Shared by the buy dialog and the code-entry dialog so
+// both always quote the same offer.
+export const FULL_VERSION_PERKS = [
+  '💀 Hell Mode — brutal skips & double Rush Hour',
+  '📚 5 extra word packs (A1 · A2 · A2 Key · B1 · B2)',
+  '⏱️ Up to 60 words & 10 minutes per game',
+  '🎵 Custom sounds — upload your own music & SFX',
+] as const;
 // How many demo rounds this device has played. Drives the escalating pitch on the
 // results screen (a returning player gets a firmer nudge than a first-timer).
 export const DEMO_ROUNDS_STORAGE_KEY = 'wordcrew_demo_rounds';

@@ -3,13 +3,14 @@ import { GameSettings, CustomSoundFile, GameMode } from '../types';
 import { DEFAULT_TOTAL_TIME_LIMIT, MIN_TOTAL_TIME_LIMIT, MAX_TOTAL_TIME_LIMIT, DEMO_POLICY } from '../constants';
 import { FileUploadButton, ACCEPTED_AUDIO_ACCEPT_ATTR, ACCEPTED_AUDIO_FORMATS_LABEL, MAX_AUDIO_FILE_SIZE_MB } from './FileUploadButton';
 import { UnlockDialog } from './UnlockDialog';
+import type { UnlockOutcome } from '../services/payments';
 import { VolumeControls } from './VolumeControls';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WordListCategories, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 
 interface SetupScreenProps {
   initialGameMode: GameMode;
   isUnlocked: boolean;
-  onUnlock: (code: string) => boolean;
+  onUnlock: (code: string) => Promise<UnlockOutcome>;
   onGameStart: (settings: GameSettings) => void;
   musicVolume: number;
   onMusicVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;

@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GameMode } from '../types';
 import { DEMO_POLICY } from '../constants';
 import { UnlockDialog } from './UnlockDialog';
+import { PurchaseDialog } from './PurchaseDialog';
+import { fetchPricing, formatPrice, type UnlockOutcome } from '../services/payments';
 
 interface LandingScreenProps {
   isUnlocked: boolean;
-  onUnlock: (code: string) => boolean;
+  onUnlock: (code: string) => Promise<UnlockOutcome>;
+  onLicensed: () => void;
   onPlay: (mode: GameMode) => void;
 }
 
@@ -54,8 +57,33 @@ const MODES: ModeInfo[] = [
   },
 ];
 
-export const LandingScreen: React.FC<LandingScreenProps> = ({ isUnlocked, onUnlock, onPlay }) => {
+export const LandingScreen: React.FC<LandingScreenProps> = ({
+  isUnlocked,
+  onUnlock,
+  onLicensed,
+  onPlay,
+}) => {
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
+  const [showPurchaseDialog, setShowPurchaseDialog] = useState<boolean>(false);
+  // Quoted on the CTA so the price is visible before any commitment. Left empty when
+  // the API is unreachable (offline PWA install), where the CTA still reads fine.
+  const [priceLabel, setPriceLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pricing = await fetchPricing();
+        const product = pricing.products[0];
+        if (!cancelled && product) setPriceLabel(formatPrice(product.amount, pricing.currency));
+      } catch {
+        // Offline or API unavailable: keep the price hidden rather than guessing it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleModeClick = (mode: GameMode) => {
     const isLocked = !DEMO_POLICY.freeModes.includes(mode);
@@ -113,13 +141,22 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ isUnlocked, onUnlo
                 Full version unlocked on this device
               </p>
             ) : (
-              <button
-                type="button"
-                onClick={() => setShowUnlockDialog(true)}
-                className="mt-5 font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
-              >
-                🔑 Have a teacher access code?
-              </button>
+              <div className="mt-6 flex flex-col items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPurchaseDialog(true)}
+                  className="futuristic-button rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
+                >
+                  🔓 Unlock Full Version{priceLabel ? ` — ${priceLabel}` : ''}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowUnlockDialog(true)}
+                  className="font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
+                >
+                  Already bought? Enter your licence key
+                </button>
+              </div>
             )}
           </section>
 
@@ -174,6 +211,16 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ isUnlocked, onUnlo
         isOpen={showUnlockDialog}
         onClose={() => setShowUnlockDialog(false)}
         onUnlock={onUnlock}
+      />
+
+      <PurchaseDialog
+        isOpen={showPurchaseDialog}
+        onClose={() => setShowPurchaseDialog(false)}
+        onLicensed={() => {
+          setShowPurchaseDialog(false);
+          onLicensed();
+        }}
+        priceLabel={priceLabel}
       />
     </div>
   );

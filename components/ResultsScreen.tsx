@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { GameMode } from '../types'; // Import GameMode
 import { UnlockDialog } from './UnlockDialog';
+import type { UnlockOutcome } from '../services/payments';
 
 interface ResultsScreenProps {
   baseScore?: number;
@@ -11,7 +12,7 @@ interface ResultsScreenProps {
   onHome: () => void;
   gameMode: GameMode;
   isUnlocked: boolean;
-  onUnlock: (code: string) => boolean;
+  onUnlock: (code: string) => Promise<UnlockOutcome>;
   demoRounds?: number;
 }
 

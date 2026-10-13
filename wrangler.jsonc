@@ -1,8 +1,33 @@
 {
+  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "wordcrew",
+  // The API worker. Only /api/* reaches it; the game itself is served as static
+  // assets (which Cloudflare does not charge requests for).
+  "main": "worker/index.ts",
   "compatibility_date": "2025-01-01",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wordcrew-db",
+      // Replace with the id printed by: npx wrangler d1 create wordcrew-db
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "vars": {
+    // Bank short code used by qr.sepay.vn (MBBank, Vietcombank, TPBank, ...) and the
+    // numbered account that receives the transfers. Both must be filled in before
+    // the buy dialog can mint an order.
+    "SEPAY_BANK_NAME": "",
+    "SEPAY_BANK_ACCOUNT": "",
+    // Public price of the one-time licence. Change here, no app rebuild needed.
+    "PRICE_VND": "199000"
   }
+  // SEPAY_WEBHOOK_API_KEY is a secret — set it with:
+  //   npx wrangler secret put SEPAY_WEBHOOK_API_KEY
 }

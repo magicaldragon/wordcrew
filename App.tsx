@@ -14,6 +14,7 @@ import {
     readDemoRounds, incrementDemoRounds
 } from './constants';
 import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
+import { verifyLicenseKey, type UnlockOutcome } from './services/payments';
 
 interface GameEndDetails {
   baseScore?: number; 
@@ -84,12 +85,31 @@ const App: React.FC = () => {
   // Demo rounds played on this device, used to escalate the results-screen nudge.
   const [demoRounds, setDemoRounds] = useState<number>(() => readDemoRounds());
 
-  const handleUnlock = useCallback((code: string): boolean => {
-    if (!isUnlockCodeValid(code)) return false;
+  const grantFullVersion = useCallback(() => {
     setIsUnlocked(true);
     writeUnlockFlag();
-    return true;
   }, []);
+
+  // Unlock paths: a purchased licence key is checked against the API worker, while the
+  // teacher access code stays as a local convenience gate for classroom machines.
+  const handleUnlock = useCallback(
+    async (code: string): Promise<UnlockOutcome> => {
+      if (isUnlockCodeValid(code)) {
+        grantFullVersion();
+        return { ok: true };
+      }
+      const outcome = await verifyLicenseKey(code);
+      if (outcome.ok) grantFullVersion();
+      return outcome;
+    },
+    [grantFullVersion],
+  );
+
+  // Called by the buy dialog once a transfer has been matched to an order: the key it
+  // hands over was just issued by the same backend, so no second round-trip is needed.
+  const handleLicensed = useCallback(() => {
+    grantFullVersion();
+  }, [grantFullVersion]);
 
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -673,7 +693,7 @@ const App: React.FC = () => {
         </div>
       )}
       {showLanding ? (
-        <LandingScreen isUnlocked={isUnlocked} onUnlock={handleUnlock} onPlay={handleEnterGame} />
+        <LandingScreen isUnlocked={isUnlocked} onUnlock={handleUnlock} onLicensed={handleLicensed} onPlay={handleEnterGame} />
       ) : (
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>

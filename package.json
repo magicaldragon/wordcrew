@@ -10,6 +10,11 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p worker/tsconfig.json",
+    "dev:worker": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "d1:local": "wrangler d1 execute wordcrew-db --local --file=./worker/schema.sql",
+    "d1:remote": "wrangler d1 execute wordcrew-db --remote --file=./worker/schema.sql",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -24,6 +29,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261013.1",
     "@types/react": "^18.2.79",
     "@types/react-dom": "^18.2.25",
     "@vitejs/plugin-react": "^4.2.1",
@@ -32,6 +38,7 @@
     "tailwindcss": "^3.4.19",
     "typescript": "^5.4.5",
     "vite": "^5.2.10",
-    "vite-plugin-pwa": "^0.20.5"
+    "vite-plugin-pwa": "^0.20.5",
+    "wrangler": "^4.150.0"
   }
 }

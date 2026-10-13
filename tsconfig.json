@@ -25,5 +25,8 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  // The API worker targets the Workers runtime, not the browser: it has its own
+  // tsconfig (worker/tsconfig.json) so the two sets of globals never collide.
+  "exclude": ["worker", "dist", "node_modules"]
 }
