@@ -53,6 +53,9 @@ export const DEFAULT_EFFECTS_VOLUME = 0.7; // 70% for sound effects
 // a security boundary; a real licence check must be verified server-side.
 export const ACCESS_CODE = 'skillup';
 export const UNLOCK_STORAGE_KEY = 'wordcrew_unlocked';
+// How many demo rounds this device has played. Drives the escalating pitch on the
+// results screen (a returning player gets a firmer nudge than a first-timer).
+export const DEMO_ROUNDS_STORAGE_KEY = 'wordcrew_demo_rounds';
 
 export const readUnlockFlag = (): boolean => {
   try {
@@ -72,6 +75,26 @@ export const writeUnlockFlag = (): void => {
 
 export const isUnlockCodeValid = (code: string): boolean =>
   code.trim().toLowerCase() === ACCESS_CODE;
+
+export const readDemoRounds = (): number => {
+  try {
+    const raw = localStorage.getItem(DEMO_ROUNDS_STORAGE_KEY);
+    const parsed = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+};
+
+export const incrementDemoRounds = (): number => {
+  const next = readDemoRounds() + 1;
+  try {
+    localStorage.setItem(DEMO_ROUNDS_STORAGE_KEY, String(next));
+  } catch {
+    /* Storage unavailable: the nudge simply stays at its first-time intensity. */
+  }
+  return next;
+};
 
 // Limits of the free demo. Anything outside this is unlocked by a valid access code.
 // The demo is meant to feel generous for a single round (full Normal Mode loop with

@@ -10,7 +10,8 @@ import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
     SKIP_SOUNDS, BACKGROUND_MUSIC_URL, GAME_MUSIC_URL, DEFAULT_EFFECTS_VOLUME,
-    readUnlockFlag, writeUnlockFlag, isUnlockCodeValid
+    readUnlockFlag, writeUnlockFlag, isUnlockCodeValid,
+    readDemoRounds, incrementDemoRounds
 } from './constants';
 
 interface GameEndDetails {
@@ -76,6 +77,8 @@ const App: React.FC = () => {
   // Single source of truth for the demo/full state. Mirrored to localStorage so a
   // classroom machine stays unlocked between sessions.
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => readUnlockFlag());
+  // Demo rounds played on this device, used to escalate the results-screen nudge.
+  const [demoRounds, setDemoRounds] = useState<number>(() => readDemoRounds());
 
   const handleUnlock = useCallback((code: string): boolean => {
     if (!isUnlockCodeValid(code)) return false;
@@ -344,6 +347,11 @@ const App: React.FC = () => {
     setGamePhase(GamePhase.RESULTS);
     setActiveMusicOverride(null);
 
+    // Count the finished demo round so the upsell can escalate from the 2nd round on.
+    if (gameSettings?.isDemo) {
+      setDemoRounds(incrementDemoRounds());
+    }
+
     if (timeLeft <= 0 && achievedScore > 0) {
       playSound(customTimesUpSound?.data || SINGLE_SOUND_EFFECTS.TIMES_UP_WORD, effectsVolume);
     } else if (timeLeft <= 0 && achievedScore <= 0) {
@@ -481,6 +489,7 @@ const App: React.FC = () => {
                   gameMode={gameSettings.gameMode}
                   isUnlocked={isUnlocked}
                   onUnlock={handleUnlock}
+                  demoRounds={demoRounds}
                 />;
       default:
         return <p className="text-light-text animate-subtlePulse">Initializing Interface...</p>;

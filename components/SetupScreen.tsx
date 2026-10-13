@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameSettings, CustomSoundFile, GameMode } from '../types';
 import { DEFAULT_TOTAL_TIME_LIMIT, MIN_TOTAL_TIME_LIMIT, MAX_TOTAL_TIME_LIMIT, DEMO_POLICY } from '../constants';
 import { FileUploadButton } from './FileUploadButton';
@@ -141,6 +141,17 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     .map(word => word.trim())
     .filter(word => word.length > 0).length;
   const isOverDemoWordCap = !isUnlocked && parsedWordCount > DEMO_POLICY.maxWordsPerGame;
+
+  // Demo tasting default: pre-fill a ready-to-play STARTERS list exactly once, so a
+  // first-time visitor can hit Start without touching a single setting.
+  const didApplyDemoDefault = useRef(false);
+  useEffect(() => {
+    if (didApplyDemoDefault.current) return;
+    if (!isUnlocked && entryMode === 'suggest' && !selectedPreset) {
+      didApplyDemoDefault.current = true;
+      setSelectedPreset(DEMO_POLICY.freePresets[0]);
+    }
+  }, [isUnlocked, entryMode, selectedPreset]);
 
   const handleEntryModeChange = (mode: 'suggest' | 'manual') => {
     if (mode === entryMode) return;

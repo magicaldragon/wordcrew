@@ -12,6 +12,7 @@ interface ResultsScreenProps {
   gameMode: GameMode;
   isUnlocked: boolean;
   onUnlock: (code: string) => boolean;
+  demoRounds?: number;
 }
 
 const complimentTiers = {
@@ -250,6 +251,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
   gameMode,
   isUnlocked,
   onUnlock,
+  demoRounds = 0,
 }) => {
 
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
@@ -282,15 +284,20 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
         Play Again?
       </button>
 
-      {/* Conversion touchpoint: offered at the emotional peak, right after the score. */}
+      {/* Conversion touchpoint: offered at the emotional peak, right after the score.
+          The pitch gets firmer from the second demo round onwards. */}
       {!isUnlocked && (
         <div className="w-full max-w-sm rounded-xl border border-warning-yellow/40 bg-warning-yellow/10 p-3 text-center animate-fadeInScaleUp">
           <p className="font-heading text-sm font-bold tracking-wide text-warning-yellow">
-            🔥 That was just Normal Mode
+            {demoRounds >= 2
+              ? `🔥 ${demoRounds} rounds — still Normal Mode?`
+              : '🔥 That was just Normal Mode'}
           </p>
           <p className="mt-1 font-sans text-xs text-muted-text">
-            Unlock <strong className="text-light-text">Hell 💀</strong>,{' '}
-            <strong className="text-light-text">Team 🤝</strong> and 3 more word packs.
+            {demoRounds >= 2
+              ? <>Hell 💀, Team 🤝 and 3 more word packs are one code away.</>
+              : <>Unlock <strong className="text-light-text">Hell 💀</strong>,{' '}
+                  <strong className="text-light-text">Team 🤝</strong> and 3 more word packs.</>}
           </p>
           <button
             type="button"
