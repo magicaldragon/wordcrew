@@ -397,6 +397,46 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // == Service-worker update watcher ==
+  // Minor/patch builds are installed silently by the auto-updating service worker, so
+  // instead of reloading mid-game we surface a small reload offer — and only while the
+  // player is on a static screen. Reloading then serves the freshly precached build,
+  // which removes the "I deployed but the tab still shows the old build" confusion.
+  const [pwaUpdateReady, setPwaUpdateReady] = useState(false);
+  const [dismissedPwaUpdate, setDismissedPwaUpdate] = useState(false);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    let registration: ServiceWorkerRegistration | undefined;
+
+    const watchInstalling = (worker: ServiceWorker | null) => {
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        // 'installed' while a controller already exists means an UPDATE (not the very
+        // first install) has finished and will serve the new build on the next load.
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+          setPwaUpdateReady(true);
+        }
+      });
+    };
+
+    const track = async () => {
+      registration = await navigator.serviceWorker.getRegistration();
+      if (!registration) return;
+      if (registration.waiting && navigator.serviceWorker.controller) setPwaUpdateReady(true);
+      registration.addEventListener('updatefound', () => watchInstalling(registration?.installing ?? null));
+      watchInstalling(registration.installing);
+    };
+    void track();
+
+    // A tab can stay open for a whole lesson, so re-check when it regains focus.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void registration?.update().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   // Refresh the service worker first so the reload picks up the new build.
   const handleReloadForUpdate = useCallback(async () => {
     try {
@@ -570,6 +610,11 @@ const App: React.FC = () => {
   // Escape hatch back to the landing page, offered on the setup screen only so a live
   // round or the results screen can never be abandoned by a stray tap on the header.
   const canExitToHome = !showLanding && gamePhase === GamePhase.SETUP;
+  const showMajorUpdateNotice = Boolean(majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion);
+  // The minor/patch reload offer is surfaced on a static screen only — never while a
+  // round is being played — and steps aside for the louder MAJOR notice when both are due.
+  const isStaticScreen = showLanding || gamePhase === GamePhase.SETUP;
+  const showPwaUpdatePill = pwaUpdateReady && !dismissedPwaUpdate && isStaticScreen && !showMajorUpdateNotice;
 
   return (
     <div className={`h-screen bg-dark-metal flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${isFullscreen || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
@@ -577,7 +622,7 @@ const App: React.FC = () => {
         volume={musicVolume} 
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
       />
-      {majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion && !isRoundInProgress && (
+      {showMajorUpdateNotice && !isRoundInProgress && (
         <div className="pointer-events-none fixed inset-x-0 top-2 z-[200] flex justify-center px-2">
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-electric-blue/50 bg-dark-metal/95 px-3 py-1.5 shadow-xl backdrop-blur animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
             <span className="text-base sm:text-lg" aria-hidden="true">🎉</span>
@@ -596,6 +641,31 @@ const App: React.FC = () => {
               onClick={handleDismissUpdateNotice}
               className="rounded-full px-1.5 py-0.5 text-sm leading-none text-muted-text hover:text-light-text"
               aria-label="Dismiss update notice"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+      {showPwaUpdatePill && (
+        <div className="pointer-events-none fixed inset-x-0 top-2 z-[190] flex justify-center px-2">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-neon-green/50 bg-dark-metal/95 px-3 py-1.5 shadow-xl backdrop-blur animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
+            <span className="text-base sm:text-lg" aria-hidden="true">✨</span>
+            <p className="font-sans text-xs text-light-text sm:text-sm">
+              A new build is ready.
+            </p>
+            <button
+              type="button"
+              onClick={handleReloadForUpdate}
+              className="futuristic-button rounded-full bg-gradient-to-r from-neon-green to-electric-blue px-3 py-1 text-xs font-bold text-dark-metal sm:text-sm"
+            >
+              Reload
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedPwaUpdate(true)}
+              className="rounded-full px-1.5 py-0.5 text-sm leading-none text-muted-text hover:text-light-text"
+              aria-label="Dismiss update offer"
             >
               ✕
             </button>
