@@ -14,6 +14,7 @@ import {
   normalizeLicenseKey,
   safeEqual,
 } from './sepay';
+import { extractBearerToken, verifyFirebaseIdToken, type FirebaseUser } from './firebase';
 
 export interface Env {
   /** Static build output — every non-/api route is served straight from here. */
@@ -28,6 +29,11 @@ export interface Env {
   PRICE_VND?: string;
   /** Public site URL, used to sanity-check the webhook origin when present. */
   PUBLIC_ORIGIN?: string;
+  /**
+   * Firebase project id used to validate ID tokens (`aud`/`iss`) on the paid path.
+   * Blank disables the check — local dev only, production must set it.
+   */
+  FIREBASE_PROJECT_ID?: string;
 }
 
 const DEFAULT_PRICE_VND = 199000;
@@ -83,6 +89,18 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
   const requestedId = String(body.productId || PRODUCT.id);
   if (requestedId !== PRODUCT.id) return json({ error: 'Unknown product' }, 400);
 
+  // Checkout is gated behind sign-in: the order is bound to a *verified* Firebase
+  // account so the customer record (email/uid) survives for later campaigns. The game
+  // itself needs no account — only the paid path does.
+  let buyer: FirebaseUser | null = null;
+  const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (projectId) {
+    const token = extractBearerToken(request);
+    if (!token) return json({ error: 'Please sign in before checking out.' }, 401);
+    buyer = await verifyFirebaseIdToken(token, projectId);
+    if (!buyer) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+  }
+
   const bankName = String(env.SEPAY_BANK_NAME || '').trim();
   const accountNumber = String(env.SEPAY_BANK_ACCOUNT || '').trim();
   if (!bankName || !accountNumber) {
@@ -108,10 +126,19 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
   const expiresAt = now + ORDER_TTL_MS;
 
   await env.DB.prepare(
-    `INSERT INTO orders (code, product_id, amount, status, created_at, expires_at, client_ip)
-     VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
+    `INSERT INTO orders (code, product_id, amount, status, created_at, expires_at, client_ip, user_id, user_email)
+     VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
   )
-    .bind(code, PRODUCT.id, amount, now, expiresAt, clientIp)
+    .bind(
+      code,
+      PRODUCT.id,
+      amount,
+      now,
+      expiresAt,
+      clientIp,
+      buyer?.uid ?? null,
+      buyer?.email ?? null,
+    )
     .run();
 
   return json({

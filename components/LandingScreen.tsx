@@ -1,15 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { GameMode } from '../types';
 import { DEMO_POLICY } from '../constants';
 import { UnlockDialog } from './UnlockDialog';
-import { PurchaseDialog } from './PurchaseDialog';
-import { fetchPricing, formatPrice, type UnlockOutcome } from '../services/payments';
+import type { UnlockOutcome } from '../services/payments';
 
 interface LandingScreenProps {
   isUnlocked: boolean;
   onUnlock: (code: string) => Promise<UnlockOutcome>;
-  onLicensed: () => void;
+  /** Start the paid path. The app gates this behind sign-in. */
+  onUpgrade: () => void;
   onPlay: (mode: GameMode) => void;
+  /** Return to the portal dashboard. */
+  onBack: () => void;
+  /** Quoted price, or null while the pricing API is unreachable. */
+  priceLabel: string | null;
 }
 
 interface ModeInfo {
@@ -60,30 +64,12 @@ const MODES: ModeInfo[] = [
 export const LandingScreen: React.FC<LandingScreenProps> = ({
   isUnlocked,
   onUnlock,
-  onLicensed,
+  onUpgrade,
   onPlay,
+  onBack,
+  priceLabel,
 }) => {
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
-  const [showPurchaseDialog, setShowPurchaseDialog] = useState<boolean>(false);
-  // Quoted on the CTA so the price is visible before any commitment. Left empty when
-  // the API is unreachable (offline PWA install), where the CTA still reads fine.
-  const [priceLabel, setPriceLabel] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const pricing = await fetchPricing();
-        const product = pricing.products[0];
-        if (!cancelled && product) setPriceLabel(formatPrice(product.amount, pricing.currency));
-      } catch {
-        // Offline or API unavailable: keep the price hidden rather than guessing it.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleModeClick = (mode: GameMode) => {
     const isLocked = !DEMO_POLICY.freeModes.includes(mode);
@@ -105,6 +91,15 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
       <div className="relative z-10 h-full overflow-y-auto overflow-x-hidden">
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center px-5 py-10 sm:py-14">
+          {/* Back to the portal dashboard */}
+          <button
+            type="button"
+            onClick={onBack}
+            className="futuristic-button mb-6 self-start rounded-lg border border-electric-blue/30 px-3 py-2 font-sans text-xs text-muted-text transition hover:text-electric-blue"
+          >
+            ← Dashboard
+          </button>
+
           {/* HERO */}
           <section className="flex w-full flex-col items-center text-center">
             <span className="mb-3 font-sans text-[0.7rem] uppercase tracking-[0.4em] text-electric-blue/80 sm:text-xs">
@@ -144,7 +139,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
               <div className="mt-6 flex flex-col items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowPurchaseDialog(true)}
+                  onClick={onUpgrade}
                   className="futuristic-button rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
                 >
                   🔓 Unlock Full Version{priceLabel ? ` — ${priceLabel}` : ''}
@@ -211,16 +206,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         isOpen={showUnlockDialog}
         onClose={() => setShowUnlockDialog(false)}
         onUnlock={onUnlock}
-      />
-
-      <PurchaseDialog
-        isOpen={showPurchaseDialog}
-        onClose={() => setShowPurchaseDialog(false)}
-        onLicensed={() => {
-          setShowPurchaseDialog(false);
-          onLicensed();
-        }}
-        priceLabel={priceLabel}
       />
     </div>
   );

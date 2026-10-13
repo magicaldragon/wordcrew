@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createOrder, fetchOrder, formatPrice, type OrderDraft } from '../services/payments';
 import { FULL_VERSION_PERKS } from '../constants';
+import { useAuth } from '../contexts/AuthContext';
 
 interface PurchaseDialogProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
   onLicensed,
   priceLabel,
 }) => {
+  const { getIdToken } = useAuth();
   const [phase, setPhase] = useState<Phase>('loading');
   const [order, setOrder] = useState<OrderDraft | null>(null);
   const [licenseKey, setLicenseKey] = useState('');
@@ -33,13 +35,21 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
     setPhase('loading');
     setError('');
     try {
-      setOrder(await createOrder('pro'));
+      // The worker rejects token-less orders, so a stale/absent session is caught here
+      // rather than surfacing as a confusing 401.
+      const token = await getIdToken();
+      if (!token) {
+        setError('Your session expired. Please sign in again to continue.');
+        setPhase('error');
+        return;
+      }
+      setOrder(await createOrder('pro', token));
       setPhase('awaiting');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start the order.');
       setPhase('error');
     }
-  }, []);
+  }, [getIdToken]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -97,27 +107,24 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="wc-theme fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="purchaseDialogTitle"
       onClick={onClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl border border-cyber-purple/40 bg-dark-metal p-5 shadow-2xl"
+        className="wc-card wc-scroll max-h-[92vh] w-full max-w-md overflow-y-auto p-5"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
-          <h2
-            id="purchaseDialogTitle"
-            className="font-heading text-xl font-bold tracking-wide text-warning-yellow"
-          >
-            🔓 Unlock Full Version
+          <h2 id="purchaseDialogTitle" className="text-xl font-bold tracking-wide text-[var(--wn-12)]">
+            Unlock Full Version
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full px-1.5 py-0.5 text-sm leading-none text-muted-text hover:text-light-text"
+            className="-mr-1 -mt-1 rounded-full px-2 py-1 text-sm leading-none text-[var(--wn-9)] transition hover:text-[var(--wn-12)]"
             aria-label="Close"
           >
             ✕
@@ -125,36 +132,30 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
         </div>
 
         {amountLabel && (
-          <p className="mt-1 font-heading text-2xl font-bold text-neon-green">
+          <p className="mt-1 text-2xl font-bold text-[var(--wa-11)]">
             {amountLabel}
-            <span className="ml-2 font-sans text-xs font-normal uppercase tracking-wider text-muted-text">
+            <span className="ml-2 text-xs font-normal uppercase tracking-wider text-[var(--wn-9)]">
               one-time · yours forever
             </span>
           </p>
         )}
 
-        <ul className="mt-3 space-y-1.5 text-left font-sans text-xs text-muted-text">
+        <ul className="mt-3 space-y-1.5 text-left text-xs text-[var(--wn-10)]">
           {FULL_VERSION_PERKS.map((perk) => (
             <li key={perk}>{perk}</li>
           ))}
         </ul>
 
         {phase === 'loading' && (
-          <p className="mt-5 text-center font-sans text-sm text-muted-text animate-subtlePulse">
-            Preparing your QR code…
-          </p>
+          <p className="mt-5 text-center text-sm text-[var(--wn-9)]">Preparing your QR code…</p>
         )}
 
         {phase === 'error' && (
           <div className="mt-5 text-center">
-            <p role="alert" className="font-sans text-sm text-danger-red">
+            <p role="alert" className="text-sm text-[var(--danger)]">
               {error}
             </p>
-            <button
-              type="button"
-              onClick={() => void startOrder()}
-              className="futuristic-button mt-3 rounded-lg bg-cyber-purple/70 px-4 py-2 text-sm font-semibold text-light-text hover:bg-cyber-purple"
-            >
+            <button type="button" onClick={() => void startOrder()} className="wc-btn wc-btn-secondary mt-3">
               Try again
             </button>
           </div>
@@ -169,37 +170,33 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
               height={208}
               className="mx-auto h-52 w-52 rounded-lg bg-white p-2"
             />
-            <p className="mt-3 text-center font-sans text-xs text-muted-text">
+            <p className="mt-3 text-center text-xs text-[var(--wn-9)]">
               Scan with any banking app, or transfer manually to
             </p>
-            <p className="mt-1 text-center font-sans text-sm text-light-text">
+            <p className="mt-1 text-center text-sm text-[var(--wn-12)]">
               <span className="font-semibold">{order.bank.name}</span> · {order.bank.accountNumber}
             </p>
 
-            <div className="mt-3 rounded-lg border border-electric-blue/30 bg-white/5 p-3">
-              <p className="font-sans text-[0.7rem] uppercase tracking-wider text-muted-text">
+            <div className="mt-3 rounded-xl border border-[var(--wn-4)] bg-[var(--field-bg)] p-3">
+              <p className="text-[0.7rem] uppercase tracking-wider text-[var(--wn-9)]">
                 Transfer memo — keep it exactly as shown
               </p>
               <div className="mt-1 flex items-center justify-between gap-2">
-                <code className="font-heading text-base tracking-wider text-electric-blue">
-                  {order.code}
-                </code>
+                <code className="text-base font-bold tracking-wider text-[var(--wa-11)]">{order.code}</code>
                 <button
                   type="button"
                   onClick={() => void copy(order.code, 'code')}
-                  className="rounded-md border border-electric-blue/40 px-2 py-1 font-sans text-[0.7rem] text-light-text hover:bg-electric-blue/10"
+                  className="wc-btn wc-btn-secondary wc-btn-sm"
                 >
                   {copied === 'code' ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <p className="mt-2 font-sans text-[0.7rem] text-muted-text">
+              <p className="mt-2 text-[0.7rem] text-[var(--wn-9)]">
                 The licence is issued automatically the moment the transfer arrives.
               </p>
             </div>
 
-            <p className="mt-3 text-center font-sans text-xs text-muted-text animate-subtlePulse">
-              ⏳ Waiting for your transfer…
-            </p>
+            <p className="mt-3 text-center text-xs text-[var(--wn-9)]">⏳ Waiting for your transfer…</p>
           </div>
         )}
 
@@ -208,29 +205,29 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
             <p className="text-3xl" role="img" aria-hidden="true">
               🎉
             </p>
-            <p className="mt-1 font-sans text-sm text-neon-green">
+            <p className="mt-1 text-sm text-[var(--wa-11)]">
               Payment received — here is your licence key.
             </p>
-            <code className="mt-3 block rounded-lg border border-neon-green/40 bg-white/5 px-3 py-3 font-heading text-lg tracking-[0.15em] text-light-text">
+            <code className="mt-3 block rounded-xl border border-[var(--wa-4)] bg-[var(--field-bg)] px-3 py-3 text-lg tracking-[0.15em] text-[var(--wn-12)]">
               {licenseKey}
             </code>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 onClick={() => void copy(licenseKey, 'key')}
-                className="futuristic-button flex-1 rounded-lg border border-electric-blue/40 px-4 py-2.5 font-sans text-sm text-light-text hover:bg-electric-blue/10"
+                className="wc-btn wc-btn-secondary flex-1"
               >
                 {copied === 'key' ? 'Copied' : 'Copy key'}
               </button>
               <button
                 type="button"
                 onClick={() => onLicensed(licenseKey)}
-                className="futuristic-button flex-1 rounded-lg bg-gradient-to-r from-neon-green to-electric-blue px-4 py-2.5 font-bold text-dark-metal"
+                className="wc-btn wc-btn-primary flex-1"
               >
                 Unlock this device
               </button>
             </div>
-            <p className="mt-2 font-sans text-[0.7rem] text-muted-text">
+            <p className="mt-2 text-[0.7rem] text-[var(--wn-9)]">
               Keep this key — it also unlocks the game on your other devices.
             </p>
           </div>

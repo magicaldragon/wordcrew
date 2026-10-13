@@ -67,8 +67,16 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 
 export const fetchPricing = (): Promise<Pricing> => request<Pricing>('/pricing');
 
-export const createOrder = (productId: string): Promise<OrderDraft> =>
-  request<OrderDraft>('/orders', { method: 'POST', body: JSON.stringify({ productId }) });
+/**
+ * Mints an order. The worker requires a Firebase ID token here — checkout is gated
+ * behind sign-in so every paid order carries a real customer record.
+ */
+export const createOrder = (productId: string, idToken?: string | null): Promise<OrderDraft> =>
+  request<OrderDraft>('/orders', {
+    method: 'POST',
+    body: JSON.stringify({ productId }),
+    ...(idToken ? { headers: { Authorization: `Bearer ${idToken}` } } : {}),
+  });
 
 export const fetchOrder = (code: string): Promise<OrderState> =>
   request<OrderState>(`/orders/${encodeURIComponent(code)}`);

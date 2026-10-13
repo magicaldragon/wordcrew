@@ -1,6 +1,10 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Dashboard } from './components/Dashboard';
+import { AuthDialog } from './components/AuthDialog';
+import { PurchaseDialog } from './components/PurchaseDialog';
 import { LandingScreen } from './components/LandingScreen';
+import { useAuth } from './contexts/AuthContext';
 import { SetupScreen } from './components/SetupScreen';
 import { InstructionScreen } from './components/InstructionScreen'; 
 import { GameScreen } from './components/GameScreen';
@@ -14,7 +18,7 @@ import {
     readDemoRounds, incrementDemoRounds
 } from './constants';
 import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
-import { verifyLicenseKey, type UnlockOutcome } from './services/payments';
+import { verifyLicenseKey, fetchPricing, formatPrice, type UnlockOutcome } from './services/payments';
 
 interface GameEndDetails {
   baseScore?: number; 
@@ -75,7 +79,9 @@ const App: React.FC = () => {
   const storageWarningShown = useRef(false);
   const previousGamePhase = usePrevious(gamePhase);
 
-  // Landing (marketing) screen is shown before the game shell on a fresh load.
+  // The portal dashboard is the app's home; the game is one destination inside it.
+  const [view, setView] = useState<'dashboard' | 'game'>('dashboard');
+  // Landing (marketing) screen shown when entering a game, before its setup shell.
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // Mode the player picked on the landing screen; pre-selected in SetupScreen.
   const [initialGameMode, setInitialGameMode] = useState<GameMode>(GameMode.NORMAL);
@@ -84,6 +90,14 @@ const App: React.FC = () => {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => readUnlockFlag());
   // Demo rounds played on this device, used to escalate the results-screen nudge.
   const [demoRounds, setDemoRounds] = useState<number>(() => readDemoRounds());
+  // Quoted once for every CTA (dashboard + game landing).
+  const [priceLabel, setPriceLabel] = useState<string | null>(null);
+
+  const { user } = useAuth();
+  const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
+  const [showAuthDialog, setShowAuthDialog] = useState(false);
+  // Set when the buy flow is what triggered sign-in, so we can resume it afterwards.
+  const pendingPurchase = useRef(false);
 
   const grantFullVersion = useCallback(() => {
     setIsUnlocked(true);
@@ -110,6 +124,41 @@ const App: React.FC = () => {
   const handleLicensed = useCallback(() => {
     grantFullVersion();
   }, [grantFullVersion]);
+
+  // Quoted once on load for every "Unlock" CTA. Silently stays hidden when the API is
+  // unreachable (offline install), where the CTA still reads fine without a price.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pricing = await fetchPricing();
+        const product = pricing.products[0];
+        if (!cancelled && product) setPriceLabel(formatPrice(product.amount, pricing.currency));
+      } catch {
+        /* Pricing API unavailable — keep the label empty. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Checkout is gated behind sign-in: we want a real customer record (email) for the
+  // paid path, and the worker refuses to mint an order without a valid ID token.
+  const requestPurchase = useCallback(() => {
+    if (user) {
+      setShowPurchaseDialog(true);
+      return;
+    }
+    pendingPurchase.current = true;
+    setShowAuthDialog(true);
+  }, [user]);
+
+  const handleAuthSuccess = useCallback(() => {
+    if (!pendingPurchase.current) return;
+    pendingPurchase.current = false;
+    setShowPurchaseDialog(true);
+  }, []);
 
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -340,6 +389,15 @@ const App: React.FC = () => {
     setShowLanding(false);
   }, []);
 
+  // Dashboard "Play" — open the game (its own landing screen first).
+  const handlePlayGame = useCallback(() => {
+    setGamePhase(GamePhase.SETUP);
+    setGameSettings(null);
+    setGameEndDetails(null);
+    setShowLanding(true);
+    setView('game');
+  }, []);
+
   const handleBackToSetupFromInstruction = useCallback(() => {
     setIsAppRushHourActive(false); 
     setGamePhase(GamePhase.SETUP);
@@ -483,13 +541,15 @@ const App: React.FC = () => {
     setActiveMusicOverride(null); 
   }, [customPlayAgainSound, effectsVolume]);
 
-  // Results screen "Home" button: return to the marketing/landing page.
+  // Results screen "Home" button: return to the portal dashboard.
   const handleGoHome = useCallback(() => {
     setGameSettings(null);
     setGameEndDetails(null);
     setIsAppRushHourActive(false);
     setActiveMusicOverride(null);
     setShowLanding(true);
+    setGamePhase(GamePhase.SETUP);
+    setView('dashboard');
   }, []);
 
   const handleMusicVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -633,11 +693,11 @@ const App: React.FC = () => {
   const showMajorUpdateNotice = Boolean(majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion);
   // The minor/patch reload offer is surfaced on a static screen only — never while a
   // round is being played — and steps aside for the louder MAJOR notice when both are due.
-  const isStaticScreen = showLanding || gamePhase === GamePhase.SETUP;
+  const isStaticScreen = view === 'dashboard' || showLanding || gamePhase === GamePhase.SETUP;
   const showPwaUpdatePill = pwaUpdateReady && !dismissedPwaUpdate && isStaticScreen && !showMajorUpdateNotice;
 
   return (
-    <div className={`h-screen bg-dark-metal flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${isFullscreen || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
+    <div className={`h-screen flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${view === 'dashboard' ? 'wc-theme bg-[var(--page-bg)]' : 'bg-dark-metal'} ${isFullscreen || view === 'dashboard' || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
       <BackgroundMusicPlayer 
         volume={musicVolume} 
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
@@ -692,8 +752,22 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-      {showLanding ? (
-        <LandingScreen isUnlocked={isUnlocked} onUnlock={handleUnlock} onLicensed={handleLicensed} onPlay={handleEnterGame} />
+      {view === 'dashboard' ? (
+        <Dashboard
+          isUnlocked={isUnlocked}
+          onPlayGame={handlePlayGame}
+          onUnlock={requestPurchase}
+          priceLabel={priceLabel}
+        />
+      ) : showLanding ? (
+        <LandingScreen
+          isUnlocked={isUnlocked}
+          onUnlock={handleUnlock}
+          onUpgrade={requestPurchase}
+          onPlay={handleEnterGame}
+          onBack={handleGoHome}
+          priceLabel={priceLabel}
+        />
       ) : (
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
@@ -763,6 +837,23 @@ const App: React.FC = () => {
         </footer>
       </div>
       )}
+
+      {/* Portal-level dialogs: reachable from the dashboard and from a game. */}
+      <AuthDialog
+        isOpen={showAuthDialog}
+        onClose={() => setShowAuthDialog(false)}
+        onSuccess={handleAuthSuccess}
+        reason="Sign in to continue to checkout."
+      />
+      <PurchaseDialog
+        isOpen={showPurchaseDialog}
+        onClose={() => setShowPurchaseDialog(false)}
+        onLicensed={() => {
+          setShowPurchaseDialog(false);
+          handleLicensed();
+        }}
+        priceLabel={priceLabel}
+      />
     </div>
   );
 };

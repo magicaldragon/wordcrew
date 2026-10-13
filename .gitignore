@@ -12,6 +12,8 @@ dist
 dist-ssr
 .wrangler
 *.local
+# Cloudflare Worker local secrets for `wrangler dev` (never commit these)
+.dev.vars*
 
 # Local planning notes (not part of the shipped app)
 DEMO_PLAN.md

@@ -1,5 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // Theme is driven by a `.dark` class on <html> (see contexts/ThemeContext.tsx),
+  // matching the WiseSpeak setup. Only the portal ever sets `dark:` utilities —
+  // the arcade game keeps its fixed neon palette.
+  darkMode: 'class',
   content: ['./index.html', './index.tsx', './App.tsx', './components/**/*.{ts,tsx}'],
   // Các class được dựng động trong code nên scanner không trích xuất được -> khai báo tường minh.
   safelist: [

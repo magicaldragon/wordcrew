@@ -26,7 +26,10 @@
     "SEPAY_BANK_NAME": "",
     "SEPAY_BANK_ACCOUNT": "",
     // Public price of the one-time licence. Change here, no app rebuild needed.
-    "PRICE_VND": "199000"
+    "PRICE_VND": "199000",
+    // Firebase project whose ID tokens the worker validates before minting an order.
+    // Leaving it blank disables the check (local dev only — never ship it blank).
+    "FIREBASE_PROJECT_ID": "wordcrew"
   }
   // SEPAY_WEBHOOK_API_KEY is a secret — set it with:
   //   npx wrangler secret put SEPAY_WEBHOOK_API_KEY
