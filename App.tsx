@@ -14,11 +14,11 @@ import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
     SKIP_SOUNDS, BACKGROUND_MUSIC_URL, GAME_MUSIC_URL, DEFAULT_EFFECTS_VOLUME,
-    readUnlockFlag, writeUnlockFlag, isUnlockCodeValid,
+    readUnlockFlag, writeUnlockFlag,
     readDemoRounds, incrementDemoRounds
 } from './constants';
 import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
-import { verifyLicenseKey, fetchPricing, formatPrice, type UnlockOutcome } from './services/payments';
+import { verifyLicenseKey, verifyAccessCode, fetchPricing, fetchEntitlement, formatPrice, type EntitlementItem, type UnlockOutcome } from './services/payments';
 
 interface GameEndDetails {
   baseScore?: number; 
@@ -92,23 +92,45 @@ const App: React.FC = () => {
   const [demoRounds, setDemoRounds] = useState<number>(() => readDemoRounds());
   // Quoted once for every CTA (dashboard + game landing).
   const [priceLabel, setPriceLabel] = useState<string | null>(null);
+  // Purchases owned by the signed-in account, surfaced on the Account tab.
+  const [entitlements, setEntitlements] = useState<EntitlementItem[]>([]);
 
-  const { user } = useAuth();
+  const { user, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  // Set when the buy flow is what triggered sign-in, so we can resume it afterwards.
-  const pendingPurchase = useRef(false);
 
   const grantFullVersion = useCallback(() => {
     setIsUnlocked(true);
     writeUnlockFlag();
   }, []);
 
-  // Unlock paths: a purchased licence key is checked against the API worker, while the
-  // teacher access code stays as a local convenience gate for classroom machines.
+  // The Full Version is owned by the account, not the browser: as soon as a signed-in
+  // customer is seen, ask the worker what they own and restore it on this device too.
+  // This is what lets a buyer switch device or sign back in and keep the unlock.
+  useEffect(() => {
+    if (!user) {
+      setEntitlements([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const token = await getIdToken();
+      if (!token) return;
+      const entitlement = await fetchEntitlement(token);
+      if (cancelled) return;
+      setEntitlements(entitlement.entitlements);
+      if (entitlement.entitled) grantFullVersion();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, getIdToken, grantFullVersion]);
+
+  // Unlock paths: both the purchased licence key and the teacher access code are checked
+  // against the API worker — the access code lives only as a server secret now.
   const handleUnlock = useCallback(
     async (code: string): Promise<UnlockOutcome> => {
-      if (isUnlockCodeValid(code)) {
+      if (await verifyAccessCode(code)) {
         grantFullVersion();
         return { ok: true };
       }
@@ -143,21 +165,17 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Checkout is gated behind sign-in: we want a real customer record (email) for the
-  // paid path, and the worker refuses to mint an order without a valid ID token.
+  // The price leads: the dialog opens for everyone and explains what the licence covers.
+  // Sign-in is only asked for at the point an order has to be created, because the worker
+  // refuses to mint one without a valid ID token.
   const requestPurchase = useCallback(() => {
-    if (user) {
-      setShowPurchaseDialog(true);
-      return;
-    }
-    pendingPurchase.current = true;
-    setShowAuthDialog(true);
-  }, [user]);
-
-  const handleAuthSuccess = useCallback(() => {
-    if (!pendingPurchase.current) return;
-    pendingPurchase.current = false;
     setShowPurchaseDialog(true);
+  }, []);
+
+  // Raised by the purchase dialog when the buyer has no account yet; the dialog stays put
+  // underneath and resumes by itself once an account appears.
+  const requestSignInForPurchase = useCallback(() => {
+    setShowAuthDialog(true);
   }, []);
 
   const toggleFullScreen = useCallback(() => {
@@ -755,9 +773,9 @@ const App: React.FC = () => {
       {view === 'dashboard' ? (
         <Dashboard
           isUnlocked={isUnlocked}
+          entitlements={entitlements}
           onPlayGame={handlePlayGame}
           onUnlock={requestPurchase}
-          priceLabel={priceLabel}
         />
       ) : showLanding ? (
         <LandingScreen
@@ -766,7 +784,6 @@ const App: React.FC = () => {
           onUpgrade={requestPurchase}
           onPlay={handleEnterGame}
           onBack={handleGoHome}
-          priceLabel={priceLabel}
         />
       ) : (
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
@@ -842,7 +859,6 @@ const App: React.FC = () => {
       <AuthDialog
         isOpen={showAuthDialog}
         onClose={() => setShowAuthDialog(false)}
-        onSuccess={handleAuthSuccess}
         reason="Sign in to continue to checkout."
       />
       <PurchaseDialog
@@ -852,6 +868,8 @@ const App: React.FC = () => {
           setShowPurchaseDialog(false);
           handleLicensed();
         }}
+        onRequireSignIn={requestSignInForPurchase}
+        suspendEscape={showAuthDialog}
         priceLabel={priceLabel}
       />
     </div>

@@ -30,10 +30,20 @@ export interface Env {
   /** Public site URL, used to sanity-check the webhook origin when present. */
   PUBLIC_ORIGIN?: string;
   /**
+   * Teacher access code that unlocks the full game on a classroom machine without an
+   * account. Kept as a Worker secret so the master code never ships in the JS bundle.
+   */
+  ACCESS_CODE?: string;
+  /**
    * Firebase project id used to validate ID tokens (`aud`/`iss`) on the paid path.
    * Blank disables the check — local dev only, production must set it.
    */
   FIREBASE_PROJECT_ID?: string;
+  /**
+   * Comma-separated Firebase emails allowed into the admin endpoints (revenue overview,
+   * granting and revoking access). Blank closes the admin surface entirely.
+   */
+  ADMIN_EMAILS?: string;
 }
 
 const DEFAULT_PRICE_VND = 199000;
@@ -44,6 +54,16 @@ const PRODUCT = {
   name: 'WordCrew Full Version',
   blurb: 'Hell Mode, all 5 extra word packs, 60 words / 10 minutes and custom sounds.',
 } as const;
+
+/**
+ * Display names for everything we sell, keyed by the `product_id` stored on orders.
+ * The portal's Account tab lists a customer's purchases against these, so adding a game
+ * later is one line here plus its own catalogue entry.
+ */
+const PRODUCT_LABELS: Record<string, string> = {
+  [PRODUCT.id]: PRODUCT.name,
+};
+const productLabel = (id: string): string => PRODUCT_LABELS[id] || id;
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -157,10 +177,27 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
   });
 };
 
-/** Polled by the buy dialog; the licence key is only exposed once the order is paid. */
-const getOrder = async (code: string, env: Env): Promise<Response> => {
+/**
+ * Polled by the buy dialog; the licence key is only exposed once the order is paid.
+ *
+ * The order code is not a secret — it is printed in the QR memo and typed into banking
+ * apps — so the licence is released only to the account that placed the order. Any
+ * other caller (or an anonymous one) gets the same 404 an unknown code returns, which
+ * stops codes from being probed for live licences.
+ */
+const getOrder = async (request: Request, code: string, env: Env): Promise<Response> => {
+  let uid: string | null = null;
+  const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (projectId) {
+    const token = extractBearerToken(request);
+    if (!token) return json({ error: 'Please sign in.' }, 401);
+    const user = await verifyFirebaseIdToken(token, projectId);
+    if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+    uid = user.uid;
+  }
+
   const row = await env.DB.prepare(
-    'SELECT code, amount, status, license_key, expires_at FROM orders WHERE code = ?',
+    'SELECT code, amount, status, license_key, expires_at, user_id FROM orders WHERE code = ?',
   )
     .bind(code)
     .first<{
@@ -169,9 +206,11 @@ const getOrder = async (code: string, env: Env): Promise<Response> => {
       status: string;
       license_key: string | null;
       expires_at: number;
+      user_id: string | null;
     }>();
 
   if (!row) return json({ error: 'Order not found' }, 404);
+  if (uid && row.user_id !== uid) return json({ error: 'Order not found' }, 404);
 
   let status = row.status;
   if (status === 'pending' && Date.now() > row.expires_at) {
@@ -189,11 +228,221 @@ const getOrder = async (code: string, env: Env): Promise<Response> => {
   });
 };
 
+/**
+ * What a signed-in account already owns. The Full Version belongs to the *account*,
+ * not the browser, so a customer who switches device just signs in and gets it back.
+ * The account is resolved from the verified ID token — never from anything the client
+ * sends about itself.
+ */
+const getEntitlement = async (request: Request, env: Env): Promise<Response> => {
+  const token = extractBearerToken(request);
+  if (!token) return json({ error: 'Please sign in.' }, 401);
+
+  const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (!projectId) return json({ entitled: false });
+
+  const user = await verifyFirebaseIdToken(token, projectId);
+  if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+
+  // One entry per product the account owns; a repeat buyer keeps the newest licence.
+  // Orders are matched on uid, or on a *verified* email so an admin can hand a licence
+  // to someone before they ever sign in.
+  const email = user.emailVerified && user.email ? user.email.trim().toLowerCase() : '';
+  const statement = email
+    ? env.DB.prepare(
+        `SELECT product_id, license_key, paid_at
+           FROM orders
+          WHERE status = 'paid' AND license_key IS NOT NULL
+            AND (user_id = ? OR LOWER(user_email) = ?)
+          ORDER BY paid_at DESC`,
+      ).bind(user.uid, email)
+    : env.DB.prepare(
+        `SELECT product_id, license_key, paid_at
+           FROM orders
+          WHERE user_id = ? AND status = 'paid' AND license_key IS NOT NULL
+          ORDER BY paid_at DESC`,
+      ).bind(user.uid);
+
+  const { results } = await statement.all<{
+    product_id: string;
+    license_key: string;
+    paid_at: number | null;
+  }>();
+
+  const seen = new Set<string>();
+  const entitlements: { productId: string; name: string; licenseKey: string; paidAt: number | null }[] = [];
+  for (const row of results ?? []) {
+    if (seen.has(row.product_id)) continue;
+    seen.add(row.product_id);
+    entitlements.push({
+      productId: row.product_id,
+      name: productLabel(row.product_id),
+      licenseKey: row.license_key,
+      paidAt: row.paid_at,
+    });
+  }
+
+  return json({ entitled: entitlements.length > 0, entitlements });
+};
+
+/**
+ * Teacher access code check. The code used to live in the client bundle, where anyone
+ * could read it; it is now compared here against a Worker secret instead.
+ */
+const verifyAccessCode = async (request: Request, env: Env): Promise<Response> => {
+  const body = await readJson(request);
+  const provided = String(body.code || '').trim().toLowerCase();
+  const expected = String(env.ACCESS_CODE || '').trim().toLowerCase();
+  if (!expected) return json({ valid: false });
+  return json({ valid: Boolean(provided) && safeEqual(provided, expected) });
+};
+
 const extractApiKey = (request: Request): string => {
   const authorization = request.headers.get('Authorization') || '';
   const fromHeader = authorization.match(/^(?:apikey|bearer|api-key)\s+(.+)$/i);
   if (fromHeader?.[1]) return fromHeader[1].trim();
   return (request.headers.get('x-api-key') || '').trim();
+};
+
+/**
+ * Owner-only surface. The allow-list is a secret, so a non-admin cannot even discover
+ * these routes: they are answered with the same 404 an unknown path returns.
+ */
+const requireAdmin = async (request: Request, env: Env): Promise<FirebaseUser | Response> => {
+  const allowList = String(env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowList.length === 0) return json({ error: 'Not found' }, 404);
+
+  const token = extractBearerToken(request);
+  if (!token) return json({ error: 'Please sign in.' }, 401);
+
+  const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (!projectId) return json({ error: 'Sign-in is not configured.' }, 503);
+
+  const user = await verifyFirebaseIdToken(token, projectId);
+  if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+
+  const email = String(user.email || '').trim().toLowerCase();
+  if (!email || !allowList.includes(email)) return json({ error: 'Not found' }, 404);
+
+  return user;
+};
+
+/** Revenue, order counts and the most recent orders for the admin overview. */
+const getAdminOverview = async (request: Request, env: Env): Promise<Response> => {
+  const denied = await requireAdmin(request, env);
+  if (denied instanceof Response) return denied;
+
+  const totals = await env.DB.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS revenue,
+        COALESCE(SUM(CASE WHEN status = 'paid' AND amount > 0 THEN 1 ELSE 0 END), 0) AS paid_count,
+        COALESCE(SUM(CASE WHEN status = 'paid' AND amount = 0 THEN 1 ELSE 0 END), 0) AS granted_count,
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
+       FROM orders`,
+  ).first<{ revenue: number; paid_count: number; granted_count: number; pending_count: number }>();
+
+  const { results } = await env.DB.prepare(
+    `SELECT code, product_id, amount, status, license_key, user_email, created_at, paid_at
+       FROM orders
+      ORDER BY created_at DESC
+      LIMIT 100`,
+  ).all<{
+    code: string;
+    product_id: string;
+    amount: number;
+    status: string;
+    license_key: string | null;
+    user_email: string | null;
+    created_at: number;
+    paid_at: number | null;
+  }>();
+
+  return json({
+    stats: {
+      revenue: totals?.revenue ?? 0,
+      paidCount: totals?.paid_count ?? 0,
+      grantedCount: totals?.granted_count ?? 0,
+      pendingCount: totals?.pending_count ?? 0,
+    },
+    orders: (results ?? []).map((row) => ({
+      code: row.code,
+      productId: row.product_id,
+      productName: productLabel(row.product_id),
+      amount: row.amount,
+      status: row.status,
+      licenseKey: row.license_key,
+      email: row.user_email,
+      createdAt: row.created_at,
+      paidAt: row.paid_at,
+    })),
+  });
+};
+
+/**
+ * Hands a product to an account without a bank transfer — the mechanism behind gift
+ * licences and support fixes. The order is written already paid, so it flows through
+ * the exact same entitlement lookup as a real purchase.
+ */
+const grantAccess = async (request: Request, env: Env): Promise<Response> => {
+  const denied = await requireAdmin(request, env);
+  if (denied instanceof Response) return denied;
+
+  const body = await readJson(request);
+  const email = String(body.email || '').trim().toLowerCase();
+  const productId = String(body.productId || PRODUCT.id);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return json({ error: 'Enter a valid email address.' }, 400);
+  }
+  if (productId !== PRODUCT.id) return json({ error: 'Unknown product' }, 400);
+
+  const existing = await env.DB.prepare(
+    "SELECT code FROM orders WHERE LOWER(user_email) = ? AND product_id = ? AND status = 'paid' LIMIT 1",
+  )
+    .bind(email, productId)
+    .first<{ code: string }>();
+  if (existing) return json({ error: 'That email already owns this product.' }, 409);
+
+  const now = Date.now();
+  const code = generateOrderCode();
+  const licenseKey = generateLicenseKey();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO orders (code, product_id, amount, status, license_key, paid_at, created_at, expires_at, user_email, webhook_received)
+       VALUES (?, ?, 0, 'paid', ?, ?, ?, ?, ?, 1)`,
+    ).bind(code, productId, licenseKey, now, now, now, email),
+    env.DB.prepare(
+      'INSERT OR IGNORE INTO licenses (key, product_id, order_code, created_at) VALUES (?, ?, ?, ?)',
+    ).bind(licenseKey, productId, code, now),
+  ]);
+
+  return json({ ok: true, code, email, productId, licenseKey });
+};
+
+/**
+ * Takes a licence back: the licence row is flagged revoked (typed keys stop working)
+ * and its order stops counting as paid (the account loses auto-unlock on sign-in).
+ */
+const revokeAccess = async (request: Request, env: Env): Promise<Response> => {
+  const denied = await requireAdmin(request, env);
+  if (denied instanceof Response) return denied;
+
+  const body = await readJson(request);
+  const key = normalizeLicenseKey(String(body.licenseKey || ''));
+  if (!key) return json({ error: 'That does not look like a licence key.' }, 400);
+
+  const [licenseResult, orderResult] = await env.DB.batch([
+    env.DB.prepare('UPDATE licenses SET revoked = 1 WHERE key = ?').bind(key),
+    env.DB.prepare("UPDATE orders SET status = 'revoked' WHERE license_key = ?").bind(key),
+  ]);
+
+  if (!(licenseResult?.meta.changes ?? 0) && !(orderResult?.meta.changes ?? 0)) {
+    return json({ error: 'Licence key not found.' }, 404);
+  }
+  return json({ ok: true });
 };
 
 /**
@@ -297,10 +546,15 @@ const handleApi = async (request: Request, env: Env, url: URL): Promise<Response
   if (pathname === '/api/pricing' && method === 'GET') return getPricing(env);
   if (pathname === '/api/orders' && method === 'POST') return createOrder(request, env);
   if (pathname === '/api/licenses/verify' && method === 'POST') return verifyLicense(request, env);
+  if (pathname === '/api/entitlements' && method === 'GET') return getEntitlement(request, env);
+  if (pathname === '/api/access-code/verify' && method === 'POST') return verifyAccessCode(request, env);
   if (pathname === '/api/sepay/webhook' && method === 'POST') return handleSepayWebhook(request, env);
+  if (pathname === '/api/admin/overview' && method === 'GET') return getAdminOverview(request, env);
+  if (pathname === '/api/admin/grant' && method === 'POST') return grantAccess(request, env);
+  if (pathname === '/api/admin/revoke' && method === 'POST') return revokeAccess(request, env);
 
   const orderMatch = pathname.match(/^\/api\/orders\/([A-Za-z0-9]+)$/);
-  if (orderMatch && method === 'GET') return getOrder(orderMatch[1].toUpperCase(), env);
+  if (orderMatch && method === 'GET') return getOrder(request, orderMatch[1].toUpperCase(), env);
 
   return json({ error: 'Not found' }, 404);
 };

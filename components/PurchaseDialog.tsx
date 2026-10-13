@@ -8,11 +8,15 @@ interface PurchaseDialogProps {
   onClose: () => void;
   /** Fired once the order is paid, handing the freshly issued licence key to the app. */
   onLicensed: (licenseKey: string) => void;
+  /** Opens the portal sign-in panel; the buyer comes back here to finish the order. */
+  onRequireSignIn: () => void;
   /** Shown on the CTA before the order exists; keeps the price visible without a second fetch. */
   priceLabel?: string | null;
+  /** True while the sign-in panel sits on top — this dialog must not answer Escape then. */
+  suspendEscape?: boolean;
 }
 
-type Phase = 'loading' | 'awaiting' | 'paid' | 'error';
+type Phase = 'intro' | 'loading' | 'awaiting' | 'paid' | 'error';
 
 // Bank transfers land in seconds to a couple of minutes, so a light poll is enough
 // to reveal the licence without the teacher ever pressing refresh.
@@ -22,14 +26,19 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
   isOpen,
   onClose,
   onLicensed,
+  onRequireSignIn,
   priceLabel,
+  suspendEscape = false,
 }) => {
-  const { getIdToken } = useAuth();
-  const [phase, setPhase] = useState<Phase>('loading');
+  const { user, getIdToken } = useAuth();
+  const [phase, setPhase] = useState<Phase>('intro');
   const [order, setOrder] = useState<OrderDraft | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [licenseKey, setLicenseKey] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
+  // Set the moment the buyer commits to the price; the order waits for an account.
+  const [intent, setIntent] = useState(false);
 
   const startOrder = useCallback(async () => {
     setPhase('loading');
@@ -43,6 +52,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
         setPhase('error');
         return;
       }
+      setSessionToken(token);
       setOrder(await createOrder('pro', token));
       setPhase('awaiting');
     } catch (err) {
@@ -51,20 +61,33 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
     }
   }, [getIdToken]);
 
+  // Price first: opening shows what the licence covers. The QR only starts once the
+  // buyer commits, and sign-in is asked for at that point rather than on the way in.
   useEffect(() => {
     if (!isOpen) return;
     setLicenseKey('');
     setCopied('');
     setOrder(null);
-    void startOrder();
-  }, [isOpen, startOrder]);
+    setSessionToken(null);
+    setIntent(false);
+    setError('');
+    setPhase('intro');
+  }, [isOpen]);
+
+  // The sign-in panel sits on top of this one. Once it closes with an account present,
+  // the checkout that was waiting on it carries on by itself.
+  useEffect(() => {
+    if (isOpen && intent && user && phase === 'intro') void startOrder();
+  }, [isOpen, intent, user, phase, startOrder]);
 
   useEffect(() => {
-    if (!isOpen || phase !== 'awaiting' || !order) return;
+    if (!isOpen || phase !== 'awaiting' || !order || !sessionToken) return;
     let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
-        const state = await fetchOrder(order.code);
+        // Ownership is checked server-side, so the polling call carries the same token
+        // the order was created with.
+        const state = await fetchOrder(order.code, sessionToken);
         if (cancelled) return;
         if (state.status === 'paid' && state.licenseKey) {
           setLicenseKey(state.licenseKey);
@@ -81,16 +104,16 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isOpen, phase, order]);
+  }, [isOpen, phase, order, sessionToken]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || suspendEscape) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, suspendEscape, onClose]);
 
   const copy = async (value: string, field: string) => {
     try {
@@ -99,6 +122,17 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
     } catch {
       setCopied('');
     }
+  };
+
+  // Committing to the price is what starts an order; anyone without an account is asked
+  // to sign in first, and the order resumes the moment that panel closes.
+  const beginCheckout = () => {
+    if (user) {
+      void startOrder();
+      return;
+    }
+    setIntent(true);
+    onRequireSignIn();
   };
 
   if (!isOpen) return null;
@@ -145,6 +179,17 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
             <li key={perk}>{perk}</li>
           ))}
         </ul>
+
+        {phase === 'intro' && (
+          <div className="mt-5">
+            <button type="button" onClick={beginCheckout} className="wc-btn wc-btn-primary w-full">
+              {user ? 'Continue to payment' : 'Sign in and continue'}
+            </button>
+            <p className="mt-2 text-center text-[0.7rem] text-[var(--wn-9)]">
+              Bank transfer — a QR code appears on the next step.
+            </p>
+          </div>
+        )}
 
         {phase === 'loading' && (
           <p className="mt-5 text-center text-sm text-[var(--wn-9)]">Preparing your QR code…</p>

@@ -12,8 +12,6 @@ interface LandingScreenProps {
   onPlay: (mode: GameMode) => void;
   /** Return to the portal dashboard. */
   onBack: () => void;
-  /** Quoted price, or null while the pricing API is unreachable. */
-  priceLabel: string | null;
 }
 
 interface ModeInfo {
@@ -67,7 +65,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
   onUpgrade,
   onPlay,
   onBack,
-  priceLabel,
 }) => {
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
@@ -142,7 +139,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                   onClick={onUpgrade}
                   className="futuristic-button rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
                 >
-                  🔓 Unlock Full Version{priceLabel ? ` — ${priceLabel}` : ''}
+                  🔓 Unlock Full Version
                 </button>
                 <button
                   type="button"

@@ -49,9 +49,8 @@ export const DEFAULT_EFFECTS_VOLUME = 0.7; // 70% for sound effects
 
 // Access code that unlocks the full (non-demo) experience on a device — handy for
 // using the full game on a classroom machine without installing anything.
-// NOTE: this is a convenience gate only. It ships inside the JS bundle and is NOT
-// a security boundary; a real licence check must be verified server-side.
-export const ACCESS_CODE = 'skillup';
+// The code itself lives as a Worker secret and is checked server-side (see
+// `/api/access-code/verify`), so it never ships inside the JS bundle.
 export const UNLOCK_STORAGE_KEY = 'wordcrew_unlocked';
 // What the licence unlocks. Shared by the buy dialog and the code-entry dialog so
 // both always quote the same offer.
@@ -80,9 +79,6 @@ export const writeUnlockFlag = (): void => {
     /* Storage unavailable: the unlock simply lasts for this session. */
   }
 };
-
-export const isUnlockCodeValid = (code: string): boolean =>
-  code.trim().toLowerCase() === ACCESS_CODE;
 
 export const readDemoRounds = (): number => {
   try {

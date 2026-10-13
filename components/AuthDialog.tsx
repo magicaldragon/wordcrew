@@ -85,7 +85,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
 
   return (
     <div
-      className="wc-theme fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4"
+      className="wc-theme fixed inset-0 z-[400] flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="authDialogTitle"

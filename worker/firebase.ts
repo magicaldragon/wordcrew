@@ -19,6 +19,12 @@ export interface FirebaseUser {
   uid: string;
   email: string | null;
   name: string | null;
+  /**
+   * Whether Firebase has verified the address. Entitlements granted by email are only
+   * honoured when this is true, so an unverified sign-up cannot claim someone else's
+   * address.
+   */
+  emailVerified: boolean;
 }
 
 interface Jwk extends JsonWebKey {
@@ -32,6 +38,7 @@ interface IdTokenPayload {
   exp?: unknown;
   iat?: unknown;
   email?: unknown;
+  email_verified?: unknown;
   name?: unknown;
 }
 
@@ -125,6 +132,7 @@ export const verifyFirebaseIdToken = async (
       uid: payload.sub,
       email: typeof payload.email === 'string' ? payload.email : null,
       name: typeof payload.name === 'string' ? payload.name : null,
+      emailVerified: payload.email_verified === true,
     };
   } catch {
     return null;
