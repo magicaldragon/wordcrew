@@ -13,6 +13,7 @@ import {
     readUnlockFlag, writeUnlockFlag, isUnlockCodeValid,
     readDemoRounds, incrementDemoRounds
 } from './constants';
+import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
 
 interface GameEndDetails {
   baseScore?: number; 
@@ -362,6 +363,50 @@ const App: React.FC = () => {
     // FIX: Removed redundant 'settings' from dependency array.
   }, [customTimesUpSound, customGameOverSound, effectsVolume, gameSettings]);
 
+  // == Version check: only a MAJOR release is worth interrupting the player for ==
+  // Minor/patch releases are applied silently by the auto-updating service worker
+  // on the next launch, so the player is never asked to reload for them.
+  const [majorUpdateVersion, setMajorUpdateVersion] = useState<string | null>(null);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(() => readDismissedUpdateVersion());
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkForMajorUpdate = async () => {
+      const remoteVersion = await fetchRemoteVersion();
+      if (cancelled || !remoteVersion) return;
+      if (isMajorUpgrade(remoteVersion)) setMajorUpdateVersion(remoteVersion);
+    };
+    void checkForMajorUpdate();
+    // Re-check whenever the player returns to the app (tab focus / PWA resume).
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void checkForMajorUpdate();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, []);
+
+  // Refresh the service worker first so the reload picks up the new build.
+  const handleReloadForUpdate = useCallback(async () => {
+    try {
+      const registration = await navigator.serviceWorker?.getRegistration();
+      await registration?.update();
+    } catch {
+      // Offline or unsupported: a plain reload is still the best attempt.
+    }
+    window.location.reload();
+  }, []);
+
+  const handleDismissUpdateNotice = useCallback(() => {
+    if (!majorUpdateVersion) return;
+    writeDismissedUpdateVersion(majorUpdateVersion);
+    setDismissedUpdateVersion(majorUpdateVersion);
+  }, [majorUpdateVersion]);
+
   const handlePlayAgain = useCallback(() => {
     setGameSettings(null);
     setGameEndDetails(null);
@@ -513,6 +558,9 @@ const App: React.FC = () => {
   };
   
   const rushHourBounceClass = isAppRushHourActive && gamePhase === GamePhase.PLAYING ? 'animate-rushHourBounce' : '';
+  // Never interrupt an active round: a pending major update is announced once the
+  // player is back on a static screen.
+  const isRoundInProgress = !showLanding && gamePhase === GamePhase.PLAYING;
 
   return (
     <div className={`h-screen bg-dark-metal flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${isFullscreen || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
@@ -520,6 +568,31 @@ const App: React.FC = () => {
         volume={musicVolume} 
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
       />
+      {majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion && !isRoundInProgress && (
+        <div className="pointer-events-none fixed inset-x-0 top-2 z-[200] flex justify-center px-2">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-electric-blue/50 bg-dark-metal/95 px-3 py-1.5 shadow-xl backdrop-blur animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
+            <span className="text-base sm:text-lg" aria-hidden="true">🎉</span>
+            <p className="font-sans text-xs text-light-text sm:text-sm">
+              <span className="font-heading tracking-wide text-electric-blue">WordCrew {majorUpdateVersion}</span> is available.
+            </p>
+            <button
+              type="button"
+              onClick={handleReloadForUpdate}
+              className="futuristic-button rounded-full bg-gradient-to-r from-cyber-purple to-electric-blue px-3 py-1 text-xs font-bold text-dark-metal sm:text-sm"
+            >
+              Reload
+            </button>
+            <button
+              type="button"
+              onClick={handleDismissUpdateNotice}
+              className="rounded-full px-1.5 py-0.5 text-sm leading-none text-muted-text hover:text-light-text"
+              aria-label="Dismiss update notice"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
       {showLanding ? (
         <LandingScreen isUnlocked={isUnlocked} onUnlock={handleUnlock} onPlay={handleEnterGame} />
       ) : (
