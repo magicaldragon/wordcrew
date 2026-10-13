@@ -5,6 +5,7 @@ import { FileUploadButton } from './FileUploadButton';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WordListCategories, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 
 interface SetupScreenProps {
+  initialGameMode: GameMode;
   onGameStart: (settings: GameSettings) => void;
   customBackgroundMusic: CustomSoundFile | null;
   setCustomBackgroundMusic: (file: CustomSoundFile | null) => void;
@@ -45,6 +46,7 @@ interface SelectedWordTypes {
 const TIME_PER_WORD_OPTIONS = [10, 15, 20, 25, 30, 45];
 
 export const SetupScreen: React.FC<SetupScreenProps> = ({
+  initialGameMode,
   onGameStart,
   customBackgroundMusic, setCustomBackgroundMusic,
   customGameMusic, setCustomGameMusic,
@@ -75,7 +77,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     adjectives: true,
   });
   const [selectedWordCountForPreset, setSelectedWordCountForPreset] = useState<number>(WORD_COUNT_OPTIONS[2]);
-  const [gameMode, setGameMode] = useState<GameMode>(GameMode.NORMAL);
+  const [gameMode, setGameMode] = useState<GameMode>(initialGameMode);
 
   const updateWordsFromPreset = useCallback(() => {
     if (selectedPreset === '' || !cefrWordLists[selectedPreset]) {

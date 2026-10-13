@@ -46,6 +46,13 @@ export const GAME_MUSIC_URL = [
 export const DEFAULT_MUSIC_VOLUME = 0.5; // 50%
 export const DEFAULT_EFFECTS_VOLUME = 0.7; // 70% for sound effects
 
+// Access code that unlocks the full (non-demo) experience on a device — handy for
+// using the full game on a classroom machine without installing anything.
+// NOTE: this is a convenience gate only. It ships inside the JS bundle and is NOT
+// a security boundary; a real licence check must be verified server-side.
+export const ACCESS_CODE = 'skillup';
+export const UNLOCK_STORAGE_KEY = 'wordcrew_unlocked';
+
 // ** 3. CORRECT GUESS SOUNDS **
 // This is an array of URLs. Add more URLs for multiple random correct sounds.
 export const CORRECT_SOUNDS = [

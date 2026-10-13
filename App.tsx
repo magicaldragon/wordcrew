@@ -1,5 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { LandingScreen } from './components/LandingScreen';
 import { SetupScreen } from './components/SetupScreen';
 import { InstructionScreen } from './components/InstructionScreen'; 
 import { GameScreen } from './components/GameScreen';
@@ -66,6 +67,11 @@ const App: React.FC = () => {
   const [activeMusicOverride, setActiveMusicOverride] = useState<string | null>(null); 
   const initialLoadDone = useRef(false);
   const previousGamePhase = usePrevious(gamePhase);
+
+  // Landing (marketing) screen is shown before the game shell on a fresh load.
+  const [showLanding, setShowLanding] = useState<boolean>(true);
+  // Mode the player picked on the landing screen; pre-selected in SetupScreen.
+  const [initialGameMode, setInitialGameMode] = useState<GameMode>(GameMode.NORMAL);
 
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -286,6 +292,12 @@ const App: React.FC = () => {
     setGamePhase(GamePhase.PLAYING);
   }, []);
 
+  // Leaving the landing screen and entering the game setup with the chosen mode.
+  const handleEnterGame = useCallback((mode: GameMode = GameMode.NORMAL) => {
+    setInitialGameMode(mode);
+    setShowLanding(false);
+  }, []);
+
   const handleBackToSetupFromInstruction = useCallback(() => {
     setIsAppRushHourActive(false); 
     setGamePhase(GamePhase.SETUP);
@@ -381,6 +393,7 @@ const App: React.FC = () => {
     switch (gamePhase) {
       case GamePhase.SETUP:
         return <SetupScreen 
+                  initialGameMode={initialGameMode}
                   onGameStart={handleGameStart}
                   customBackgroundMusic={customBackgroundMusic}
                   setCustomBackgroundMusic={setCustomBackgroundMusic}
@@ -461,11 +474,14 @@ const App: React.FC = () => {
   const rushHourBounceClass = isAppRushHourActive && gamePhase === GamePhase.PLAYING ? 'animate-rushHourBounce' : '';
 
   return (
-    <div className={`h-screen bg-dark-metal flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${isFullscreen ? 'p-0' : 'p-2 sm:p-3'}`}>
+    <div className={`h-screen bg-dark-metal flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${isFullscreen || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
       <BackgroundMusicPlayer 
         volume={musicVolume} 
-        musicUrl={activeMusicOverride || activeMusicUrl} 
+        musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
       />
+      {showLanding ? (
+        <LandingScreen onPlay={handleEnterGame} />
+      ) : (
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
           <span className="block text-[0.65rem] sm:text-xs font-sans uppercase tracking-[0.35em] text-electric-blue/80 mb-1">
@@ -538,6 +554,7 @@ const App: React.FC = () => {
           </div>
         </footer>
       </div>
+      )}
     </div>
   );
 };
