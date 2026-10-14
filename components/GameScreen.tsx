@@ -11,6 +11,7 @@ import {
     HELL_MODE_INITIAL_SKIPS, HELL_MODE_SKIP_PENALTY, HELL_MODE_LUCKY_SKIP_PENALTY
 } from '../constants';
 import { resolveVietnameseHint } from '../vietnameseMeanings';
+import { resolveEnglishSynonym } from '../services/synonyms';
 
 type WordDisplayStatus = 'default' | 'correct' | 'skipped'; 
 type Team = 'A' | 'B';
@@ -52,8 +53,9 @@ interface WordCardProps {
   isTeamMode: boolean;
   textColorClass?: string;
   isWordVisible: boolean;
-  // Shown under the word once the describer has been stuck for a while. Kept out
-  // of the auto-fit box so a long gloss can never shrink the word itself.
+  // Shown under the word once the describer has been stuck for a while: a mild
+  // English synonym first, then the Vietnamese gloss. Kept out of the auto-fit box
+  // so a long hint can never shrink the word itself.
   meaningHint?: string;
 }
 
@@ -177,7 +179,7 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
           className="absolute bottom-8 left-1/2 z-10 max-w-[92%] -translate-x-1/2 text-center text-sm font-semibold text-neon-green sm:text-lg animate-fadeInScaleUp pointer-events-none"
           style={{ textShadow: '0 1px 6px rgba(0, 0, 0, 0.85)' }}
         >
-          🇻🇳 {meaningHint}
+          {meaningHint}
         </p>
       )}
       {!isWordVisible && (
@@ -218,9 +220,11 @@ const LUCKY_STAR_MULTIPLIERS = [3];
 const TARGET_LUCKY_STARS = 4;
 // Anti-cheat: from ẩn sau khi hiện trong bao lâu (ms). Giữ Space hoặc nhấn giữ card để xem lại.
 const WORD_AUTO_HIDE_MS = 4000;
-// Hint safety net: once the describer has been on the same word this long, the
-// Vietnamese gloss is unlocked and shows alongside the word while peeking.
+// Struggle hint, in two tiers: after STRUGGLE_HINT_AFTER_MS a mild English synonym is
+// unlocked, and after STRUGGLE_HINT_FULL_AFTER_MS the Vietnamese gloss unlocks too.
+// Both only surface while the describer is peeking, so a confident player never sees them.
 const STRUGGLE_HINT_AFTER_MS = 12000;
+const STRUGGLE_HINT_FULL_AFTER_MS = 18000;
 
 const getCountdownAnimationClass = (text: string): string => {
     const mainNumericStyle = "text-8xl sm:text-9xl md:text-9xl font-extrabold font-heading text-light-text"; // Increased font size and set color to white
@@ -1068,35 +1072,55 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   const isWordVisible = isWordAutoRevealed || isPeeking;
 
-  // == Struggle hint (Vietnamese gloss) ==
-  // Hidden by default: the timer re-arms on every new word and only flips the
-  // hint on after STRUGGLE_HINT_AFTER_MS, so a confident describer never sees it.
-  const [isHintUnlocked, setIsHintUnlocked] = useState(false);
+  // == Struggle hint (two tiers) ==
+  // Hidden by default: the timer re-arms on every new word and only unlocks tier 1
+  // (a mild English synonym) after STRUGGLE_HINT_AFTER_MS and tier 2 (the Vietnamese
+  // gloss) after STRUGGLE_HINT_FULL_AFTER_MS, so a confident describer never sees them.
+  const [hintStage, setHintStage] = useState<0 | 1 | 2>(0);
+  const [hintSynonym, setHintSynonym] = useState<string | undefined>(undefined);
   const [hintMeaning, setHintMeaning] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    setIsHintUnlocked(false);
+    setHintStage(0);
     if (!showGameUI) return;
-    const timer = window.setTimeout(() => setIsHintUnlocked(true), STRUGGLE_HINT_AFTER_MS);
-    return () => window.clearTimeout(timer);
+    const synonymTimer = window.setTimeout(() => setHintStage(1), STRUGGLE_HINT_AFTER_MS);
+    const glossTimer = window.setTimeout(() => setHintStage(2), STRUGGLE_HINT_FULL_AFTER_MS);
+    return () => {
+      window.clearTimeout(synonymTimer);
+      window.clearTimeout(glossTimer);
+    };
   }, [wordKey, showGameUI]);
 
-  // Warm the current and upcoming glosses in the background as soon as a word
-  // appears, so the hint can surface instantly at the 12s mark instead of stalling
-  // on a network round-trip (and stays available if the connection drops later).
+  // Warm the current and upcoming hints in the background as soon as a word appears, so
+  // the tiers surface instantly when they unlock instead of stalling on the network.
   useEffect(() => {
     if (!showGameUI) return;
-    resolveVietnameseHint(shuffledWords[currentWordIndex]);
-    if (currentWordIndex + 1 < shuffledWords.length) {
-      resolveVietnameseHint(shuffledWords[currentWordIndex + 1]);
+    const current = shuffledWords[currentWordIndex];
+    const next = shuffledWords[currentWordIndex + 1];
+    resolveVietnameseHint(current);
+    resolveEnglishSynonym(current);
+    if (next) {
+      resolveVietnameseHint(next);
+      resolveEnglishSynonym(next);
     }
   }, [showGameUI, currentWordIndex, shuffledWords]);
 
-  // Resolve the gloss once the hint unlocks. The curated dictionary (and the warmed
-  // cache above) answer instantly; unknown words fall through to a client-side
-  // translate request and are cached per word.
+  // Resolve tier 1: an English synonym (Datamuse, cached) that nudges without spoiling.
   useEffect(() => {
-    if (!showGameUI || !isHintUnlocked) {
+    if (!showGameUI || hintStage < 1) {
+      setHintSynonym(undefined);
+      return;
+    }
+    let cancelled = false;
+    resolveEnglishSynonym(shuffledWords[currentWordIndex]).then(synonym => {
+      if (!cancelled) setHintSynonym(synonym);
+    });
+    return () => { cancelled = true; };
+  }, [showGameUI, hintStage, currentWordIndex, shuffledWords]);
+
+  // Resolve tier 2: the bundled Vietnamese gloss (instant and offline-capable).
+  useEffect(() => {
+    if (!showGameUI || hintStage < 2) {
       setHintMeaning(undefined);
       return;
     }
@@ -1105,9 +1129,17 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       if (!cancelled) setHintMeaning(meaning);
     });
     return () => { cancelled = true; };
-  }, [showGameUI, isHintUnlocked, currentWordIndex, shuffledWords]);
+  }, [showGameUI, hintStage, currentWordIndex, shuffledWords]);
 
-  const visibleHint = isWordVisible ? hintMeaning : undefined;
+  // Tier 2 wins when available; tier 1 fills the gap until the gloss unlocks (or when the
+  // word has no synonym). Only ever rendered while the word is being revealed.
+  const visibleHint = !isWordVisible
+    ? undefined
+    : hintMeaning
+      ? `🇻🇳 ${hintMeaning}`
+      : hintSynonym
+        ? `💬 ${hintSynonym}`
+        : undefined;
 
 
   // == In-game pause menu (Esc on desktop, ⏸ button on touch) ==

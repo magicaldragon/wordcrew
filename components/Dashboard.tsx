@@ -22,6 +22,8 @@ interface DashboardProps {
   entitlements: EntitlementItem[];
   /** Enter the WordCrew game (demo or full, decided by the game itself). */
   onPlayGame: () => void;
+  /** Enter Solo mode — play alone, guessing each word from a clue. */
+  onPlaySolo: () => void;
   /** Start the paid path — the app gates this behind sign-in. */
   onUnlock: () => void;
 }
@@ -45,7 +47,7 @@ const GAMES: GameEntry[] = [
     name: 'WordCrew',
     tagline: 'One player describes the word, the crew guesses it before time runs out.',
     emoji: '🔤',
-    meta: 'Normal, Hell and Team modes',
+    meta: 'Normal, Hell, Team and Solo modes',
     available: true,
   },
 ];
@@ -54,7 +56,7 @@ const GAMES: GameEntry[] = [
 const HOME_STATS = [
   { label: 'Words ready', value: 2842 },
   { label: 'CEFR packs', value: 6 },
-  { label: 'Game modes', value: 3 },
+  { label: 'Game modes', value: 4 },
 ];
 
 const HOME_CHIPS = ['Levels Pre-A1 to B2', '2,842 words', 'Pass-and-play', 'Works offline'];
@@ -184,7 +186,7 @@ const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) 
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onUnlock }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onPlaySolo, onUnlock }) => {
   const { user, loading, getIdToken } = useAuth();
   const [section, setSection] = useState<SectionId>('games');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -350,6 +352,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             <p className="mt-0.5 text-xs text-[var(--wn-9)]">{stat.label}</p>
           </div>
         ))}
+      </section>
+
+      {/* Solo mode — the single-player destination, kept visually distinct from the game tile. */}
+      <section className="wc-card flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between lg:shrink-0">
+        <div className="flex items-start gap-3">
+          <span className="text-3xl" aria-hidden="true">
+            🎯
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-[var(--wn-12)]">Solo mode</h3>
+            <p className="mt-1 max-w-lg text-sm leading-relaxed text-[var(--wn-10)]">
+              Play alone. Guess each word from a clue — type it or say it out loud. Difficulty ramps
+              from easy to hard, then climb the per-level leaderboard.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onPlaySolo}
+          className="wc-btn wc-btn-primary shrink-0 sm:px-6"
+        >
+          🎯 Play Solo
+        </button>
       </section>
 
       {/* One row on a laptop: the title and the classroom notes, nothing to scroll. */}

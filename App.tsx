@@ -9,6 +9,10 @@ import { SetupScreen } from './components/SetupScreen';
 import { InstructionScreen } from './components/InstructionScreen'; 
 import { GameScreen } from './components/GameScreen';
 import { ResultsScreen } from './components/ResultsScreen';
+import { SoloSetupScreen } from './components/SoloSetupScreen';
+import { SoloGameScreen } from './components/SoloGameScreen';
+import { SoloResultsScreen } from './components/SoloResultsScreen';
+import { buildSoloRun, type SoloTrack, type SoloWord, type SoloRunResult } from './services/solo';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
@@ -80,7 +84,7 @@ const App: React.FC = () => {
   const previousGamePhase = usePrevious(gamePhase);
 
   // The portal dashboard is the app's home; the game is one destination inside it.
-  const [view, setView] = useState<'dashboard' | 'game'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'game' | 'solo'>('dashboard');
   // Landing (marketing) screen shown when entering a game, before its setup shell.
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // Mode the player picked on the landing screen; pre-selected in SetupScreen.
@@ -94,6 +98,14 @@ const App: React.FC = () => {
   const [priceLabel, setPriceLabel] = useState<string | null>(null);
   // Purchases owned by the signed-in account, surfaced on the Account tab.
   const [entitlements, setEntitlements] = useState<EntitlementItem[]>([]);
+
+  // == Solo mode state ==
+  // Solo is a self-contained single-player flow (the player is the guesser), so it keeps
+  // its own phase machine rather than borrowing the pass-and-play GamePhase/GameMode.
+  const [soloPhase, setSoloPhase] = useState<'setup' | 'playing' | 'results' | null>(null);
+  const [soloTrack, setSoloTrack] = useState<SoloTrack | null>(null);
+  const [soloWords, setSoloWords] = useState<SoloWord[]>([]);
+  const [soloResult, setSoloResult] = useState<SoloRunResult | null>(null);
 
   const { user, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
@@ -416,6 +428,49 @@ const App: React.FC = () => {
     setView('game');
   }, []);
 
+  // == Solo mode handlers ==
+  // Enter Solo from the dashboard: straight to track selection, no marketing landing.
+  const handlePlaySolo = useCallback(() => {
+    setSoloPhase('setup');
+    setSoloTrack(null);
+    setSoloWords([]);
+    setSoloResult(null);
+    setShowLanding(false);
+    setView('solo');
+  }, []);
+
+  const handleStartSolo = useCallback((track: SoloTrack) => {
+    setSoloTrack(track);
+    setSoloWords(buildSoloRun(track));
+    setSoloResult(null);
+    setSoloPhase('playing');
+  }, []);
+
+  const handleSoloEnd = useCallback((result: SoloRunResult) => {
+    setSoloResult(result);
+    setSoloPhase('results');
+  }, []);
+
+  // "Play again" rebuilds the same track so the player can try to beat their own run.
+  const handleSoloPlayAgain = useCallback(() => {
+    if (!soloTrack) {
+      setSoloPhase('setup');
+      return;
+    }
+    setSoloWords(buildSoloRun(soloTrack));
+    setSoloResult(null);
+    setSoloPhase('playing');
+  }, [soloTrack]);
+
+  // Leaving Solo (Back / Quit / Home) always lands back on the portal dashboard.
+  const handleSoloExit = useCallback(() => {
+    setSoloPhase(null);
+    setSoloTrack(null);
+    setSoloWords([]);
+    setSoloResult(null);
+    setView('dashboard');
+  }, []);
+
   const handleBackToSetupFromInstruction = useCallback(() => {
     setIsAppRushHourActive(false); 
     setGamePhase(GamePhase.SETUP);
@@ -700,18 +755,63 @@ const App: React.FC = () => {
         return <p className="text-light-text animate-subtlePulse">Initializing Interface...</p>;
     }
   };
+
+  const renderSoloScreen = () => {
+    if (soloPhase === 'setup') {
+      return (
+        <SoloSetupScreen
+          isSignedIn={Boolean(user)}
+          onStart={handleStartSolo}
+          onExit={handleSoloExit}
+        />
+      );
+    }
+    if (soloPhase === 'playing' && soloTrack) {
+      return (
+        <SoloGameScreen
+          track={soloTrack}
+          words={soloWords}
+          effectsVolume={effectsVolume}
+          customCorrectSounds={customCorrectSounds}
+          onEnd={handleSoloEnd}
+          onExit={handleSoloExit}
+        />
+      );
+    }
+    if (soloPhase === 'results' && soloTrack && soloResult) {
+      return (
+        <SoloResultsScreen
+          track={soloTrack}
+          result={soloResult}
+          userId={user?.uid ?? null}
+          userName={user?.displayName || user?.email || null}
+          onPlayAgain={handleSoloPlayAgain}
+          onHome={handleSoloExit}
+        />
+      );
+    }
+    return null;
+  };
   
   const rushHourBounceClass = isAppRushHourActive && gamePhase === GamePhase.PLAYING ? 'animate-rushHourBounce' : '';
+  const isSolo = view === 'solo';
   // Never interrupt an active round: a pending major update is announced once the
   // player is back on a static screen.
-  const isRoundInProgress = !showLanding && gamePhase === GamePhase.PLAYING;
-  // Escape hatch back to the landing page, offered on the setup screen only so a live
-  // round or the results screen can never be abandoned by a stray tap on the header.
-  const canExitToHome = !showLanding && gamePhase === GamePhase.SETUP;
+  const isRoundInProgress =
+    (view === 'game' && !showLanding && gamePhase === GamePhase.PLAYING) ||
+    (isSolo && soloPhase === 'playing');
+  // Escape hatch back to the portal, offered on the setup screens only so a live round
+  // (in either mode) can never be abandoned by a stray tap on the header.
+  const canExitToHome = isSolo
+    ? soloPhase === 'setup'
+    : !showLanding && gamePhase === GamePhase.SETUP;
   const showMajorUpdateNotice = Boolean(majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion);
   // The minor/patch reload offer is surfaced on a static screen only — never while a
   // round is being played — and steps aside for the louder MAJOR notice when both are due.
-  const isStaticScreen = view === 'dashboard' || showLanding || gamePhase === GamePhase.SETUP;
+  const isStaticScreen =
+    view === 'dashboard' ||
+    showLanding ||
+    (isSolo ? soloPhase === 'setup' : gamePhase === GamePhase.SETUP);
   const showPwaUpdatePill = pwaUpdateReady && !dismissedPwaUpdate && isStaticScreen && !showMajorUpdateNotice;
 
   return (
@@ -775,6 +875,7 @@ const App: React.FC = () => {
           isUnlocked={isUnlocked}
           entitlements={entitlements}
           onPlayGame={handlePlayGame}
+          onPlaySolo={handlePlaySolo}
           onUnlock={requestPurchase}
         />
       ) : showLanding ? (
@@ -789,13 +890,13 @@ const App: React.FC = () => {
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
           <span className="block text-[0.65rem] sm:text-xs font-sans uppercase tracking-[0.35em] text-electric-blue/80 mb-1">
-            Only Talented Guessers
+            {isSolo ? 'Solo Challenge' : 'Only Talented Guessers'}
           </span>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold tracking-wider text-warning-yellow animate-goldPulseGlow">
             {canExitToHome ? (
               <button
                 type="button"
-                onClick={handleGoHome}
+                onClick={isSolo ? handleSoloExit : handleGoHome}
                 className="cursor-pointer rounded-md transition-transform duration-200 hover:scale-[1.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
                 title="Back to home"
                 aria-label="WordCrew — back to home"
@@ -807,19 +908,23 @@ const App: React.FC = () => {
             )}
           </h1>
           <p className="mt-1 sm:mt-2 text-md sm:text-lg text-muted-text font-sans">
-            Describe the word on screen to your partner before time runs out!
+            {isSolo
+              ? soloPhase === 'playing' && soloTrack
+                ? `${soloTrack.emoji} ${soloTrack.name} — type or say your guess before time runs out!`
+                : 'Play solo, climb the CEFR ladder and top the leaderboard.'
+              : 'Describe the word on screen to your partner before time runs out!'}
           </p>
         </header>
         <div className="relative flex min-h-0 w-full flex-grow flex-col">
           <main 
             className={`futuristic-card shadow-2xl rounded-xl w-full min-h-0 flex-grow overflow-y-auto ${getMainCardClass()}`}
           >
-            {renderScreen()}
+            {isSolo ? renderSoloScreen() : renderScreen()}
           </main>
           {canExitToHome && (
             <button
               type="button"
-              onClick={handleGoHome}
+              onClick={isSolo ? handleSoloExit : handleGoHome}
               className="absolute right-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full text-muted-text transition-colors hover:bg-cyber-purple/40 hover:text-light-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-electric-blue"
               aria-label="Exit setup and return home"
               title="Exit setup"
