@@ -7,6 +7,10 @@
 //
 // Keys are lower-cased and must match the entries in cefrWordLists.ts exactly.
 
+// Machine-generated glosses for the packs that carry no hand-curated entry, so the
+// hint still resolves offline. Curated entries below always win.
+import { GENERATED_VIETNAMESE_MEANINGS } from './vietnameseGlosses.generated';
+
 export const VIETNAMESE_MEANINGS: Record<string, string> = {
   // ── STARTERS (Pre-A1) · nouns ─────────────────────────────────────────────
   "afternoon": "buổi chiều", "alien": "người ngoài hành tinh", "alphabet": "bảng chữ cái", "animal": "động vật", "answer": "câu trả lời",
@@ -156,18 +160,19 @@ export const VIETNAMESE_MEANINGS: Record<string, string> = {
 
 const normalize = (word: string): string => word.trim().toLowerCase();
 
-// Returns the curated Vietnamese gloss for a word, or undefined when the word is
-// not in the bundled set.
+// Returns the Vietnamese gloss for a word: the hand-curated entry first, then the
+// generated map, or undefined when the word is in neither.
 export const getVietnameseMeaning = (word: string | undefined | null): string | undefined => {
   if (!word) return undefined;
-  return VIETNAMESE_MEANINGS[normalize(word)];
+  const key = normalize(word);
+  return VIETNAMESE_MEANINGS[key] ?? GENERATED_VIETNAMESE_MEANINGS[key];
 };
 
 // ── Machine-translation fallback (WiseSpeak pattern) ────────────────────────
-// The curated map only covers the bundled packs, so anything the player types by
-// hand falls through to a key-less client-side translation (see services/
-// translate.ts). Results are memoised in memory and persisted to localStorage so
-// a word is only ever translated once per device.
+// The bundled maps cover the CEFR packs, so anything the player types by hand falls
+// through to a key-less client-side translation (see services/translate.ts). Results
+// are memoised in memory and persisted to localStorage so a word is only ever
+// translated once per device.
 
 import { translateText } from './services/translate';
 

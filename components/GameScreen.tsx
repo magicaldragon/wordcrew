@@ -1081,8 +1081,20 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     return () => window.clearTimeout(timer);
   }, [wordKey, showGameUI]);
 
-  // Resolve the gloss once the hint unlocks. The curated dictionary answers
-  // instantly; unknown words fall through to on-device translation (if present).
+  // Warm the current and upcoming glosses in the background as soon as a word
+  // appears, so the hint can surface instantly at the 12s mark instead of stalling
+  // on a network round-trip (and stays available if the connection drops later).
+  useEffect(() => {
+    if (!showGameUI) return;
+    resolveVietnameseHint(shuffledWords[currentWordIndex]);
+    if (currentWordIndex + 1 < shuffledWords.length) {
+      resolveVietnameseHint(shuffledWords[currentWordIndex + 1]);
+    }
+  }, [showGameUI, currentWordIndex, shuffledWords]);
+
+  // Resolve the gloss once the hint unlocks. The curated dictionary (and the warmed
+  // cache above) answer instantly; unknown words fall through to a client-side
+  // translate request and are cached per word.
   useEffect(() => {
     if (!showGameUI || !isHintUnlocked) {
       setHintMeaning(undefined);
