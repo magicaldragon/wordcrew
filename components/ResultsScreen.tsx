@@ -296,9 +296,9 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
           </p>
           <p className="mt-1 font-sans text-xs text-muted-text">
             {demoRounds >= 2
-              ? <>Hell 💀 and 5 more word packs are one code away.</>
+              ? <>Hell 💀 and 4 more word packs are one code away.</>
               : <>Unlock <strong className="text-light-text">Hell 💀</strong> and{' '}
-                  <strong className="text-light-text">5 more word packs</strong>.</>}
+                  <strong className="text-light-text">4 more word packs</strong>.</>}
           </p>
           <button
             type="button"

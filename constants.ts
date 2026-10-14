@@ -56,7 +56,7 @@ export const UNLOCK_STORAGE_KEY = 'wordcrew_unlocked';
 // both always quote the same offer.
 export const FULL_VERSION_PERKS = [
   '💀 Hell Mode — brutal skips & double Rush Hour',
-  '📚 5 extra word packs (A1 · A2 · A2 Key · B1 · B2)',
+  '📚 4 extra word packs (A2 · A2 Key · B1 · B2)',
   '⏱️ Up to 60 words & 10 minutes per game',
   '🎵 Custom sounds — upload your own music & SFX',
 ] as const;
@@ -106,7 +106,7 @@ export const incrementDemoRounds = (): number => {
 // is worth paying for (Hell Mode, extra word packs, longer games, power-user settings).
 export const DEMO_POLICY = {
   freeModes: [GameMode.NORMAL, GameMode.TEAM] as GameMode[],
-  freePresets: [CEFRLevel.STARTERS] as CEFRLevel[],
+  freePresets: [CEFRLevel.STARTERS, CEFRLevel.MOVERS] as CEFRLevel[],
   freeWordCounts: [5, 10, 20] as number[],
   maxWordsPerGame: 20,      // full version goes up to 60
   maxTotalTimeLimit: 180,   // full version goes up to 600 seconds

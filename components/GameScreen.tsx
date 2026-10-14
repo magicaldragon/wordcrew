@@ -10,6 +10,7 @@ import {
     POWERUP_TIME_FREEZE_SECONDS, RUSH_HOUR_DURATION_SECONDS,
     HELL_MODE_INITIAL_SKIPS, HELL_MODE_SKIP_PENALTY, HELL_MODE_LUCKY_SKIP_PENALTY
 } from '../constants';
+import { resolveVietnameseHint } from '../vietnameseMeanings';
 
 type WordDisplayStatus = 'default' | 'correct' | 'skipped'; 
 type Team = 'A' | 'B';
@@ -51,9 +52,12 @@ interface WordCardProps {
   isTeamMode: boolean;
   textColorClass?: string;
   isWordVisible: boolean;
+  // Shown under the word once the describer has been stuck for a while. Kept out
+  // of the auto-fit box so a long gloss can never shrink the word itself.
+  meaningHint?: string;
 }
 
-const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColorClass, isWordVisible }) => {
+const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColorClass, isWordVisible, meaningHint }) => {
   const getCardStyling = () => { 
     switch (status) { 
       case 'correct':
@@ -168,6 +172,14 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
             )}
         </div>
       </div>
+      {isWordVisible && meaningHint && (
+        <p
+          className="absolute bottom-8 left-1/2 z-10 max-w-[92%] -translate-x-1/2 text-center text-sm font-semibold text-neon-green sm:text-lg animate-fadeInScaleUp pointer-events-none"
+          style={{ textShadow: '0 1px 6px rgba(0, 0, 0, 0.85)' }}
+        >
+          🇻🇳 {meaningHint}
+        </p>
+      )}
       {!isWordVisible && (
         <p className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] sm:text-xs text-light-text/50 tracking-wide select-none pointer-events-none">
           Hold SPACE or the card to reveal
@@ -206,6 +218,9 @@ const LUCKY_STAR_MULTIPLIERS = [3];
 const TARGET_LUCKY_STARS = 4;
 // Anti-cheat: from ẩn sau khi hiện trong bao lâu (ms). Giữ Space hoặc nhấn giữ card để xem lại.
 const WORD_AUTO_HIDE_MS = 4000;
+// Hint safety net: once the describer has been on the same word this long, the
+// Vietnamese gloss is unlocked and shows alongside the word while peeking.
+const STRUGGLE_HINT_AFTER_MS = 12000;
 
 const getCountdownAnimationClass = (text: string): string => {
     const mainNumericStyle = "text-8xl sm:text-9xl md:text-9xl font-extrabold font-heading text-light-text"; // Increased font size and set color to white
@@ -1053,6 +1068,35 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   const isWordVisible = isWordAutoRevealed || isPeeking;
 
+  // == Struggle hint (Vietnamese gloss) ==
+  // Hidden by default: the timer re-arms on every new word and only flips the
+  // hint on after STRUGGLE_HINT_AFTER_MS, so a confident describer never sees it.
+  const [isHintUnlocked, setIsHintUnlocked] = useState(false);
+  const [hintMeaning, setHintMeaning] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    setIsHintUnlocked(false);
+    if (!showGameUI) return;
+    const timer = window.setTimeout(() => setIsHintUnlocked(true), STRUGGLE_HINT_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [wordKey, showGameUI]);
+
+  // Resolve the gloss once the hint unlocks. The curated dictionary answers
+  // instantly; unknown words fall through to on-device translation (if present).
+  useEffect(() => {
+    if (!showGameUI || !isHintUnlocked) {
+      setHintMeaning(undefined);
+      return;
+    }
+    let cancelled = false;
+    resolveVietnameseHint(shuffledWords[currentWordIndex]).then(meaning => {
+      if (!cancelled) setHintMeaning(meaning);
+    });
+    return () => { cancelled = true; };
+  }, [showGameUI, isHintUnlocked, currentWordIndex, shuffledWords]);
+
+  const visibleHint = isWordVisible ? hintMeaning : undefined;
+
 
   // == In-game pause menu (Esc on desktop, ⏸ button on touch) ==
   const openPauseMenu = useCallback(() => {
@@ -1357,6 +1401,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                             isTeamMode={isTeamMode}
                             textColorClass={teamColorClass}
                             isWordVisible={isWordVisible}
+                            meaningHint={visibleHint}
                         />
                     </div>
                 ) : showGameUI && !wordForCardDisplay ? ( 
@@ -1536,6 +1581,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 wordCardRef={wordCardRef}
                 isTeamMode={isTeamMode}
                 isWordVisible={isWordVisible}
+                meaningHint={visibleHint}
             />
             {luckyWordMultipliers.has(currentWordIndex) && !isProcessingWord && !wordTextAnimation && ( 
               <div 

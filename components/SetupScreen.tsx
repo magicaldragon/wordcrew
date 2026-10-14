@@ -5,7 +5,8 @@ import { FileUploadButton, ACCEPTED_AUDIO_ACCEPT_ATTR, ACCEPTED_AUDIO_FORMATS_LA
 import { UnlockDialog } from './UnlockDialog';
 import type { UnlockOutcome } from '../services/payments';
 import { VolumeControls } from './VolumeControls';
-import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WordListCategories, WORD_COUNT_OPTIONS } from '../cefrWordLists';
+import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WORD_COUNT_OPTIONS } from '../cefrWordLists';
+import { addWordSet, readWordSets, removeWordSet, type SavedWordSet } from '../services/wordSets';
 
 interface SetupScreenProps {
   initialGameMode: GameMode;
@@ -110,52 +111,67 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const [displayDevUtils, setDisplayDevUtils] = useState<boolean>(false);
   const [step, setStep] = useState<number>(0);
 
-  const [selectedPreset, setSelectedPreset] = useState<CEFRLevel | ''>('');
+  const [selectedPresets, setSelectedPresets] = useState<CEFRLevel[]>([]);
   const [selectedWordTypes, setSelectedWordTypes] = useState<SelectedWordTypes>({ ...DEFAULT_SELECTED_WORD_TYPES });
   const [selectedWordCountForPreset, setSelectedWordCountForPreset] = useState<number>(WORD_COUNT_OPTIONS[2]);
   const [gameMode, setGameMode] = useState<GameMode>(initialGameMode);
   // Two explicit word-entry flows: let the app suggest words to curate, or type your own.
   const [entryMode, setEntryMode] = useState<'suggest' | 'manual'>('suggest');
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
+  // Saved lists the teacher can reload in one tap instead of retyping a topic's words.
+  const [wordSets, setWordSets] = useState<SavedWordSet[]>(() => readWordSets());
+  const [setNameInput, setSetNameInput] = useState<string>('');
+  const [setsNotice, setSetsNotice] = useState<string>('');
+  // Save/Load open as focused dialogs instead of an always-on panel, so the step stays clean.
+  const [saveDialogOpen, setSaveDialogOpen] = useState<boolean>(false);
+  const [loadDialogOpen, setLoadDialogOpen] = useState<boolean>(false);
+  // When set, Save updates this exact set (even if renamed) instead of creating a new one.
+  const [editingSetId, setEditingSetId] = useState<string | null>(null);
   // The custom-sound uploaders are 14 rows tall, so they stay folded away to keep the
   // Settings step on a single screen; players open them only when they want them.
   const [showCustomSounds, setShowCustomSounds] = useState<boolean>(false);
 
   const updateWordsFromPreset = useCallback(() => {
-    if (selectedPreset === '' || !cefrWordLists[selectedPreset]) {
+    if (selectedPresets.length === 0) {
         setWordsInput('');
-        setError(selectedPreset !== '' ? 'Selected preset not found.' : '');
+        setError('');
         return;
     }
 
-    const levelData: WordListCategories = cefrWordLists[selectedPreset];
     let combinedWords: string[] = [];
+    selectedPresets.forEach((level) => {
+        const levelData = cefrWordLists[level];
+        if (!levelData) return;
+        if (selectedWordTypes.nouns) combinedWords = combinedWords.concat(levelData.nouns);
+        if (selectedWordTypes.verbs) combinedWords = combinedWords.concat(levelData.verbs);
+        if (selectedWordTypes.adjectives) combinedWords = combinedWords.concat(levelData.adjectives);
+        if (selectedWordTypes.phrasalVerbs && levelData.phrasalVerbs) combinedWords = combinedWords.concat(levelData.phrasalVerbs);
+    });
 
-    if (selectedWordTypes.nouns) combinedWords = combinedWords.concat(levelData.nouns);
-    if (selectedWordTypes.verbs) combinedWords = combinedWords.concat(levelData.verbs);
-    if (selectedWordTypes.adjectives) combinedWords = combinedWords.concat(levelData.adjectives);
-    if (selectedWordTypes.phrasalVerbs && levelData.phrasalVerbs) combinedWords = combinedWords.concat(levelData.phrasalVerbs);
+    // Packs overlap — a word can sit in two bands — so the merged pool is de-duplicated
+    // before it is shuffled and sliced.
+    const pool = Array.from(new Set(combinedWords));
 
-    if (combinedWords.length === 0) {
+    if (pool.length === 0) {
         setWordsInput('');
-        setError(`No words available for the selected types in ${selectedPreset}. Please select at least one word type.`);
+        setError('No words available for the selected types in these packs. Please select at least one word type.');
         return;
     }
     setError('');
 
-    const shuffledWords = [...combinedWords].sort(() => 0.5 - Math.random());
+    const shuffledWords = [...pool].sort(() => 0.5 - Math.random());
     const actualWordCountToUse = Math.min(selectedWordCountForPreset, shuffledWords.length);
     const wordsToUse = shuffledWords.slice(0, actualWordCountToUse);
 
     setWordsInput(formatWordsForTextarea(wordsToUse));
-  }, [selectedPreset, selectedWordTypes, selectedWordCountForPreset]);
+  }, [selectedPresets, selectedWordTypes, selectedWordCountForPreset]);
 
 
   useEffect(() => {
-    if (selectedPreset) {
+    if (selectedPresets.length > 0) {
       updateWordsFromPreset();
     }
-  }, [selectedPreset, selectedWordTypes, selectedWordCountForPreset, updateWordsFromPreset]);
+  }, [selectedPresets, selectedWordTypes, selectedWordCountForPreset, updateWordsFromPreset]);
 
   // Demo guard: keep the time limit and game mode inside the free allowance.
   const effectiveMaxTimeLimit = isUnlocked ? MAX_TOTAL_TIME_LIMIT : DEMO_POLICY.maxTotalTimeLimit;
@@ -170,11 +186,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     }
   }, [isUnlocked, gameMode]);
 
-  // Words currently in the textarea, used for the live counter and validation.
-  const parsedWordCount = wordsInput
+  // Words currently in the textarea, used for the live counter, validation and saving.
+  const parsedWords = wordsInput
     .split(/[\n,]+/)
     .map(word => word.trim())
-    .filter(word => word.length > 0).length;
+    .filter(word => word.length > 0);
+  const parsedWordCount = parsedWords.length;
   const isOverDemoWordCap = !isUnlocked && parsedWordCount > DEMO_POLICY.maxWordsPerGame;
 
   // Demo tasting default: pre-fill a ready-to-play STARTERS list exactly once, so a
@@ -182,25 +199,93 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const didApplyDemoDefault = useRef(false);
   useEffect(() => {
     if (didApplyDemoDefault.current) return;
-    if (!isUnlocked && entryMode === 'suggest' && !selectedPreset) {
+    if (!isUnlocked && entryMode === 'suggest' && selectedPresets.length === 0) {
       didApplyDemoDefault.current = true;
-      setSelectedPreset(DEMO_POLICY.freePresets[0]);
+      // The demo lands on the youngest pack only — a short, familiar list to react to.
+      setSelectedPresets([DEMO_POLICY.freePresets[0]]);
     }
-  }, [isUnlocked, entryMode, selectedPreset]);
+  }, [isUnlocked, entryMode, selectedPresets]);
 
   const handleEntryModeChange = (mode: 'suggest' | 'manual') => {
     if (mode === entryMode) return;
     setEntryMode(mode);
     setError('');
     if (mode === 'manual') {
-      // Hand-written list: blank the textarea but keep the picked pack so that
+      // Hand-written list: blank the textarea but keep the picked packs so that
       // switching back to "Suggest & Curate" can restore the suggestions.
       setWordsInput('');
-    } else if (selectedPreset) {
-      // Returning to the suggest flow: repopulate the list from the kept pack.
+    } else if (selectedPresets.length > 0) {
+      // Returning to the suggest flow: repopulate the list from the kept packs.
       updateWordsFromPreset();
     }
   };
+
+  // Save opens a dialog so a teacher can name a brand-new set or pick an existing one to edit.
+  const openSaveDialog = () => {
+    setEditingSetId(null);
+    setSetNameInput('');
+    setSetsNotice('');
+    setSaveDialogOpen(true);
+  };
+
+  const openLoadDialog = () => {
+    setSetsNotice('');
+    setLoadDialogOpen(true);
+  };
+
+  // Picking an existing set turns Save into an edit: that id is overwritten even if the
+  // name changes, so renaming never leaves a stale copy behind.
+  const startEditingWordSet = (set: SavedWordSet) => {
+    setEditingSetId(set.id);
+    setSetNameInput(set.name);
+  };
+
+  // Saving keeps the exact list on screen, so a teacher can drop a topic and reload it later.
+  const handleSaveWordSet = () => {
+    if (parsedWords.length === 0) {
+      setSetsNotice('Add some words first, then save them as a set.');
+      return;
+    }
+    const base = editingSetId ? wordSets.filter((set) => set.id !== editingSetId) : wordSets;
+    setWordSets(addWordSet(base, setNameInput, parsedWords));
+    setSetsNotice(`Saved “${setNameInput.trim() || 'Untitled set'}” · ${parsedWords.length} words`);
+    setSetNameInput('');
+    setEditingSetId(null);
+    setSaveDialogOpen(false);
+  };
+
+  const handleLoadWordSet = (set: SavedWordSet) => {
+    // Loading hands the list over as a hand-written one, so a later pack change cannot
+    // quietly overwrite what the teacher just picked.
+    setEntryMode('manual');
+    setWordsInput(formatWordsForTextarea(set.words));
+    setError('');
+    setSetsNotice(`Loaded “${set.name}” · ${set.words.length} words`);
+    setLoadDialogOpen(false);
+  };
+
+  const handleDeleteWordSet = (set: SavedWordSet) => {
+    if (!window.confirm(`Delete the saved set “${set.name}”?`)) return;
+    setWordSets(removeWordSet(wordSets, set.id));
+    setSetsNotice(`Deleted “${set.name}”.`);
+    if (editingSetId === set.id) {
+      setEditingSetId(null);
+      setSetNameInput('');
+    }
+  };
+
+  // Escape closes whichever save/load dialog is open, matching the unlock dialog.
+  useEffect(() => {
+    if (!saveDialogOpen && !loadDialogOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSaveDialogOpen(false);
+        setLoadDialogOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [saveDialogOpen, loadDialogOpen]);
 
 
   const handleStartGame = useCallback(() => {
@@ -224,8 +309,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       return;
     }
 
-    const isPresetEffectivelyActive = selectedPreset !== '';
-    const levelHasPhrasalVerbs = !!cefrWordLists[selectedPreset as CEFRLevel]?.phrasalVerbs?.length;
+    const isPresetEffectivelyActive = selectedPresets.length > 0;
+    const levelHasPhrasalVerbs = selectedPresets.some(level => !!cefrWordLists[level]?.phrasalVerbs?.length);
     const noWordTypesSelected =
         !selectedWordTypes.nouns && !selectedWordTypes.verbs && !selectedWordTypes.adjectives &&
         !(levelHasPhrasalVerbs && selectedWordTypes.phrasalVerbs);
@@ -237,21 +322,25 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
     setError('');
     onGameStart({ words: gameWords, totalTimeLimit, gameMode, timePerWord });
-  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPreset, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit]);
+  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPresets, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit]);
 
-  const handlePresetSelect = (level: CEFRLevel) => {
-    setSelectedPreset(level);
-    // Reset word types and count to defaults when a new pack is picked.
-    setSelectedWordTypes({ ...DEFAULT_SELECTED_WORD_TYPES });
-    setSelectedWordCountForPreset(WORD_COUNT_OPTIONS[2]);
+  // Multi-select: tapping a pack adds or removes it from the pool the suggestions draw on.
+  const togglePreset = (level: CEFRLevel) => {
+    if (!isUnlocked && !DEMO_POLICY.freePresets.includes(level)) {
+      setShowUnlockDialog(true);
+      return;
+    }
+    setSelectedPresets(prev =>
+      prev.includes(level) ? prev.filter(selected => selected !== level) : [...prev, level],
+    );
     setError('');
   };
 
   const handleWordTypeChange = (type: keyof SelectedWordTypes) => {
     setSelectedWordTypes(prev => {
         const newTypes = { ...prev, [type]: !prev[type] };
-        const isPresetModeActive = selectedPreset !== '';
-        const levelHasPhrasalVerbs = !!cefrWordLists[selectedPreset as CEFRLevel]?.phrasalVerbs?.length;
+        const isPresetModeActive = selectedPresets.length > 0;
+        const levelHasPhrasalVerbs = selectedPresets.some(level => !!cefrWordLists[level]?.phrasalVerbs?.length);
         const noTypes =
             !newTypes.nouns && !newTypes.verbs && !newTypes.adjectives &&
             !(levelHasPhrasalVerbs && newTypes.phrasalVerbs);
@@ -267,7 +356,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
   const handleClearPreset = () => {
     setWordsInput('');
-    setSelectedPreset('');
+    setSelectedPresets([]);
     setError('');
   };
 
@@ -276,7 +365,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     setGameMode(newMode);
     setError('');
     // Clear settings when switching modes to avoid confusion
-    setSelectedPreset(''); 
+    setSelectedPresets([]); 
     setWordsInput('');    
     setSelectedWordTypes({ ...DEFAULT_SELECTED_WORD_TYPES });
     setSelectedWordCountForPreset(WORD_COUNT_OPTIONS[2]);
@@ -416,11 +505,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const isWordsInputEmpty = wordsInput.trim().length === 0;
   const isTimeLimitInvalid = gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > effectiveMaxTimeLimit);
   
-  const isPresetEffectivelyActive = selectedPreset !== '';
+  const isPresetEffectivelyActive = selectedPresets.length > 0;
 
   // Phrasal verbs are only curated for the higher bands (B1+), so the toggle is
-  // shown (and counted) only when the selected pack actually carries them.
-  const levelHasPhrasalVerbs = isPresetEffectivelyActive && !!cefrWordLists[selectedPreset as CEFRLevel]?.phrasalVerbs?.length;
+  // shown (and counted) only when at least one picked pack actually carries them.
+  const levelHasPhrasalVerbs = isPresetEffectivelyActive && selectedPresets.some(level => !!cefrWordLists[level]?.phrasalVerbs?.length);
 
   const visibleWordTypeKeys = (Object.keys(selectedWordTypes) as Array<keyof SelectedWordTypes>)
     .filter(type => type !== 'phrasalVerbs' || levelHasPhrasalVerbs);
@@ -462,7 +551,6 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     '🎵 Custom Sounds',
   ];
   const lockedPackPerks: string[] = [
-    CEFRLevel.MOVERS,
     CEFRLevel.FLYERS,
     CEFRLevel.KET,
     CEFRLevel.PET,
@@ -622,36 +710,46 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         <p className="w-full text-left text-[0.7rem] text-warning-yellow setup-screen-small-text">Hell Mode has special rules like skip penalties and intense rush hours. Check instructions!</p>
       )}
 
-      {/* Word Pack — compact dropdown, only relevant to the "Suggest & Curate" flow */}
+      {/* Word Pack — multi-select chips so several bands can feed one list */}
       {entryMode === 'suggest' && (
       <div className="w-full rounded-lg border border-cyber-purple/30 p-2 sm:p-3">
-        <label htmlFor="wordPackSelect" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-electric-blue text-left setup-screen-label sm:text-sm">
-          Word Pack (suggests words):
-        </label>
-        <select
-          id="wordPackSelect"
-          value={selectedPreset}
-          onChange={(e) => {
-            const level = e.target.value as CEFRLevel | '';
-            if (level === '') return;
-            handlePresetSelect(level);
-          }}
-          className="w-full rounded-lg p-2 shadow-sm futuristic-input text-xs setup-screen-input sm:text-sm"
-        >
-          <option value="" disabled>Choose a word pack…</option>
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-sm">
+            Word Packs
+          </span>
+          <span className="text-[0.65rem] text-muted-text setup-screen-small-text">
+            {selectedPresets.length > 0 ? `${selectedPresets.length} selected` : 'pick one or more'}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Word packs to suggest words from">
           {Object.values(CEFRLevel).map(level => {
             const locked = !isUnlocked && !DEMO_POLICY.freePresets.includes(level);
+            const selected = selectedPresets.includes(level);
             return (
-              <option key={level} value={level} disabled={locked}>
-                {level}{locked ? ' 🔒 Full Version' : ''}
-              </option>
+              <button
+                key={level}
+                type="button"
+                onClick={() => togglePreset(level)}
+                aria-pressed={selected}
+                className={`futuristic-button rounded-full border px-2.5 py-1 text-[0.7rem] sm:text-xs ${
+                  selected
+                    ? 'border-electric-blue bg-electric-blue font-semibold text-dark-metal'
+                    : locked
+                    ? 'border-warning-yellow/40 bg-dark-metal/60 text-warning-yellow/80 hover:border-warning-yellow hover:text-warning-yellow'
+                    : 'border-cyber-purple/40 bg-dark-metal text-electric-blue hover:border-electric-blue'
+                }`}
+                title={locked ? 'Unlock the Full Version to play this pack' : `Toggle ${level}`}
+              >
+                {level.split(' (')[0]}
+                {locked ? ' 🔒' : selected ? ' ✓' : ''}
+              </button>
             );
           })}
-        </select>
-        <p className="mt-1 text-left text-[0.7rem] text-muted-text setup-screen-small-text">
-          {selectedPreset
-            ? 'Words are suggested from this pack — refine them in the next step.'
-            : 'Pick a pack for a ready-to-play word list, or type your own in the next step.'}
+        </div>
+        <p className="mt-1.5 text-left text-[0.7rem] leading-tight text-muted-text setup-screen-small-text">
+          {selectedPresets.length > 0
+            ? 'Suggestions are merged from every pack you pick — refine them below.'
+            : 'Pick one or more packs for a ready-to-play list, or type your own below.'}
         </p>
       </div>
       )}
@@ -687,7 +785,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         </div>
         <p className="mt-2 text-left text-xs text-muted-text setup-screen-small-text">
           {entryMode === 'suggest'
-            ? 'Words are suggested from your pack — edit freely below.'
+            ? 'Words are suggested from your packs — edit freely below.'
             : 'Type your own list — comma or new line separated.'}
         </p>
       </div>
@@ -764,6 +862,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       </div>
       )}
 
+      {/* Type-your-words first, then the saved-set manager stacked right under the list. */}
+      <div className="flex w-full flex-col gap-2">
       <div className="w-full">
         <label htmlFor="wordsInput" className="block text-sm font-semibold text-electric-blue mb-2 text-left uppercase tracking-wider setup-screen-label">
           Your Words
@@ -788,11 +888,41 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         />
         <p className="text-xs text-muted-text mt-2 text-left setup-screen-small-text">
           {entryMode === 'suggest'
-            ? (selectedPreset
-                ? 'Suggested from your pack. Edit freely, or press 🎲 Shuffle for a new set.'
+            ? (selectedPresets.length > 0
+                ? 'Suggested from your packs. Edit freely, or press 🎲 Shuffle for a new set.'
                 : 'Pick a pack in the previous step to get suggestions, or just type your own words.')
             : 'One word per line, or separated by commas.'}
         </p>
+      </div>
+
+      {/* Favorite sets belong to the typed-list flow only: in "Suggest" mode the
+          packs already regenerate a list, so a saved-set manager there was noise. */}
+      {entryMode === 'manual' && (
+      <div className="w-full">
+        <div className="flex w-full gap-2">
+          <button
+            type="button"
+            onClick={openSaveDialog}
+            disabled={parsedWords.length === 0}
+            className="futuristic-button flex-1 rounded-lg bg-neon-green/80 px-3 py-2 text-xs font-semibold text-dark-metal hover:bg-neon-green disabled:opacity-40 sm:text-sm"
+            title="Save the words currently in the list as a set"
+          >
+            💾 Save
+          </button>
+          <button
+            type="button"
+            onClick={openLoadDialog}
+            className="futuristic-button flex-1 rounded-lg bg-electric-blue/80 px-3 py-2 text-xs font-semibold text-dark-metal hover:bg-electric-blue sm:text-sm"
+            title="Load a saved set into the word list"
+          >
+            📂 Load
+          </button>
+        </div>
+        {setsNotice && (
+          <p className="mt-1 text-[0.7rem] text-neon-green setup-screen-small-text">{setsNotice}</p>
+        )}
+      </div>
+      )}
       </div>
       </>
       )}
@@ -961,6 +1091,148 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         onClose={() => setShowUnlockDialog(false)}
         onUnlock={onUnlock}
       />
+
+      {/* Save dialog: name a new set, or pick an existing one to rename/update. */}
+      {saveDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="saveSetDialogTitle"
+          onClick={() => setSaveDialogOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-neon-green/40 bg-dark-metal p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="saveSetDialogTitle" className="font-heading text-lg font-bold tracking-wide text-neon-green">
+              💾 Save Word Set
+            </h2>
+            <p className="mt-1 text-left font-sans text-xs text-muted-text">
+              Name this set to create a new one, or pick a saved set below to rename and update it.
+            </p>
+
+            <label htmlFor="setNameField" className="mt-3 block text-left font-sans text-xs text-muted-text">
+              Set name
+            </label>
+            <input
+              id="setNameField"
+              type="text"
+              autoComplete="off"
+              value={setNameInput}
+              onChange={(event) => setSetNameInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleSaveWordSet(); } }}
+              placeholder="E.g., Animals — Unit 3"
+              maxLength={40}
+              className="futuristic-input mt-1 w-full rounded-lg px-3 py-2 text-sm"
+            />
+            {editingSetId && (
+              <p className="mt-1 text-left font-sans text-[0.7rem] text-warning-yellow">
+                Editing an existing set — saving will replace it.
+              </p>
+            )}
+
+            {wordSets.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1 text-left font-sans text-[0.7rem] uppercase tracking-wider text-muted-text">
+                  Existing sets
+                </p>
+                <ul className="flex max-h-32 flex-col gap-1 overflow-y-auto">
+                  {wordSets.map(set => (
+                    <li key={set.id}>
+                      <button
+                        type="button"
+                        onClick={() => startEditingWordSet(set)}
+                        className={`w-full truncate rounded-md border px-2 py-1 text-left font-sans text-xs transition ${
+                          editingSetId === set.id
+                            ? 'border-warning-yellow/60 bg-warning-yellow/10 text-warning-yellow'
+                            : 'border-cyber-purple/30 bg-dark-metal/40 text-light-text hover:border-neon-green/50'
+                        }`}
+                        title={set.words.join(', ')}
+                      >
+                        {editingSetId === set.id ? '✏️ ' : ''}{set.name} <span className="text-muted-text">· {set.words.length} words</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSaveDialogOpen(false)}
+                className="futuristic-button flex-1 rounded-lg bg-dark-metal px-3 py-2.5 text-sm text-muted-text hover:bg-cyber-purple/30"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveWordSet}
+                disabled={parsedWords.length === 0}
+                className="futuristic-button flex-1 rounded-lg bg-neon-green/80 px-3 py-2.5 text-sm font-semibold text-dark-metal hover:bg-neon-green disabled:opacity-40"
+              >
+                {editingSetId ? 'Update set' : 'Save new set'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load dialog: pick a saved set to drop straight into the word list. */}
+      {loadDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="loadSetDialogTitle"
+          onClick={() => setLoadDialogOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-electric-blue/40 bg-dark-metal p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="loadSetDialogTitle" className="font-heading text-lg font-bold tracking-wide text-electric-blue">
+              📂 Load Word Set
+            </h2>
+            {wordSets.length > 0 ? (
+              <ul className="mt-3 flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+                {wordSets.map(set => (
+                  <li key={set.id} className="flex items-center gap-1.5 rounded-md border border-cyber-purple/30 bg-dark-metal/40 px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleLoadWordSet(set)}
+                      className="min-w-0 flex-1 truncate text-left font-sans text-sm text-light-text transition hover:text-neon-green"
+                      title={set.words.join(', ')}
+                    >
+                      {set.name} <span className="text-muted-text">· {set.words.length} words</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteWordSet(set)}
+                      className="futuristic-button shrink-0 rounded-md bg-danger-red/60 px-2 py-0.5 text-[0.7rem] text-light-text hover:bg-danger-red"
+                      aria-label={`Delete saved set ${set.name}`}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-left font-sans text-xs italic text-muted-text">
+                No saved sets yet — save your word list first.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setLoadDialogOpen(false)}
+              className="mt-4 font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
