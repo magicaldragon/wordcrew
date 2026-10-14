@@ -10,12 +10,15 @@ interface LandingScreenProps {
   /** Start the paid path. The app gates this behind sign-in. */
   onUpgrade: () => void;
   onPlay: (mode: GameMode) => void;
+  /** Solo takes the shortcut straight to its track picker. */
+  onPlaySolo: () => void;
   /** Return to the portal dashboard. */
   onBack: () => void;
 }
 
 interface ModeInfo {
-  mode: GameMode;
+  /** Solo is a mode choice without being a `GameMode` value. */
+  mode: GameMode | 'solo';
   emoji: string;
   title: string;
   players: string;
@@ -57,6 +60,16 @@ const MODES: ModeInfo[] = [
     accentText: 'text-electric-blue',
     glow: 'hover:shadow-[0_0_25px_rgba(0,255,255,0.35)]',
   },
+  {
+    mode: 'solo',
+    emoji: '🎯',
+    title: 'Solo',
+    players: '1 player',
+    tagline: 'Play alone. Guess each word from its letter boxes and a Vietnamese clue — endless until your hearts run out.',
+    accentBorder: 'border-cyber-purple/40 hover:border-cyber-purple',
+    accentText: 'text-cyber-purple',
+    glow: 'hover:shadow-[0_0_25px_rgba(191,0,255,0.35)]',
+  },
 ];
 
 export const LandingScreen: React.FC<LandingScreenProps> = ({
@@ -64,11 +77,16 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
   onUnlock,
   onUpgrade,
   onPlay,
+  onPlaySolo,
   onBack,
 }) => {
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
-  const handleModeClick = (mode: GameMode) => {
+  const handleModeClick = (mode: GameMode | 'solo') => {
+    if (mode === 'solo') {
+      onPlaySolo();
+      return;
+    }
     const isLocked = !DEMO_POLICY.freeModes.includes(mode);
     if (isLocked && !isUnlocked) {
       setShowUnlockDialog(true);
@@ -155,14 +173,14 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
           {/* MODES */}
           <section className="mt-14 w-full">
             <h2 className="mb-1 text-center font-heading text-xl tracking-wide text-light-text sm:text-2xl">
-              Three ways to play
+              Four ways to play
             </h2>
             <p className="mb-6 text-center font-sans text-sm text-muted-text">
               Tap a mode to jump straight in
             </p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {MODES.map((m) => {
-                const isLocked = !DEMO_POLICY.freeModes.includes(m.mode) && !isUnlocked;
+                const isLocked = m.mode !== 'solo' && !DEMO_POLICY.freeModes.includes(m.mode) && !isUnlocked;
                 return (
                   <button
                     key={m.mode}

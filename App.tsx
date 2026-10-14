@@ -12,7 +12,7 @@ import { ResultsScreen } from './components/ResultsScreen';
 import { SoloSetupScreen } from './components/SoloSetupScreen';
 import { SoloGameScreen } from './components/SoloGameScreen';
 import { SoloResultsScreen } from './components/SoloResultsScreen';
-import { buildSoloRun, type SoloTrack, type SoloWord, type SoloRunResult } from './services/solo';
+import { type SoloTrack, type SoloRunResult } from './services/solo';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
@@ -104,8 +104,9 @@ const App: React.FC = () => {
   // its own phase machine rather than borrowing the pass-and-play GamePhase/GameMode.
   const [soloPhase, setSoloPhase] = useState<'setup' | 'playing' | 'results' | null>(null);
   const [soloTrack, setSoloTrack] = useState<SoloTrack | null>(null);
-  const [soloWords, setSoloWords] = useState<SoloWord[]>([]);
   const [soloResult, setSoloResult] = useState<SoloRunResult | null>(null);
+  // Bumped on each new run so the endless game screen remounts with a fresh word source.
+  const [soloRunId, setSoloRunId] = useState(0);
 
   const { user, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
@@ -429,11 +430,10 @@ const App: React.FC = () => {
   }, []);
 
   // == Solo mode handlers ==
-  // Enter Solo from the dashboard: straight to track selection, no marketing landing.
+  // Solo is picked from the game's mode list; it then opens its own track picker.
   const handlePlaySolo = useCallback(() => {
     setSoloPhase('setup');
     setSoloTrack(null);
-    setSoloWords([]);
     setSoloResult(null);
     setShowLanding(false);
     setView('solo');
@@ -441,8 +441,8 @@ const App: React.FC = () => {
 
   const handleStartSolo = useCallback((track: SoloTrack) => {
     setSoloTrack(track);
-    setSoloWords(buildSoloRun(track));
     setSoloResult(null);
+    setSoloRunId((id) => id + 1);
     setSoloPhase('playing');
   }, []);
 
@@ -457,18 +457,28 @@ const App: React.FC = () => {
       setSoloPhase('setup');
       return;
     }
-    setSoloWords(buildSoloRun(soloTrack));
     setSoloResult(null);
+    setSoloRunId((id) => id + 1);
     setSoloPhase('playing');
   }, [soloTrack]);
 
-  // Leaving Solo (Back / Quit / Home) always lands back on the portal dashboard.
+  // Leaving a run (Quit / Home) always lands back on the portal dashboard.
   const handleSoloExit = useCallback(() => {
     setSoloPhase(null);
     setSoloTrack(null);
-    setSoloWords([]);
     setSoloResult(null);
     setView('dashboard');
+  }, []);
+
+  // Backing out of the track picker returns to the game setup wizard, where Solo
+  // sits alongside the other modes — no detour through the dashboard.
+  const handleSoloBackToSetup = useCallback(() => {
+    setSoloPhase(null);
+    setSoloTrack(null);
+    setSoloResult(null);
+    setShowLanding(false);
+    setGamePhase(GamePhase.SETUP);
+    setView('game');
   }, []);
 
   const handleBackToSetupFromInstruction = useCallback(() => {
@@ -670,6 +680,7 @@ const App: React.FC = () => {
                   isUnlocked={isUnlocked}
                   onUnlock={handleUnlock}
                   onGameStart={handleGameStart}
+                  onStartSolo={handlePlaySolo}
                   musicVolume={musicVolume}
                   onMusicVolumeChange={handleMusicVolumeChange}
                   effectsVolume={effectsVolume}
@@ -761,16 +772,18 @@ const App: React.FC = () => {
       return (
         <SoloSetupScreen
           isSignedIn={Boolean(user)}
+          isUnlocked={isUnlocked}
+          onUnlock={requestPurchase}
           onStart={handleStartSolo}
-          onExit={handleSoloExit}
+          onExit={handleSoloBackToSetup}
         />
       );
     }
     if (soloPhase === 'playing' && soloTrack) {
       return (
         <SoloGameScreen
+          key={soloRunId}
           track={soloTrack}
-          words={soloWords}
           effectsVolume={effectsVolume}
           customCorrectSounds={customCorrectSounds}
           onEnd={handleSoloEnd}
@@ -875,7 +888,6 @@ const App: React.FC = () => {
           isUnlocked={isUnlocked}
           entitlements={entitlements}
           onPlayGame={handlePlayGame}
-          onPlaySolo={handlePlaySolo}
           onUnlock={requestPurchase}
         />
       ) : showLanding ? (
@@ -884,6 +896,7 @@ const App: React.FC = () => {
           onUnlock={handleUnlock}
           onUpgrade={requestPurchase}
           onPlay={handleEnterGame}
+          onPlaySolo={handlePlaySolo}
           onBack={handleGoHome}
         />
       ) : (
@@ -896,10 +909,10 @@ const App: React.FC = () => {
             {canExitToHome ? (
               <button
                 type="button"
-                onClick={isSolo ? handleSoloExit : handleGoHome}
+                onClick={isSolo ? handleSoloBackToSetup : handleGoHome}
                 className="cursor-pointer rounded-md transition-transform duration-200 hover:scale-[1.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
-                title="Back to home"
-                aria-label="WordCrew — back to home"
+                title={isSolo ? 'Back to setup' : 'Back to home'}
+                aria-label={isSolo ? 'WordCrew — back to setup' : 'WordCrew — back to home'}
               >
                 WordCrew
               </button>
@@ -924,10 +937,10 @@ const App: React.FC = () => {
           {canExitToHome && (
             <button
               type="button"
-              onClick={isSolo ? handleSoloExit : handleGoHome}
+              onClick={isSolo ? handleSoloBackToSetup : handleGoHome}
               className="absolute right-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full text-muted-text transition-colors hover:bg-cyber-purple/40 hover:text-light-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-electric-blue"
-              aria-label="Exit setup and return home"
-              title="Exit setup"
+              aria-label={isSolo ? 'Back to setup' : 'Exit setup and return home'}
+              title={isSolo ? 'Back to setup' : 'Exit setup'}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-5 w-5 sm:h-6 sm:w-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

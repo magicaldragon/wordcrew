@@ -1,25 +1,30 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CircularTimer from './CircularTimer';
 import { CustomSoundFile } from '../types';
 import { playSound, CORRECT_SOUNDS } from '../constants';
 import { resolveVietnameseHint } from '../vietnameseMeanings';
-import { resolveEnglishSynonym } from '../services/synonyms';
 import {
-  SOLO_BASE_POINTS,
-  SOLO_MAX_ATTEMPTS,
-  SOLO_SPEED_POINTS_PER_SECOND,
-  SOLO_STREAK_BONUS,
-  SOLO_TIME_PER_WORD,
+  buildLetterBoxes,
   checkSoloAnswer,
-  maskWord,
+  createSoloSequence,
+  letterCount,
+  shortLevel,
+  soloStreakBonus,
+  SOLO_CORRECT_POINTS,
+  SOLO_FREE_SKIPS,
+  SOLO_HEART_MILESTONES,
+  SOLO_MIN_SCORE,
+  SOLO_START_HEARTS,
+  SOLO_TIME_PER_WORD,
+  SOLO_WRONG_PENALTY,
   type SoloRunResult,
+  type SoloSequence,
   type SoloTrack,
   type SoloWord,
 } from '../services/solo';
 
 interface SoloGameScreenProps {
   track: SoloTrack;
-  words: SoloWord[];
   effectsVolume: number;
   customCorrectSounds: CustomSoundFile[];
   onEnd: (result: SoloRunResult) => void;
@@ -27,6 +32,19 @@ interface SoloGameScreenProps {
 }
 
 type Phase = 'guessing' | 'correct' | 'revealed';
+
+interface SoloStats {
+  hearts: number;
+  score: number;
+  streak: number;
+  bestStreak: number;
+  guessed: number;
+  /** Words resolved so far (guessed, skipped or timed out). */
+  played: number;
+  freeSkips: number;
+  /** How many heart milestones have already paid out. */
+  milestones: number;
+}
 
 const pick = <T,>(items: T[]): T | undefined =>
   items.length ? items[Math.floor(Math.random() * items.length)] : undefined;
@@ -146,163 +164,240 @@ const useSpeechInput = (onFinal: (text: string, alternatives: string[]) => void)
   return { supported, listening, interim, error, start, stop, clearError: () => setError(null) };
 };
 
+const initialStats = (): SoloStats => ({
+  hearts: SOLO_START_HEARTS,
+  score: 0,
+  streak: 0,
+  bestStreak: 0,
+  guessed: 0,
+  played: 0,
+  freeSkips: SOLO_FREE_SKIPS,
+  milestones: 0,
+});
+
 export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   track,
-  words,
   effectsVolume,
   customCorrectSounds,
   onEnd,
   onExit,
 }) => {
-  const [index, setIndex] = useState(0);
+  // Endless word source, drawn from the track's ladder and stepping up in difficulty.
+  const seqRef = useRef<SoloSequence | null>(null);
+  if (!seqRef.current) seqRef.current = createSoloSequence(track);
+
+  const [current, setCurrent] = useState<SoloWord>(() => seqRef.current!.next());
+  const [wordNo, setWordNo] = useState(1);
   const [phase, setPhase] = useState<Phase>('guessing');
-  const [score, setScore] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [bestStreak, setBestStreak] = useState(0);
-  const [guessed, setGuessed] = useState(0);
+  const [stats, setStats] = useState<SoloStats>(initialStats);
   const [timeLeft, setTimeLeft] = useState(SOLO_TIME_PER_WORD);
   const [input, setInput] = useState('');
-  const [attempts, setAttempts] = useState(0);
-  const [wrongFlash, setWrongFlash] = useState(0);
-  const [points, setPoints] = useState<{ value: number; key: number } | null>(null);
-  const [clue, setClue] = useState<{ vi?: string; syn?: string; loading: boolean }>({ loading: true });
+  const [points, setPoints] = useState<{ value: number; bonus: number; key: number } | null>(null);
+  const [clue, setClue] = useState<{ vi?: string; loading: boolean }>({ loading: true });
+  const [banner, setBanner] = useState<string | null>(null);
+  const [heartToast, setHeartToast] = useState<number | null>(null);
 
-  const current = words[index];
-  const answer = current?.word ?? '';
+  const answer = current.word;
+  const letterGroups = useMemo(() => buildLetterBoxes(answer), [answer]);
+  const totalLetters = useMemo(() => letterCount(answer), [answer]);
+  const longestGroup = useMemo(
+    () => letterGroups.reduce((max, group) => Math.max(max, group.length), 0),
+    [letterGroups],
+  );
+  const boxClass =
+    longestGroup <= 5
+      ? 'h-14 w-11 text-3xl'
+      : longestGroup <= 8
+        ? 'h-12 w-9 text-2xl'
+        : 'h-10 w-7 text-xl';
 
-  // Refs mirror state for the timeout callbacks, which must not close over stale values.
-  const indexRef = useRef(index);
+  // Refs mirror the latest values for the timer / speech callbacks.
+  const statsRef = useRef<SoloStats>(stats);
   const phaseRef = useRef(phase);
-  const timeLeftRef = useRef(timeLeft);
-  const attemptsRef = useRef(attempts);
-  const streakRef = useRef(streak);
-  const statsRef = useRef({ score: 0, guessed: 0, bestStreak: 0 });
+  const currentRef = useRef(current);
   const resolvedRef = useRef(false);
+  const endedRef = useRef(false);
+  const levelRef = useRef(current.level);
+  const maxBandRef = useRef(track.levels.indexOf(current.level));
   const advanceTimer = useRef<number | null>(null);
+  const bannerTimer = useRef<number | null>(null);
+  const toastTimer = useRef<number | null>(null);
 
-  useEffect(() => { indexRef.current = index; }, [index]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { timeLeftRef.current = timeLeft; }, [timeLeft]);
-  useEffect(() => { attemptsRef.current = attempts; }, [attempts]);
-  useEffect(() => { streakRef.current = streak; }, [streak]);
-  useEffect(() => {
-    statsRef.current = { score, guessed, bestStreak };
-  }, [score, guessed, bestStreak]);
+  useEffect(() => { currentRef.current = current; }, [current]);
   useEffect(() => () => {
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
+    if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
   }, []);
 
-  // ── Clue resolution: Vietnamese gloss first, English synonym as a second nudge ──
-  useEffect(() => {
-    const word = words[index]?.word;
-    const nextWord = words[index + 1]?.word;
-    if (!word) return;
-    let cancelled = false;
-    setClue({ loading: true });
-    void (async () => {
-      const [vi, syn] = await Promise.all([resolveVietnameseHint(word), resolveEnglishSynonym(word)]);
-      if (cancelled) return;
-      setClue({ vi: vi || undefined, syn: syn || undefined, loading: false });
-      // Warm the next card so the ramp feels instant.
-      if (nextWord) {
-        void resolveVietnameseHint(nextWord);
-        void resolveEnglishSynonym(nextWord);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [index, words]);
+  // Updates state and the mirror together so the timer callbacks never read stale values.
+  const applyStats = useCallback((updater: (prev: SoloStats) => SoloStats) => {
+    const next = updater(statsRef.current);
+    statsRef.current = next;
+    setStats(next);
+  }, []);
 
-  const finish = useCallback(() => {
-    onEnd({
-      trackId: track.id,
-      score: statsRef.current.score,
-      wordsGuessed: statsRef.current.guessed,
-      bestStreak: statsRef.current.bestStreak,
-      total: words.length,
-      timePerWord: SOLO_TIME_PER_WORD,
-    });
-  }, [onEnd, track.id, words.length]);
+  const showBanner = useCallback((text: string) => {
+    setBanner(text);
+    if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
+    bannerTimer.current = window.setTimeout(() => setBanner(null), 1800);
+  }, []);
 
-  const scheduleAdvance = useCallback(
-    (delay: number) => {
-      if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
-      advanceTimer.current = window.setTimeout(() => {
-        const next = indexRef.current + 1;
-        if (next >= words.length) {
-          finish();
-          return;
-        }
-        resolvedRef.current = false;
-        setIndex(next);
-        setPhase('guessing');
-        setInput('');
-        setAttempts(0);
-        setTimeLeft(SOLO_TIME_PER_WORD);
-        setPoints(null);
-      }, delay);
-    },
-    [finish, words.length],
-  );
-
-  const reveal = useCallback(
-    (delay: number) => {
-      if (resolvedRef.current) return;
-      resolvedRef.current = true;
-      setPhase('revealed');
-      setStreak(0);
-      scheduleAdvance(delay);
-    },
-    [scheduleAdvance],
-  );
+  const showHeartToast = useCallback(() => {
+    setHeartToast(Date.now());
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setHeartToast(null), 1800);
+  }, []);
 
   // `handleCorrect` needs to stop the mic, but the mic hook is created below it —
   // the stop function is reached through a ref to avoid a declaration cycle.
   const speechStopRef = useRef<() => void>(() => {});
 
+  const endGame = useCallback(() => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+    speechStopRef.current();
+    const s = statsRef.current;
+    onEnd({
+      trackId: track.id,
+      score: s.score,
+      wordsGuessed: s.guessed,
+      bestStreak: s.bestStreak,
+      wordsPlayed: s.played,
+      levelReached: levelRef.current,
+      timePerWord: SOLO_TIME_PER_WORD,
+    });
+  }, [onEnd, track.id]);
+
+  const scheduleAdvance = useCallback(
+    (delay: number) => {
+      if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
+      advanceTimer.current = window.setTimeout(() => {
+        if (statsRef.current.hearts <= 0) {
+          endGame();
+          return;
+        }
+        const nextWord = seqRef.current!.next();
+        const bandIndex = track.levels.indexOf(nextWord.level);
+        if (bandIndex > maxBandRef.current) {
+          maxBandRef.current = bandIndex;
+          showBanner(`⬆️ Level up — ${shortLevel(nextWord.level)}`);
+        }
+        levelRef.current = nextWord.level;
+        resolvedRef.current = false;
+        setCurrent(nextWord);
+        setWordNo((n) => n + 1);
+        setPhase('guessing');
+        setInput('');
+        setTimeLeft(SOLO_TIME_PER_WORD);
+        setPoints(null);
+      }, delay);
+    },
+    [endGame, showBanner, track.levels],
+  );
+
   const handleCorrect = useCallback(
     (value?: string) => {
-      if (resolvedRef.current) return;
+      if (resolvedRef.current || phaseRef.current !== 'guessing') return;
       resolvedRef.current = true;
-      const gained =
-        SOLO_BASE_POINTS +
-        timeLeftRef.current * SOLO_SPEED_POINTS_PER_SECOND +
-        (streakRef.current + 1 >= 3 ? SOLO_STREAK_BONUS : 0);
+
+      const s = statsRef.current;
+      const nextStreak = s.streak + 1;
+      const bonus = soloStreakBonus(nextStreak);
+      const gained = SOLO_CORRECT_POINTS + bonus;
+
+      let hearts = s.hearts;
+      let milestones = s.milestones;
+      let heartGained = false;
+      while (milestones < SOLO_HEART_MILESTONES.length && s.score + gained >= SOLO_HEART_MILESTONES[milestones]) {
+        if (hearts < SOLO_START_HEARTS) {
+          hearts += 1;
+          heartGained = true;
+        }
+        milestones += 1;
+      }
+
+      applyStats((prev) => ({
+        ...prev,
+        score: prev.score + gained,
+        hearts,
+        milestones,
+        streak: nextStreak,
+        bestStreak: Math.max(prev.bestStreak, nextStreak),
+        guessed: prev.guessed + 1,
+        played: prev.played + 1,
+      }));
+
+      if (heartGained) showHeartToast();
+
       setPhase('correct');
       setInput(value ?? '');
-      setPoints({ value: gained, key: Date.now() });
-      setScore((prev) => prev + gained);
-      setGuessed((prev) => prev + 1);
-      setStreak((prev) => {
-        const next = prev + 1;
-        setBestStreak((best) => Math.max(best, next));
-        return next;
-      });
+      setPoints({ value: gained, bonus, key: Date.now() });
       speechStopRef.current();
       const sound = pick(customCorrectSounds)?.data || pick(CORRECT_SOUNDS);
       if (sound) playSound(sound, effectsVolume);
       scheduleAdvance(1000);
     },
-    [customCorrectSounds, effectsVolume, scheduleAdvance],
+    [applyStats, customCorrectSounds, effectsVolume, scheduleAdvance, showHeartToast],
   );
 
-  const handleWrong = useCallback((value: string) => {
-    setInput(value);
-    setWrongFlash((prev) => prev + 1);
-    const next = attemptsRef.current + 1;
-    setAttempts(next);
-    if (next >= SOLO_MAX_ATTEMPTS) reveal(2200);
-  }, [reveal]);
+  const handleWrong = useCallback(
+    () => {
+      if (resolvedRef.current || phaseRef.current !== 'guessing') return;
+      setInput('');
+      const hearts = statsRef.current.hearts - 1;
+      applyStats((prev) => ({
+        ...prev,
+        hearts,
+        score: Math.max(SOLO_MIN_SCORE, prev.score - SOLO_WRONG_PENALTY),
+        streak: 0,
+      }));
+      if (hearts <= 0) {
+        resolvedRef.current = true;
+        setPhase('revealed');
+        scheduleAdvance(2000);
+      }
+    },
+    [applyStats, scheduleAdvance],
+  );
+
+  const handleTimeout = useCallback(() => {
+    if (resolvedRef.current || phaseRef.current !== 'guessing') return;
+    resolvedRef.current = true;
+    applyStats((prev) => ({
+      ...prev,
+      hearts: prev.hearts - 1,
+      score: Math.max(SOLO_MIN_SCORE, prev.score - SOLO_WRONG_PENALTY),
+      streak: 0,
+      played: prev.played + 1,
+    }));
+    setPhase('revealed');
+    scheduleAdvance(2200);
+  }, [applyStats, scheduleAdvance]);
+
+  // A skip is free while free skips last, and costs a heart afterwards (still
+  // gentler than a wrong guess, which also forfeits points).
+  const handleSkip = useCallback(() => {
+    if (resolvedRef.current || phaseRef.current !== 'guessing') return;
+    resolvedRef.current = true;
+    if (statsRef.current.freeSkips > 0) {
+      applyStats((prev) => ({ ...prev, freeSkips: prev.freeSkips - 1, streak: 0, played: prev.played + 1 }));
+    } else {
+      applyStats((prev) => ({ ...prev, hearts: prev.hearts - 1, streak: 0, played: prev.played + 1 }));
+    }
+    setPhase('revealed');
+    scheduleAdvance(1800);
+  }, [applyStats, scheduleAdvance]);
 
   const speech = useSpeechInput((text, alternatives) => {
     const value = text || alternatives[0] || '';
-    if (!value || phaseRef.current !== 'guessing') return;
-    const target = words[indexRef.current]?.word ?? '';
+    if (!value || phaseRef.current !== 'guessing' || resolvedRef.current) return;
+    const target = currentRef.current.word;
     if (checkSoloAnswer(value, target) || alternatives.some((alt) => checkSoloAnswer(alt, target))) {
       handleCorrect(value);
     } else {
-      handleWrong(value);
+      handleWrong();
     }
   });
   speechStopRef.current = speech.stop;
@@ -310,47 +405,59 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   // Per-word clock: runs only while the player is guessing.
   useEffect(() => {
     if (phase !== 'guessing') return;
-    setTimeLeft(SOLO_TIME_PER_WORD);
     const id = window.setInterval(() => {
       setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => window.clearInterval(id);
-  }, [index, phase]);
+  }, [phase, current]);
 
+  const timeoutRef = useRef<() => void>(() => {});
+  timeoutRef.current = handleTimeout;
   useEffect(() => {
-    if (phase === 'guessing' && timeLeft === 0) reveal(2200);
-  }, [timeLeft, phase, reveal]);
+    if (phase === 'guessing' && timeLeft === 0) timeoutRef.current();
+  }, [phase, timeLeft]);
+
+  // Clue resolution: the Vietnamese gloss only — the English synonym tier used to
+  // leak the answer (e.g. "pyjama" for "pajama"), so it is gone from Solo.
+  useEffect(() => {
+    let cancelled = false;
+    setClue({ loading: true });
+    void (async () => {
+      const vi = await resolveVietnameseHint(current.word);
+      if (cancelled) return;
+      setClue({ vi: vi || undefined, loading: false });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [current]);
 
   const onCheck = () => {
     const value = input.trim();
     if (!value || phase !== 'guessing') return;
     if (checkSoloAnswer(value, answer)) handleCorrect(value);
-    else handleWrong(value);
+    else handleWrong();
   };
 
-  const progressPct = words.length > 0 ? ((index + (phase === 'guessing' ? 0 : 1)) / words.length) * 100 : 0;
+  const lastHeartIndex = stats.hearts - 1;
+  const skipCostsHeart = stats.freeSkips <= 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center gap-3 px-1 py-2 text-light-text animate-fadeInScaleUp">
-      {/* Top bar: score · progress · clock */}
+      {/* Top bar: score · track / streak · clock */}
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="min-w-[4.5rem]">
           <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-text">Score</p>
-          <p className="text-xl font-bold tabular-nums text-neon-green sm:text-2xl">{score.toLocaleString()}</p>
+          <p className="text-xl font-bold tabular-nums text-neon-green sm:text-2xl">{stats.score.toLocaleString()}</p>
+          {stats.streak >= 2 && (
+            <p className="mt-0.5 text-[0.7rem] font-semibold text-orange-400">🔥 {stats.streak} in a row</p>
+          )}
         </div>
         <div className="min-w-0 flex-1 text-center">
           <p className="truncate text-xs font-semibold text-muted-text">
-            {track.emoji} {track.name} · Word {Math.min(index + 1, words.length)} / {words.length}
+            {track.emoji} {track.name} · {shortLevel(current.level)} · Word {wordNo}
           </p>
-          <div className="mx-auto mt-1 h-1.5 w-full max-w-[16rem] overflow-hidden rounded-full bg-dark-metal">
-            <span
-              className="block h-full rounded-full bg-gradient-to-r from-cyber-purple to-electric-blue transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-          {streak >= 2 && (
-            <p className="mt-0.5 text-[0.7rem] font-semibold text-orange-400">🔥 {streak} in a row</p>
-          )}
+          <p className="mt-0.5 text-[0.7rem] text-muted-text/70">Endless — survive as long as you can</p>
         </div>
         <div className="flex min-w-[4.5rem] justify-end">
           <CircularTimer
@@ -364,10 +471,19 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         </div>
       </div>
 
-      {/* Clue card — the word itself stays hidden from the guesser */}
+      {/* Hearts */}
+      <div className="flex w-full shrink-0 items-center gap-0.5 text-sm" aria-label={`${stats.hearts} of ${SOLO_START_HEARTS} hearts left`}>
+        {Array.from({ length: SOLO_START_HEARTS }).map((_, i) => (
+          <span key={i} className={i <= lastHeartIndex ? 'text-base' : 'text-base opacity-25 grayscale'} aria-hidden="true">
+            ❤️
+          </span>
+        ))}
+      </div>
+
+      {/* Clue card — letter boxes centred, Vietnamese meaning right below */}
       <div
-        key={index}
-        className={`relative flex w-full min-h-0 flex-grow flex-col items-center justify-center gap-2 rounded-xl border-2 bg-dark-metal/60 p-3 text-center sm:p-5 ${
+        key={wordNo}
+        className={`relative flex w-full min-h-0 flex-grow flex-col items-center justify-center gap-3 rounded-xl border-2 bg-dark-metal/60 p-3 text-center sm:p-5 ${
           phase === 'correct'
             ? 'border-neon-green/80 shadow-lg shadow-neon-green/30'
             : phase === 'revealed'
@@ -376,30 +492,41 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         }`}
       >
         <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
-          {current?.level}
+          {shortLevel(current.level)}
         </span>
 
-        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-muted-text/70">Clue</p>
+        {/* The letter boxes: first letter revealed, the rest blank, count spelled out */}
+        <div className="flex flex-wrap items-end justify-center gap-x-3 gap-y-2">
+          {letterGroups.map((group, gi) => (
+            <div key={gi} className="flex gap-1.5">
+              {group.map((char, ci) => (
+                <span
+                  key={ci}
+                  className={`flex ${boxClass} items-center justify-center rounded-md border-2 border-electric-blue/40 bg-dark-metal font-heading font-bold uppercase text-light-text ${
+                    phase === 'revealed' ? 'border-danger-red/50' : ''
+                  }`}
+                >
+                  {char}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+        <p className="text-[0.7rem] uppercase tracking-widest text-muted-text/70">
+          {totalLetters} letters
+        </p>
 
+        {/* The clue itself — Vietnamese meaning only, centred under the boxes */}
         {clue.loading ? (
           <p className="animate-subtlePulse text-lg text-muted-text">Loading clue…</p>
         ) : (
-          <>
-            <p className="font-heading text-2xl font-bold leading-tight text-neon-green sm:text-3xl">
-              {clue.vi ? `🇻🇳 ${clue.vi}` : '🤔 No translation — use the shape below'}
-            </p>
-            {clue.syn && (
-              <p className="text-sm text-cyan-300 sm:text-base">💬 {clue.syn}</p>
-            )}
-          </>
+          <p className="px-2 font-heading text-2xl font-bold leading-tight text-neon-green sm:text-3xl">
+            {clue.vi ? `🇻🇳 ${clue.vi}` : '🤔 No translation yet — trust the letters'}
+          </p>
         )}
 
-        <p className="mt-1 font-mono text-base tracking-[0.35em] text-light-text/70 sm:text-lg">
-          {maskWord(answer)}
-        </p>
-
         {phase === 'revealed' && (
-          <p className="mt-2 animate-fadeInScaleUp font-heading text-xl font-bold text-danger-red sm:text-2xl">
+          <p className="mt-1 animate-fadeInScaleUp font-heading text-xl font-bold text-danger-red sm:text-2xl">
             Answer: {answer}
           </p>
         )}
@@ -411,6 +538,23 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             aria-hidden="true"
           >
             +{points.value}
+            {points.bonus > 0 && <span className="ml-1 text-base text-orange-400">🔥</span>}
+          </span>
+        )}
+
+        {banner && (
+          <span className="pointer-events-none absolute inset-x-0 top-3 animate-fadeInScaleUp text-sm font-bold text-warning-yellow">
+            {banner}
+          </span>
+        )}
+
+        {heartToast && (
+          <span
+            key={heartToast}
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 animate-floatUpAndAway text-3xl font-extrabold text-danger-red"
+            aria-hidden="true"
+          >
+            ❤️ +1
           </span>
         )}
       </div>
@@ -463,25 +607,14 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           </button>
         </div>
 
-        {/* Attempt dots + live transcript + mic hint */}
-        <div className="flex items-center justify-between gap-2 text-[0.7rem]">
-          <div className="flex items-center gap-1.5">
-            {Array.from({ length: SOLO_MAX_ATTEMPTS }).map((_, i) => (
-              <span
-                key={i}
-                className={`h-2 w-2 rounded-full ${i < attempts ? 'bg-danger-red' : 'bg-dark-metal border border-muted-text/40'}`}
-              />
-            ))}
-            <span key={wrongFlash} className={wrongFlash ? 'ml-1 text-danger-red animate-pulseOnce' : 'hidden'}>
-              Not quite — try again
-            </span>
-          </div>
+        {/* Live transcript + mic hint */}
+        <div className="flex items-center gap-2 text-[0.7rem]">
           {speech.error ? (
             <span role="status" className="truncate text-warning-yellow">{speech.error}</span>
           ) : speech.listening && speech.interim ? (
             <span className="truncate text-cyan-300">“{speech.interim}”</span>
           ) : (
-            <span className="text-muted-text/70">Enter to check · 🎤 to speak</span>
+            <span className="text-muted-text/70">Enter to check · 🎤 to speak · −1 ❤️ per wrong guess</span>
           )}
         </div>
       </div>
@@ -496,11 +629,11 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => reveal(1800)}
+          onClick={handleSkip}
           disabled={phase !== 'guessing'}
           className="futuristic-button flex-grow rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-xs font-semibold text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
         >
-          Skip word →
+          {skipCostsHeart ? 'Skip word → (−1 ❤️)' : `Skip word → (${stats.freeSkips} free)`}
         </button>
       </div>
     </div>

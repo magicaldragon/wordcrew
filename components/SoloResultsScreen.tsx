@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AuthDialog } from './AuthDialog';
 import type { SoloRunResult, SoloTrack } from '../services/solo';
+import { shortLevel } from '../services/solo';
 import {
   fetchSoloLeaderboard,
   saveLocalSoloBest,
@@ -47,7 +48,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   const [showAuth, setShowAuth] = useState(false);
   const [localBest, setLocalBest] = useState<number>(result.score);
 
-  const accuracy = result.total > 0 ? Math.round((result.wordsGuessed / result.total) * 100) : 0;
+  const accuracy = result.wordsPlayed > 0 ? Math.round((result.wordsGuessed / result.wordsPlayed) * 100) : 0;
 
   // Persist the run and, when signed in, publish it to the shared board.
   useEffect(() => {
@@ -84,12 +85,15 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   return (
     <div className="flex h-full min-h-0 flex-col items-center gap-3 overflow-y-auto py-2 text-light-text animate-fadeInScaleUp">
       <h2 className="shrink-0 text-center text-2xl font-bold text-electric-blue font-heading sm:text-3xl">
-        Run Complete! 🎉
+        Run Over 🎯
       </h2>
       <p className="shrink-0 text-center text-sm text-muted-text">
-        {track.emoji} {track.name} track
+        {track.emoji} {track.name} track · reached {shortLevel(result.levelReached)}
       </p>
 
+      <p className="shrink-0 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-muted-text">
+        Final score
+      </p>
       <p className="font-heading text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-neon-green via-electric-blue to-cyber-purple sm:text-7xl">
         {shownScore.toLocaleString()}
       </p>
@@ -101,8 +105,8 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
 
       <div className="grid w-full shrink-0 grid-cols-3 gap-2 text-center">
         <div className="rounded-xl border border-dark-metal bg-dark-metal/50 p-2">
-          <p className="text-lg font-bold text-light-text">{result.wordsGuessed}/{result.total}</p>
-          <p className="text-[0.65rem] text-muted-text">Words</p>
+          <p className="text-lg font-bold text-light-text">{result.wordsGuessed}</p>
+          <p className="text-[0.65rem] text-muted-text">Words guessed</p>
         </div>
         <div className="rounded-xl border border-dark-metal bg-dark-metal/50 p-2">
           <p className="text-lg font-bold text-orange-400">{result.bestStreak}</p>

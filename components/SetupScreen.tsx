@@ -7,12 +7,15 @@ import type { UnlockOutcome } from '../services/payments';
 import { VolumeControls } from './VolumeControls';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 import { addWordSet, readWordSets, removeWordSet, type SavedWordSet } from '../services/wordSets';
+import { SOLO_FREE_SKIPS, SOLO_START_HEARTS, SOLO_TIME_PER_WORD } from '../services/solo';
 
 interface SetupScreenProps {
   initialGameMode: GameMode;
   isUnlocked: boolean;
   onUnlock: (code: string) => Promise<UnlockOutcome>;
   onGameStart: (settings: GameSettings) => void;
+  /** Solo is offered as a fourth mode but runs its own flow (track picker, then the run). */
+  onStartSolo: () => void;
   musicVolume: number;
   onMusicVolumeChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   effectsVolume: number;
@@ -72,7 +75,11 @@ const TIME_PER_WORD_OPTIONS = [10, 15, 20, 25, 30, 45];
 
 // App-like wizard: the setup is split into sequential panels so the primary action
 // is always reachable without scrolling through one long form.
-const WIZARD_STEPS = ['Mode', 'Words', 'Settings'] as const;
+const PASS_AND_PLAY_STEPS = ['Mode', 'Words', 'Settings'] as const;
+// Solo needs no word list — it draws its own endless words — so that step is dropped.
+const SOLO_STEPS = ['Mode', 'Settings'] as const;
+/** Solo is a first-class mode choice, but it is not a `GameMode` value. */
+type SetupMode = GameMode | 'solo';
 
 // Preview of the upload slots shown while custom sounds are still locked, so the
 // Settings step communicates what the Full Version adds instead of looking empty.
@@ -87,6 +94,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   isUnlocked,
   onUnlock,
   onGameStart,
+  onStartSolo,
   musicVolume, onMusicVolumeChange,
   effectsVolume, onEffectsVolumeChange,
   customBackgroundMusic, setCustomBackgroundMusic,
@@ -114,7 +122,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const [selectedPresets, setSelectedPresets] = useState<CEFRLevel[]>([]);
   const [selectedWordTypes, setSelectedWordTypes] = useState<SelectedWordTypes>({ ...DEFAULT_SELECTED_WORD_TYPES });
   const [selectedWordCountForPreset, setSelectedWordCountForPreset] = useState<number>(WORD_COUNT_OPTIONS[2]);
-  const [gameMode, setGameMode] = useState<GameMode>(initialGameMode);
+  const [gameMode, setGameMode] = useState<SetupMode>(initialGameMode);
   // Two explicit word-entry flows: let the app suggest words to curate, or type your own.
   const [entryMode, setEntryMode] = useState<'suggest' | 'manual'>('suggest');
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
@@ -130,6 +138,10 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // The custom-sound uploaders are 14 rows tall, so they stay folded away to keep the
   // Settings step on a single screen; players open them only when they want them.
   const [showCustomSounds, setShowCustomSounds] = useState<boolean>(false);
+
+  // Solo keeps the demo allowance: it is free for everyone, only its tracks are gated.
+  const isSoloMode = gameMode === 'solo';
+  const wizardSteps: readonly string[] = isSoloMode ? SOLO_STEPS : PASS_AND_PLAY_STEPS;
 
   const updateWordsFromPreset = useCallback(() => {
     if (selectedPresets.length === 0) {
@@ -181,7 +193,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   }, [effectiveMaxTimeLimit]);
 
   useEffect(() => {
-    if (!isUnlocked && !DEMO_POLICY.freeModes.includes(gameMode)) {
+    if (isUnlocked || gameMode === 'solo') return;
+    if (!DEMO_POLICY.freeModes.includes(gameMode)) {
       setGameMode(GameMode.NORMAL);
     }
   }, [isUnlocked, gameMode]);
@@ -289,6 +302,9 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
 
   const handleStartGame = useCallback(() => {
+    // Solo never reaches here — it launches through `onStartSolo` — but the guard
+    // also narrows the mode back to a `GameMode` for the settings object below.
+    if (gameMode === 'solo') return;
     const gameWords: string[] = wordsInput
         .split(/[\n,]+/)
         .map(word => word.trim())
@@ -361,9 +377,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   };
 
   const handleGameModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newMode = event.target.value as GameMode;
+    const newMode = event.target.value as SetupMode;
     setGameMode(newMode);
     setError('');
+    // Mode is chosen on the first step; going back there also covers the case where
+    // the new mode has fewer steps than the old one.
+    setStep(0);
     // Clear settings when switching modes to avoid confusion
     setSelectedPresets([]); 
     setWordsInput('');    
@@ -503,7 +522,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
   // Helper booleans for the start button's disabled logic
   const isWordsInputEmpty = wordsInput.trim().length === 0;
-  const isTimeLimitInvalid = gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > effectiveMaxTimeLimit);
+  const isTimeLimitInvalid =
+    !isSoloMode && gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > effectiveMaxTimeLimit);
   
   const isPresetEffectivelyActive = selectedPresets.length > 0;
 
@@ -521,21 +541,24 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const disableStartDueToPresetAndNoTypes = isPresetEffectivelyActive && noWordTypesSelected;
 
   // Wizard navigation
-  const isLastStep = step === WIZARD_STEPS.length - 1;
-  const startDisabled =
-    isWordsInputEmpty ||
-    isTimeLimitInvalid ||
-    isOverDemoWordCap ||
-    disableStartDueToPresetAndNoTypes;
+  const currentStep = wizardSteps[step];
+  const isLastStep = step === wizardSteps.length - 1;
+  const startDisabled = isSoloMode
+    ? false
+    : isWordsInputEmpty ||
+      isTimeLimitInvalid ||
+      isOverDemoWordCap ||
+      disableStartDueToPresetAndNoTypes;
 
   const goToStep = (next: number) => {
     setError('');
-    setStep(Math.max(0, Math.min(next, WIZARD_STEPS.length - 1)));
+    setStep(Math.max(0, Math.min(next, wizardSteps.length - 1)));
   };
 
   const handlePrimaryAction = () => {
     if (isLastStep) {
-      handleStartGame();
+      if (isSoloMode) onStartSolo();
+      else handleStartGame();
     } else {
       goToStep(step + 1);
     }
@@ -546,6 +569,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // Split in two rows: headline extras first, then the locked word packs.
   const lockedFeaturePerks: string[] = [
     '💀 Hell Mode',
+    '🎯 Solo tracks',
     '🔢 Up to 60 words',
     '⏱️ Up to 10 minutes',
     '🎵 Custom Sounds',
@@ -575,7 +599,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
       {/* Wizard step indicator — tap a step to jump straight to it. */}
       <div className="my-2 flex w-full items-center justify-center gap-1.5 sm:gap-2" role="tablist" aria-label="Setup steps">
-        {WIZARD_STEPS.map((label, index) => {
+        {wizardSteps.map((label, index) => {
           const isActive = index === step;
           const isDone = index < step;
           return (
@@ -604,13 +628,13 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
       {/* Panel area — one step at a time; scrolls only if a single step is tall. */}
       <div key={step} className="flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden animate-fadeInScaleUp sm:gap-3">
-      {step === 0 && (
+      {currentStep === 'Mode' && (
       <>
       {!isUnlocked && (
         <div className="w-full rounded-lg border border-warning-yellow/40 bg-warning-yellow/10 px-2.5 py-1.5 text-left">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[0.7rem] leading-tight text-warning-yellow">
-              <strong className="font-heading tracking-wider">DEMO</strong> · Normal + Team · ≤{DEMO_POLICY.maxWordsPerGame} words · ≤{DEMO_POLICY.maxTotalTimeLimit / 60} min
+              <strong className="font-heading tracking-wider">DEMO</strong> · Normal + Team + Solo · ≤{DEMO_POLICY.maxWordsPerGame} words · ≤{DEMO_POLICY.maxTotalTimeLimit / 60} min
             </p>
             <button
               type="button"
@@ -639,12 +663,13 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             onChange={handleGameModeChange}
             className="w-full rounded-lg p-2 shadow-sm futuristic-input text-xs transition duration-150 ease-in-out focus:border-neon-green focus:ring-2 focus:ring-neon-green setup-screen-input sm:text-sm"
           >
-            {[
+            {([
               { value: GameMode.NORMAL, label: '😊 Normal' },
               { value: GameMode.TEAM, label: '🤝 Team' },
               { value: GameMode.HELL, label: '💀 Hell' },
-            ].map(({ value, label }) => {
-              const locked = !isUnlocked && !DEMO_POLICY.freeModes.includes(value);
+              { value: 'solo', label: '🎯 Solo' },
+            ] as { value: SetupMode; label: string }[]).map(({ value, label }) => {
+              const locked = !isUnlocked && value !== 'solo' && !DEMO_POLICY.freeModes.includes(value);
               return (
                 <option key={value} value={value} disabled={locked}>
                   {label}{locked ? ' 🔒' : ''}
@@ -655,7 +680,19 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         </div>
 
         <div className="rounded-lg border border-cyber-purple/30 p-2 text-left sm:p-3">
-          {gameMode === GameMode.TEAM ? (
+          {isSoloMode ? (
+            <>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-sm">
+                Solo Rundown:
+              </p>
+              <p className="text-[0.7rem] leading-snug text-muted-text setup-screen-small-text">
+                Endless run · {SOLO_START_HEARTS} ❤️ · {SOLO_FREE_SKIPS} free skips · {SOLO_TIME_PER_WORD}s per word.
+              </p>
+              <p className="mt-1 text-[0.7rem] leading-snug text-muted-text setup-screen-small-text">
+                +10 per correct guess, −10 and −1 ❤️ per miss — out of hearts ends the run.
+              </p>
+            </>
+          ) : gameMode === GameMode.TEAM ? (
             <>
               <label htmlFor="timePerWord" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-sm">
                 Time / Word:
@@ -710,8 +747,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         <p className="w-full text-left text-[0.7rem] text-warning-yellow setup-screen-small-text">Hell Mode has special rules like skip penalties and intense rush hours. Check instructions!</p>
       )}
 
+      {isSoloMode && (
+        <p className="w-full text-left text-[0.7rem] text-cyber-purple setup-screen-small-text">Play alone against the clock — pick a track on the next screen, then type or say each word from its clue.</p>
+      )}
+
       {/* Word Pack — multi-select chips so several bands can feed one list */}
-      {entryMode === 'suggest' && (
+      {!isSoloMode && entryMode === 'suggest' && (
       <div className="w-full rounded-lg border border-cyber-purple/30 p-2 sm:p-3">
         <div className="mb-1 flex items-baseline justify-between gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-sm">
@@ -756,7 +797,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       </>
       )}
 
-      {step === 1 && (
+      {currentStep === 'Words' && (
       <>
       {/* Word entry flow selector */}
       <div className="w-full">
@@ -927,7 +968,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       </>
       )}
 
-      {step === 2 && (
+      {currentStep === 'Settings' && (
       <>
       {/* Audio levels live here and in the in-game pause menu (Esc). */}
       <div className="w-full rounded-lg border border-electric-blue/30 p-2 sm:p-3">
@@ -1080,9 +1121,9 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           onClick={handlePrimaryAction}
           disabled={isLastStep && startDisabled}
           className="flex-1 rounded-lg bg-gradient-to-r from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green text-dark-metal font-bold py-2.5 px-6 shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg setup-screen-button disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label={isLastStep ? 'Start game button' : `Go to ${WIZARD_STEPS[step + 1]} step`}
+          aria-label={isLastStep ? (isSoloMode ? 'Start solo run button' : 'Start game button') : `Go to ${wizardSteps[step + 1]} step`}
         >
-          {isLastStep ? 'Start Game!' : `Next: ${WIZARD_STEPS[step + 1]} ▸`}
+          {isLastStep ? (isSoloMode ? 'Start Solo! 🎯' : 'Start Game!') : `Next: ${wizardSteps[step + 1]} ▸`}
         </button>
       </div>
 

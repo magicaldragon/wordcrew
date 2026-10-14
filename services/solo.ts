@@ -1,10 +1,14 @@
 // Solo mode domain logic.
 //
 // Solo is the single-player counterpart of the pass-and-play game: here the *player*
-// is the guesser. The app shows a clue (the Vietnamese gloss, plus a mild English
-// synonym) and the player answers by typing or talking. Words are drawn from a
-// ladder of CEFR packs and always played in ascending difficulty, so every run
-// ramps up from the easiest band the track covers to its hardest.
+// is the guesser. The app shows a clue (the Vietnamese gloss) and the player answers
+// by typing or talking. Words are drawn from a ladder of CEFR packs and always played
+// in ascending difficulty, so every run ramps up from the easiest band the track
+// covers to its hardest.
+//
+// A run is endless: it only stops when the player runs out of hearts. The player
+// starts with a fixed set of hearts and a few free skips, earns points for correct
+// guesses (with streak bonuses) and pays for mistakes with hearts and points.
 
 import { CEFRLevel, cefrWordLists } from '../cefrWordLists';
 
@@ -71,18 +75,39 @@ export const SOLO_TRACKS: SoloTrack[] = [
 export const getSoloTrack = (id: string | null | undefined): SoloTrack | undefined =>
   SOLO_TRACKS.find((track) => track.id === id);
 
-/** Words played in a single run (kept fixed so scores are comparable per track). */
-export const SOLO_WORDS_PER_RUN = 20;
-/** Seconds allowed to guess each word before it is revealed and the run moves on. */
+/** The one track every player gets for free; the rest are part of the Full Version. */
+export const SOLO_FREE_TRACK_ID = 'rookie';
+
+/** Friendly "A2 Key" → "KET" label used in compact UI spots. */
+export const shortLevel = (level: CEFRLevel): string => level.replace(/\s*\(.*\)\s*$/, '');
+
+// ── Run rules ──────────────────────────────────────────────────────────────
+/** Hearts the player starts with; the run ends at zero. */
+export const SOLO_START_HEARTS = 10;
+/** Skips that cost nothing; later skips cost a heart instead. */
+export const SOLO_FREE_SKIPS = 3;
+/** Points for a correct guess. */
+export const SOLO_CORRECT_POINTS = 10;
+/** Points lost (and one heart, alongside) on a wrong guess or a timeout. */
+export const SOLO_WRONG_PENALTY = 10;
+/** Points lost for a wrong guess are floored here so a score never goes negative. */
+export const SOLO_MIN_SCORE = 0;
+/** A streak bonus lands on every Nth consecutive correct guess. */
+export const SOLO_STREAK_STEP = 5;
+/** Seconds allowed to answer before the word counts as a miss. */
 export const SOLO_TIME_PER_WORD = 15;
-/** Base points for a correct guess before the speed bonus. */
-export const SOLO_BASE_POINTS = 100;
-/** Points added per second left on the per-word clock. */
-export const SOLO_SPEED_POINTS_PER_SECOND = 6;
-/** Flat bonus awarded on the 3rd consecutive correct guess and every one after. */
-export const SOLO_STREAK_BONUS = 50;
-/** Wrong guesses allowed before the answer is revealed. */
-export const SOLO_MAX_ATTEMPTS = 3;
+/** Words played on one band before the ladder steps up to the next one. */
+export const SOLO_WORDS_PER_BAND = 8;
+/**
+ * Score marks that refund a heart, so a long clean run can absorb a few slips.
+ * Tuned so the first lands around word 8-9, the second around word 20 and the
+ * third around word 35 — reachable for a strong run, out of reach for a sloppy one.
+ */
+export const SOLO_HEART_MILESTONES = [100, 250, 500] as const;
+
+/** Bonus points awarded when a streak reaches `streak` (0 when it is not a milestone). */
+export const soloStreakBonus = (streak: number): number =>
+  streak > 0 && streak % SOLO_STREAK_STEP === 0 ? streak : 0;
 
 export interface SoloWord {
   word: string;
@@ -94,7 +119,10 @@ export interface SoloRunResult {
   score: number;
   wordsGuessed: number;
   bestStreak: number;
-  total: number;
+  /** Words the player actually resolved (guessed, skipped or timed out). */
+  wordsPlayed: number;
+  /** Hardest band the player reached before the run ended. */
+  levelReached: CEFRLevel;
   timePerWord: number;
 }
 
@@ -113,30 +141,40 @@ const wordsOfLevel = (level: CEFRLevel): string[] => {
 };
 
 /**
- * Builds one run: `SOLO_WORDS_PER_RUN` words drawn evenly across the track's bands,
- * appended in ascending difficulty so the ramp is felt word by word. Every band is
- * guaranteed a slot (the remainder is handed to the harder bands) so the hardest
- * pack of the track is never dropped.
+ * An endless word source for a track. It plays `SOLO_WORDS_PER_BAND` words on the
+ * easiest band, then steps up one band, and plateaus on the hardest band so the run
+ * keeps the track's ceiling. Each band draws from its own shuffled bag that is
+ * reshuffled once exhausted, so words only repeat after the whole band is used.
  */
-export const buildSoloRun = (
+export interface SoloSequence {
+  next: () => SoloWord;
+}
+
+export const createSoloSequence = (
   track: SoloTrack,
   rng: () => number = Math.random,
-): SoloWord[] => {
+): SoloSequence => {
   const bands = track.levels;
-  if (bands.length === 0) return [];
+  const bags = new Map<CEFRLevel, string[]>();
+  let step = 0;
 
-  const base = Math.floor(SOLO_WORDS_PER_RUN / bands.length);
-  const remainder = SOLO_WORDS_PER_RUN - base * bands.length;
+  const draw = (level: CEFRLevel): string => {
+    let bag = bags.get(level);
+    if (!bag || bag.length === 0) {
+      bag = shuffle(wordsOfLevel(level), rng);
+      bags.set(level, bag);
+    }
+    return bag.pop() as string;
+  };
 
-  const run: SoloWord[] = [];
-  bands.forEach((level, index) => {
-    // Harder bands (at the end of the list) absorb the remainder first.
-    const count = base + (index >= bands.length - remainder ? 1 : 0);
-    const pool = shuffle(wordsOfLevel(level), rng);
-    pool.slice(0, count).forEach((word) => run.push({ word, level }));
-  });
-
-  return run;
+  return {
+    next: (): SoloWord => {
+      const bandIndex = Math.min(Math.floor(step / SOLO_WORDS_PER_BAND), bands.length - 1);
+      step += 1;
+      const level = bands[bandIndex];
+      return { word: draw(level), level };
+    },
+  };
 };
 
 // ── Answer checking ────────────────────────────────────────────────────────
@@ -212,14 +250,21 @@ export const checkSoloAnswer = (input: string, target: string): boolean => {
   return fuzzyEqual(guess, answer);
 };
 
+// ── Letter-shape hint ──────────────────────────────────────────────────────
 /**
- * A light letter-shape hint for the guesser: the first letter of every word stays,
- * the rest become blanks. Multi-word entries keep each word's opening letter.
+ * Splits a word into letter groups for the boxed hint: one group per word (hyphens
+ * and apostrophes act as separators), each group a list of single letters where the
+ * first is revealed and the rest are blanks to be filled in.
  */
-export const maskWord = (word: string): string =>
-  normalizeAnswer(word)
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part.charAt(0) + ' ' + '_'.repeat(Math.max(0, part.length - 1)))
-    .join('   ')
-    .trim();
+export const buildLetterBoxes = (word: string): string[][] => {
+  const groups = word
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return groups.map((group) => group.split('').map((char, i) => (i === 0 ? char.toUpperCase() : '')));
+};
+
+/** Total number of letters in a word, ignoring spaces, hyphens and apostrophes. */
+export const letterCount = (word: string): number => (word.toLowerCase().match(/[a-z]/g) || []).length;

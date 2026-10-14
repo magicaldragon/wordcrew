@@ -1,23 +1,39 @@
 import React, { useMemo, useState } from 'react';
-import { SOLO_TRACKS, SOLO_WORDS_PER_RUN, SOLO_TIME_PER_WORD, type SoloTrack } from '../services/solo';
+import {
+  SOLO_FREE_SKIPS,
+  SOLO_FREE_TRACK_ID,
+  SOLO_START_HEARTS,
+  SOLO_TRACKS,
+  SOLO_TIME_PER_WORD,
+  shortLevel,
+  type SoloTrack,
+} from '../services/solo';
 import { readLocalSoloBest } from '../services/soloLeaderboard';
 
 interface SoloSetupScreenProps {
   onStart: (track: SoloTrack) => void;
   onExit: () => void;
+  isUnlocked: boolean;
+  /** Opens the unlock flow — used when a Full-Version-only track is tapped. */
+  onUnlock: () => void;
   isSignedIn: boolean;
 }
 
 /** Friendly "Pre-A1 → A2" label for a track's difficulty span. */
 const rangeLabel = (track: SoloTrack): string => {
-  const short = (level: string): string => level.replace(/\s*\(.*\)\s*$/, '');
-  const first = short(track.levels[0]);
-  const last = short(track.levels[track.levels.length - 1]);
+  const first = shortLevel(track.levels[0]);
+  const last = shortLevel(track.levels[track.levels.length - 1]);
   return first === last ? first : `${first} → ${last}`;
 };
 
-export const SoloSetupScreen: React.FC<SoloSetupScreenProps> = ({ onStart, onExit, isSignedIn }) => {
-  const [selectedId, setSelectedId] = useState<string>(SOLO_TRACKS[0].id);
+export const SoloSetupScreen: React.FC<SoloSetupScreenProps> = ({
+  onStart,
+  onExit,
+  isUnlocked,
+  onUnlock,
+  isSignedIn,
+}) => {
+  const [selectedId, setSelectedId] = useState<string>(SOLO_FREE_TRACK_ID);
 
   // Local bests are device-scoped; read them once per mount.
   const bests = useMemo(
@@ -34,8 +50,9 @@ export const SoloSetupScreen: React.FC<SoloSetupScreenProps> = ({ onStart, onExi
           🎯 SOLO MODE
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-muted-text">
-          You are the guesser. Each word comes with a clue — type your answer or say it out loud.
-          Words start easy and get harder as you climb.
+          You are the guesser. Each word shows its letter boxes and a Vietnamese clue — type your
+          answer or say it out loud. Words start easy and ramp up; the run is endless until your
+          hearts run out.
         </p>
       </div>
 
@@ -43,25 +60,33 @@ export const SoloSetupScreen: React.FC<SoloSetupScreenProps> = ({ onStart, onExi
         {SOLO_TRACKS.map((track) => {
           const isSelected = track.id === selectedId;
           const best = bests[track.id];
+          // Solo itself is free for everyone; only the Rookie track ships with it.
+          const locked = !isUnlocked && track.id !== SOLO_FREE_TRACK_ID;
           return (
             <button
               key={track.id}
               type="button"
-              onClick={() => setSelectedId(track.id)}
+              onClick={() => (locked ? onUnlock() : setSelectedId(track.id))}
               aria-pressed={isSelected}
+              aria-disabled={locked}
+              title={locked ? 'Unlock the Full Version to play this track' : undefined}
               className={`group relative flex flex-col items-start rounded-xl border bg-white/5 p-4 text-left backdrop-blur-sm transition duration-200 hover:-translate-y-0.5 ${track.accentBorder} ${track.glow} ${
                 isSelected ? 'ring-2 ring-electric-blue' : ''
-              }`}
+              } ${locked ? 'opacity-60' : ''}`}
             >
               <div className="flex w-full items-center justify-between gap-2">
                 <span className="text-3xl" role="img" aria-hidden="true">
                   {track.emoji}
                 </span>
-                {best && (
+                {locked ? (
+                  <span className="shrink-0 rounded-full border border-warning-yellow/40 bg-dark-metal/70 px-2 py-0.5 text-[0.65rem] font-semibold text-warning-yellow">
+                    🔒 Full
+                  </span>
+                ) : best && best.score > 0 ? (
                   <span className="shrink-0 rounded-full bg-dark-metal/70 px-2 py-0.5 text-[0.65rem] font-semibold text-warning-yellow">
                     ★ {best.score.toLocaleString()}
                   </span>
-                )}
+                ) : null}
               </div>
               <span className={`mt-2 font-heading text-lg font-bold ${track.accentText}`}>{track.name}</span>
               <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-text/80">
@@ -75,13 +100,23 @@ export const SoloSetupScreen: React.FC<SoloSetupScreenProps> = ({ onStart, onExi
 
       <div className="w-full shrink-0 rounded-xl border border-electric-blue/30 bg-dark-metal/50 p-3 text-center">
         <p className="text-xs text-muted-text">
-          <strong className="text-light-text">{SOLO_WORDS_PER_RUN} words</strong> ·{' '}
-          <strong className="text-light-text">{SOLO_TIME_PER_WORD}s</strong> per word · guess by
-          typing or speaking 🎤
+          <strong className="text-light-text">Endless</strong> ·{' '}
+          <strong className="text-light-text">{SOLO_START_HEARTS} ❤️</strong> ·{' '}
+          <strong className="text-light-text">{SOLO_FREE_SKIPS} free skips</strong> ·{' '}
+          <strong className="text-light-text">{SOLO_TIME_PER_WORD}s</strong> per word
+        </p>
+        <p className="mt-1 text-[0.7rem] text-muted-text/80">
+          +10 for a correct guess, −10 and −1 ❤️ for a wrong one. Streak bonuses every 5 in a row;
+          hearts refill at 100 / 250 / 500 points.
+        </p>
+        <p className="mt-1 text-[0.7rem] text-muted-text/80">
+          {isUnlocked
+            ? 'Every track is unlocked.'
+            : 'Rookie is free — unlock the Full Version to play Explorer, Challenger and Master.'}
         </p>
         <p className="mt-1 text-[0.7rem] text-muted-text/80">
           {isSignedIn
-            ? 'Your score is saved to the leaderboard.'
+            ? 'Your best score is saved to the leaderboard.'
             : 'Playing offline — sign in to join the shared leaderboard.'}
         </p>
       </div>
