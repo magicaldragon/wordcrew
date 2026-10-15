@@ -46,6 +46,10 @@ export default defineConfig({
         // app-code release does not invalidate them in the browser/PWA cache.
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
+          // The pronunciation dictionary is ~4 MB and only ever needed for voice answers
+          // (dynamic import). Its own chunk keeps it out of the always-loaded vendor
+          // bundle and out of the precache manifest — it is cached on first voice use.
+          if (id.includes('cmu-pronouncing-dictionary')) return 'pronunciations';
           if (id.includes('/firebase/firestore/') || id.includes('/@firebase/firestore/')) return 'vendor-firestore';
           if (id.includes('/firebase/auth/') || id.includes('/@firebase/auth/')) return 'vendor-auth';
           if (id.includes('/firebase/') || id.includes('/@firebase/')) return 'vendor-firebase';
@@ -86,9 +90,21 @@ export default defineConfig({
       workbox: {
         // Precache the app shell (hashed JS/CSS + fonts + icons).
         // Audio is deliberately NOT precached: it is cached on first play so the
-        // install stays light, then playback keeps working offline.
+        // install stays light, then playback keeps working offline. The pronunciation
+        // dictionary is treated the same way — too big to force on players who never
+        // speak, cached the first time a voice answer needs it.
         globPatterns: ['**/*.{js,css,html,svg,woff2,png}'],
+        globIgnores: ['**/pronunciations-*.js'],
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /\/pronunciations-.*\.js$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'wordcrew-pronunciations',
+              expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             urlPattern: ({ url }) => url.pathname.includes('/audio/'),
             handler: 'CacheFirst',

@@ -11,6 +11,7 @@
 // guesses (with streak bonuses) and pays for mistakes with hearts and points.
 
 import { CEFRLevel, cefrWordLists } from '../cefrWordLists';
+import { checkSpokenPhonemes, loadPronunciations } from './pronunciation';
 
 export interface SoloTrack {
   id: string;
@@ -248,6 +249,18 @@ export const checkSoloAnswer = (input: string, target: string): boolean => {
   }
 
   return fuzzyEqual(guess, answer);
+};
+
+/**
+ * Voice answers are judged by *sound*, not spelling. The transcript is first put
+ * through the same tolerant spelling match used for typing, and if that fails it is
+ * compared phoneme-by-phoneme so homophones ("wear"/"where") and small accent slips
+ * are accepted — the reason voice answers used to feel "too strict".
+ */
+export const checkSpokenAnswer = async (transcript: string, target: string): Promise<boolean> => {
+  if (checkSoloAnswer(transcript, target)) return true;
+  const dict = await loadPronunciations();
+  return checkSpokenPhonemes(dict, transcript, target);
 };
 
 // ── Letter-shape hint ──────────────────────────────────────────────────────

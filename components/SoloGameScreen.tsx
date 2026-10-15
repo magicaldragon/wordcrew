@@ -6,6 +6,7 @@ import { resolveVietnameseHint } from '../vietnameseMeanings';
 import {
   buildLetterBoxes,
   checkSoloAnswer,
+  checkSpokenAnswer,
   createSoloSequence,
   letterCount,
   shortLevel,
@@ -51,9 +52,11 @@ const pick = <T,>(items: T[]): T | undefined =>
   items.length ? items[Math.floor(Math.random() * items.length)] : undefined;
 
 // ── Speech input (Web Speech API) ──────────────────────────────────────────
-// One utterance per tap, mirroring the notebook's dictation exercise: the player
-// taps the mic, says the word, and the transcript is checked with the same fuzzy
-// matcher used for typing. `maxAlternatives` lets a near-miss transcript still win.
+// Voice used to be one fragile utterance per tap: on Android the recognition object
+// would occasionally never fire `onstart`, leaving the button looking frozen, and
+// nothing released it when the word changed. This is now a small state machine — every
+// session is created fresh, a watchdog kills one that never starts or never ends, and
+// the run can listen hands-free so the player is not tapping per word.
 interface SpeechInput {
   supported: boolean;
   listening: boolean;
@@ -61,10 +64,41 @@ interface SpeechInput {
   error: string | null;
   start: () => void;
   stop: () => void;
+  /** Hard reset: drop any session and clear status (used when the word changes). */
+  reset: () => void;
   clearError: () => void;
 }
 
-const useSpeechInput = (onFinal: (text: string, alternatives: string[]) => void): SpeechInput => {
+/** No `onstart` within this long → the engine is dead on this device; stop pretending. */
+const SPEECH_START_WATCHDOG_MS = 1600;
+/** Safety stop, so a session that never ends cannot hang "Listening…" forever. */
+const SPEECH_MAX_LISTEN_MS = 12000;
+/** Gap before hands-free mode reopens the mic after a silent session ends. */
+const SPEECH_AUTO_RESTART_MS = 400;
+/** Cap on consecutive hands-free restarts, so a broken engine cannot spin forever. */
+const SPEECH_MAX_AUTO_RESTARTS = 4;
+
+/**
+ * Mic permission state when the browser exposes it, 'unknown' otherwise. Needed because a
+ * first-run permission dialog also delays `onstart` — the start watchdog must not mistake
+ * a pending prompt for a dead engine.
+ */
+const micPermissionState = async (): Promise<string> => {
+  const permissions = (navigator as unknown as { permissions?: { query?: (d: unknown) => Promise<{ state: string }> } })
+    ?.permissions;
+  if (!permissions?.query) return 'unknown';
+  try {
+    const status = await permissions.query({ name: 'microphone' });
+    return status.state;
+  } catch {
+    return 'unknown';
+  }
+};
+
+const useSpeechInput = (
+  onFinal: (text: string, alternatives: string[]) => void,
+  autoListenRef: React.MutableRefObject<boolean>,
+): SpeechInput => {
   const Ctor =
     typeof window !== 'undefined'
       ? ((window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any })
@@ -77,92 +111,217 @@ const useSpeechInput = (onFinal: (text: string, alternatives: string[]) => void)
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
 
+  const watchdogRef = useRef<number | null>(null);
+  const maxListenRef = useRef<number | null>(null);
+  const restartRef = useRef<number | null>(null);
+  const autoRestartsRef = useRef(0);
+  const manualStopRef = useRef(false);
+  const gotFinalRef = useRef(false);
+
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const stop = useCallback(() => {
-    try {
-      recRef.current?.abort?.();
-    } catch {
-      /* already stopped */
+  const clearTimers = useCallback(() => {
+    if (watchdogRef.current !== null) {
+      window.clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
     }
+    if (maxListenRef.current !== null) {
+      window.clearTimeout(maxListenRef.current);
+      maxListenRef.current = null;
+    }
+    if (restartRef.current !== null) {
+      window.clearTimeout(restartRef.current);
+      restartRef.current = null;
+    }
+  }, []);
+
+  const teardown = useCallback(() => {
+    clearTimers();
+    const rec = recRef.current;
     recRef.current = null;
-    setListening(false);
-  }, []);
-
-  const start = useCallback(() => {
-    if (!Ctor) return;
-    setError(null);
-    setInterim('');
-    if (recRef.current) {
+    if (rec) {
       try {
-        recRef.current.abort();
+        rec.abort?.();
       } catch {
-        /* ignore */
+        /* already stopped */
       }
-      recRef.current = null;
     }
+  }, [clearTimers]);
 
-    const rec = new Ctor();
-    recRef.current = rec;
-    rec.lang = 'en-US';
-    rec.interimResults = true;
-    rec.maxAlternatives = 3;
-    rec.continuous = false;
+  // `onend` needs to reopen the mic for hands-free mode, so the starter lives in a ref
+  // to avoid a declaration cycle. `user` starts a fresh restart budget; hands-free
+  // restarts keep theirs so a stuck engine cannot loop forever.
+  const beginRef = useRef<(user: boolean) => void>(() => {});
 
-    rec.onstart = () => setListening(true);
-    rec.onresult = (event: any) => {
-      if (recRef.current !== rec) return;
-      let finalText = '';
-      let interimText = '';
-      const alternatives: string[] = [];
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalText += result[0].transcript;
-          for (let j = 0; j < result.length; j += 1) {
-            if (result[j].transcript) alternatives.push(result[j].transcript);
-          }
-        } else {
-          interimText += result[0].transcript;
+  const begin = useCallback(
+    (user: boolean) => {
+      if (!Ctor) return;
+      manualStopRef.current = false;
+      gotFinalRef.current = false;
+      if (user) autoRestartsRef.current = 0;
+      teardown();
+      setError(null);
+      setInterim('');
+
+      let rec: any;
+      try {
+        rec = new Ctor();
+      } catch {
+        setError('Could not start the microphone.');
+        return;
+      }
+      recRef.current = rec;
+      rec.lang = 'en-US';
+      rec.interimResults = true;
+      rec.maxAlternatives = 5;
+      rec.continuous = false;
+
+      rec.onstart = () => {
+        if (recRef.current !== rec) return;
+        if (watchdogRef.current !== null) {
+          window.clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
         }
+        setListening(true);
+        // The mic is only truly open now, so the safety stop is measured from here.
+        maxListenRef.current = window.setTimeout(() => {
+          if (recRef.current !== rec) return;
+          try {
+            rec.stop?.();
+          } catch {
+            /* already stopping */
+          }
+        }, SPEECH_MAX_LISTEN_MS);
+      };
+      rec.onresult = (event: any) => {
+        if (recRef.current !== rec) return;
+        let finalText = '';
+        let interimText = '';
+        const alternatives: string[] = [];
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalText += result[0].transcript;
+            for (let j = 0; j < result.length; j += 1) {
+              if (result[j].transcript) alternatives.push(result[j].transcript);
+            }
+          } else {
+            interimText += result[0].transcript;
+          }
+        }
+        setInterim((finalText || interimText).trim());
+        if (finalText) {
+          gotFinalRef.current = true;
+          onFinalRef.current(finalText.trim(), alternatives);
+        }
+      };
+      rec.onerror = (event: any) => {
+        if (recRef.current !== rec) return;
+        // Any event means the engine is alive — the start watchdog has done its job.
+        if (watchdogRef.current !== null) {
+          window.clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
+        }
+        const code = event?.error || '';
+        if (code === 'not-allowed' || code === 'service-not-allowed') {
+          manualStopRef.current = true;
+          setError('Microphone access was blocked — allow it or type instead.');
+        } else if (code === 'network') {
+          setError('Network hiccup — try again or type your answer.');
+        } else if (code === 'no-speech' && !autoListenRef.current) {
+          setError('Didn’t catch that — try again.');
+        }
+        setListening(false);
+      };
+      rec.onend = () => {
+        if (recRef.current !== rec) return;
+        recRef.current = null;
+        setListening(false);
+        clearTimers();
+        if (
+          autoListenRef.current &&
+          !manualStopRef.current &&
+          !gotFinalRef.current &&
+          autoRestartsRef.current < SPEECH_MAX_AUTO_RESTARTS
+        ) {
+          autoRestartsRef.current += 1;
+          restartRef.current = window.setTimeout(() => {
+            if (autoListenRef.current && !manualStopRef.current) beginRef.current(false);
+          }, SPEECH_AUTO_RESTART_MS);
+        }
+      };
+
+      try {
+        rec.start();
+      } catch {
+        recRef.current = null;
+        setError('Could not start the microphone.');
+        return;
       }
-      setInterim((finalText || interimText).trim());
-      if (finalText) onFinalRef.current(finalText.trim(), alternatives);
-    };
-    rec.onerror = (event: any) => {
-      const code = event?.error || '';
-      if (code === 'not-allowed' || code === 'service-not-allowed') {
-        setError('Microphone access was blocked — allow it or type instead.');
-      } else if (code === 'network') {
-        setError('Network hiccup — try again or type your answer.');
-      } else if (code === 'no-speech') {
-        setError('Didn’t catch that — try again.');
-      }
-      setListening(false);
-    };
-    rec.onend = () => {
-      if (recRef.current === rec) recRef.current = null;
-      setListening(false);
-    };
 
-    try {
-      rec.start();
-    } catch {
-      setError('Could not start the microphone.');
-    }
-  }, [Ctor]);
+      // `onstart` never firing is what used to leave the button looking frozen. Watch for
+      // it — but the browser's permission dialog also delays `onstart`, so while the state
+      // is still 'prompt' the check re-arms instead of declaring the device broken.
+      const checkStarted = () => {
+        if (recRef.current !== rec) return;
+        void micPermissionState().then((state) => {
+          if (recRef.current !== rec) return;
+          if (state === 'prompt') {
+            watchdogRef.current = window.setTimeout(checkStarted, SPEECH_START_WATCHDOG_MS);
+            return;
+          }
+          teardown();
+          setListening(false);
+          setError('Voice input is not responding on this device — type the word instead.');
+        });
+      };
 
-  useEffect(() => () => {
-    try {
-      recRef.current?.abort?.();
-    } catch {
-      /* unmounting */
-    }
-  }, []);
+      watchdogRef.current = window.setTimeout(checkStarted, SPEECH_START_WATCHDOG_MS);
+    },
+    [Ctor, teardown, autoListenRef],
+  );
 
-  return { supported, listening, interim, error, start, stop, clearError: () => setError(null) };
+  beginRef.current = begin;
+
+  const start = useCallback(() => begin(true), [begin]);
+
+  const stop = useCallback(() => {
+    manualStopRef.current = true;
+    teardown();
+    setListening(false);
+    setInterim('');
+  }, [teardown]);
+
+  const reset = useCallback(() => {
+    manualStopRef.current = true;
+    teardown();
+    autoRestartsRef.current = 0;
+    gotFinalRef.current = false;
+    setListening(false);
+    setInterim('');
+    setError(null);
+  }, [teardown]);
+
+  useEffect(
+    () => () => {
+      manualStopRef.current = true;
+      teardown();
+    },
+    [teardown],
+  );
+
+  return {
+    supported,
+    listening,
+    interim,
+    error,
+    start,
+    stop,
+    reset,
+    clearError: () => setError(null),
+  };
 };
 
 const initialStats = (): SoloStats => ({
@@ -205,6 +364,10 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const [autoPaused, setAutoPaused] = useState(false);
   // Any overlay freezes the clock and blocks round input.
   const overlayOpen = confirmQuit || autoPaused;
+  // Hands-free mode: the mic reopens by itself on every new word (and after a miss), so
+  // the player does not tap per word. `listenTick` re-arms it after a wrong spoken answer.
+  const [autoListen, setAutoListen] = useState(false);
+  const [listenTick, setListenTick] = useState(0);
 
   const answer = current.word;
   const letterGroups = useMemo(() => buildLetterBoxes(answer), [answer]);
@@ -224,6 +387,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const statsRef = useRef<SoloStats>(stats);
   const phaseRef = useRef(phase);
   const currentRef = useRef(current);
+  const autoListenRef = useRef(autoListen);
   const resolvedRef = useRef(false);
   const endedRef = useRef(false);
   const levelRef = useRef(current.level);
@@ -234,6 +398,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { currentRef.current = current; }, [current]);
+  useEffect(() => { autoListenRef.current = autoListen; }, [autoListen]);
   useEffect(() => () => {
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
@@ -262,6 +427,10 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   // `handleCorrect` needs to stop the mic, but the mic hook is created below it —
   // the stop function is reached through a ref to avoid a declaration cycle.
   const speechStopRef = useRef<() => void>(() => {});
+  const speechStartRef = useRef<() => void>(() => {});
+  // Hard reset (drop the session, clear status) — fired when a new word is dealt, so a
+  // stale "Listening…" or a wedged session can never leak into the next word.
+  const speechResetRef = useRef<() => void>(() => {});
 
   const endGame = useCallback(() => {
     if (endedRef.current) return;
@@ -295,6 +464,9 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         }
         levelRef.current = nextWord.level;
         resolvedRef.current = false;
+        // Wipe the speech state as the new word is dealt — hands-free mode then reopens
+        // the mic from a clean session instead of inheriting the previous word's.
+        speechResetRef.current();
         setCurrent(nextWord);
         setWordNo((n) => n + 1);
         setPhase('guessing');
@@ -410,17 +582,51 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     scheduleAdvance(1800);
   }, [applyStats, scheduleAdvance]);
 
+  // Voice answers are judged by *sound*, not spelling, so homophones ("wear"/"where")
+  // and small accent slips land instead of being rejected. Every alternative the engine
+  // offered is tried before the answer is marked wrong.
   const speech = useSpeechInput((text, alternatives) => {
-    const value = text || alternatives[0] || '';
-    if (!value || phaseRef.current !== 'guessing' || resolvedRef.current) return;
-    const target = currentRef.current.word;
-    if (checkSoloAnswer(value, target) || alternatives.some((alt) => checkSoloAnswer(alt, target))) {
-      handleCorrect(value);
-    } else {
-      handleWrong();
-    }
-  });
+    void (async () => {
+      const candidates = [text, ...alternatives].map((value) => value.trim()).filter(Boolean);
+      if (!candidates.length || phaseRef.current !== 'guessing' || resolvedRef.current) return;
+      const target = currentRef.current.word;
+      let matched = '';
+      for (const candidate of candidates) {
+        if (await checkSpokenAnswer(candidate, target)) {
+          matched = candidate;
+          break;
+        }
+      }
+      // Loading the pronunciation dictionary is async — the round may have moved on.
+      if (phaseRef.current !== 'guessing' || resolvedRef.current) return;
+      if (matched) {
+        handleCorrect(matched);
+      } else {
+        handleWrong();
+        // Hands-free: re-arm the mic so the player can simply try again.
+        if (autoListenRef.current && statsRef.current.hearts > 0) setListenTick((tick) => tick + 1);
+      }
+    })();
+  }, autoListenRef);
   speechStopRef.current = speech.stop;
+  speechStartRef.current = speech.start;
+  speechResetRef.current = speech.reset;
+
+  // Hands-free microphone: opens on each new word and re-opens after a miss. Any overlay
+  // (pause / quit) silences it whether or not hands-free is on. The hook itself restarts
+  // sessions that end without a result.
+  useEffect(() => {
+    if (overlayOpen) {
+      speechStopRef.current();
+      return;
+    }
+    if (!autoListen || !speech.supported) return;
+    if (phase !== 'guessing') {
+      speechStopRef.current();
+      return;
+    }
+    speechStartRef.current();
+  }, [autoListen, phase, wordNo, listenTick, overlayOpen, speech.supported]);
 
   // Per-word clock: runs only while the player is guessing and no overlay is up.
   useEffect(() => {
@@ -626,6 +832,26 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           >
               <Icon name="mic" size={20} />
             </button>
+          {speech.supported && (
+            <button
+              type="button"
+              onClick={() => setAutoListen((on) => !on)}
+              disabled={overlayOpen}
+              aria-pressed={autoListen}
+              title={
+                autoListen
+                  ? 'Hands-free is on — tap to turn it off'
+                  : 'Hands-free: the mic reopens on every word, so you never tap'
+              }
+              className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-[0.65rem] font-bold uppercase tracking-wider transition disabled:opacity-40 ${
+                autoListen
+                  ? 'border-neon-green bg-neon-green/20 text-neon-green'
+                  : 'border-cyber-purple/50 bg-cyber-purple/10 text-cyber-purple hover:bg-cyber-purple/20'
+              }`}
+            >
+              Auto
+            </button>
+          )}
           <button
             type="button"
             onClick={onCheck}
@@ -638,12 +864,24 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
 
         {/* Live transcript + mic hint */}
         <div className="flex items-center gap-2 text-[0.7rem]">
-          {speech.error ? (
+          {!speech.supported ? (
+            <span className="text-muted-text/70">
+              {typeof window !== 'undefined' && !window.isSecureContext
+                ? '🎤 Voice needs a secure page (https://) — type the word instead.'
+                : '🎤 Voice isn’t available in this browser on this device — type the word instead.'}
+            </span>
+          ) : speech.error ? (
             <span role="status" className="truncate text-warning-yellow">{speech.error}</span>
-          ) : speech.listening && speech.interim ? (
-            <span className="truncate text-electric-blue">“{speech.interim}”</span>
+          ) : speech.listening ? (
+            <span className="truncate text-electric-blue">
+              {speech.interim ? `“${speech.interim}”` : 'Listening…'}
+            </span>
           ) : (
-            <span className="text-muted-text/70">Enter to check · 🎤 to speak · −1 ❤️ per wrong guess</span>
+            <span className="text-muted-text/70">
+              {autoListen
+                ? 'Hands-free on — the mic reopens on each word'
+                : 'Enter to check · 🎤 to speak · Auto for hands-free'}
+            </span>
           )}
         </div>
       </div>
