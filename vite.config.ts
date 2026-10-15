@@ -39,6 +39,22 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Keep the rarely-changing libraries in their own long-lived chunks so an
+        // app-code release does not invalidate them in the browser/PWA cache.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('/firebase/firestore/') || id.includes('/@firebase/firestore/')) return 'vendor-firestore';
+          if (id.includes('/firebase/auth/') || id.includes('/@firebase/auth/')) return 'vendor-auth';
+          if (id.includes('/firebase/') || id.includes('/@firebase/')) return 'vendor-firebase';
+          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react';
+          return 'vendor';
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     versionMarker,
@@ -50,8 +66,8 @@ export default defineConfig({
         short_name: 'WordCrew',
         description:
           'A classroom word game for 2+ players: one describes, the crew guesses. Normal, Hell and Team modes.',
-        theme_color: '#1A1A2E',
-        background_color: '#1A1A2E',
+        theme_color: '#0d0d14',
+        background_color: '#0d0d14',
         display: 'standalone',
         orientation: 'any',
         start_url: './',

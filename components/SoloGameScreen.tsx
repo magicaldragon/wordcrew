@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CircularTimer from './CircularTimer';
 import { CustomSoundFile } from '../types';
-import { playSound, CORRECT_SOUNDS } from '../constants';
+import { playSound, CORRECT_SOUNDS, ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES } from '../constants';
 import { resolveVietnameseHint } from '../vietnameseMeanings';
 import {
   buildLetterBoxes,
@@ -22,6 +22,7 @@ import {
   type SoloTrack,
   type SoloWord,
 } from '../services/solo';
+import { Icon } from './Icon';
 
 interface SoloGameScreenProps {
   track: SoloTrack;
@@ -196,6 +197,14 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const [clue, setClue] = useState<{ vi?: string; loading: boolean }>({ loading: true });
   const [banner, setBanner] = useState<string | null>(null);
   const [heartToast, setHeartToast] = useState<number | null>(null);
+  // A run is worth a confirmation before it is thrown away: tapping Quit opens an
+  // "Quit this run?" overlay and freezes the clock while it is up.
+  const [confirmQuit, setConfirmQuit] = useState(false);
+  // The run also freezes itself the moment the page is hidden (switching apps, locking the
+  // phone), so the clock never drains while the player is not looking.
+  const [autoPaused, setAutoPaused] = useState(false);
+  // Any overlay freezes the clock and blocks round input.
+  const overlayOpen = confirmQuit || autoPaused;
 
   const answer = current.word;
   const letterGroups = useMemo(() => buildLetterBoxes(answer), [answer]);
@@ -337,6 +346,16 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       speechStopRef.current();
       const sound = pick(customCorrectSounds)?.data || pick(CORRECT_SOUNDS);
       if (sound) playSound(sound, effectsVolume);
+      // Pre-rendered announcer callout on the same streak ladder as the shared modes.
+      const callout =
+        nextStreak === ANNOUNCER_STREAK_MILESTONES.UNSTOPPABLE
+          ? ANNOUNCER_CALLOUTS.UNSTOPPABLE
+          : nextStreak === ANNOUNCER_STREAK_MILESTONES.ON_FIRE
+            ? ANNOUNCER_CALLOUTS.ON_FIRE
+            : nextStreak === ANNOUNCER_STREAK_MILESTONES.COMBO
+              ? ANNOUNCER_CALLOUTS.COMBO
+              : null;
+      if (callout) playSound(callout, effectsVolume);
       scheduleAdvance(1000);
     },
     [applyStats, customCorrectSounds, effectsVolume, scheduleAdvance, showHeartToast],
@@ -352,6 +371,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         hearts,
         score: Math.max(SOLO_MIN_SCORE, prev.score - SOLO_WRONG_PENALTY),
         streak: 0,
+        played: prev.played + 1,
       }));
       if (hearts <= 0) {
         resolvedRef.current = true;
@@ -402,14 +422,23 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   });
   speechStopRef.current = speech.stop;
 
-  // Per-word clock: runs only while the player is guessing.
+  // Per-word clock: runs only while the player is guessing and no overlay is up.
   useEffect(() => {
-    if (phase !== 'guessing') return;
+    if (phase !== 'guessing' || overlayOpen) return;
     const id = window.setInterval(() => {
       setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => window.clearInterval(id);
-  }, [phase, current]);
+  }, [phase, current, overlayOpen]);
+
+  // Auto-pause when the page is hidden; the player taps Resume when they return.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') setAutoPaused(true);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const timeoutRef = useRef<() => void>(() => {});
   timeoutRef.current = handleTimeout;
@@ -443,14 +472,14 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const skipCostsHeart = stats.freeSkips <= 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-center gap-3 px-1 py-2 text-light-text animate-fadeInScaleUp">
+    <div className="relative flex h-full min-h-0 flex-col items-center gap-3 px-1 py-2 text-light-text animate-fadeInScaleUp">
       {/* Top bar: score · track / streak · clock */}
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="min-w-[4.5rem]">
           <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-text">Score</p>
           <p className="text-xl font-bold tabular-nums text-neon-green sm:text-2xl">{stats.score.toLocaleString()}</p>
           {stats.streak >= 2 && (
-            <p className="mt-0.5 text-[0.7rem] font-semibold text-orange-400">🔥 {stats.streak} in a row</p>
+            <p className="mt-0.5 text-[0.7rem] font-semibold text-danger-red">🔥 {stats.streak} in a row</p>
           )}
         </div>
         <div className="min-w-0 flex-1 text-center">
@@ -534,11 +563,11 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         {points && phase === 'correct' && (
           <span
             key={points.key}
-            className="absolute right-4 top-4 animate-floatUpAndAway text-2xl font-extrabold text-yellow-400 sm:text-3xl"
+            className="absolute right-4 top-4 animate-floatUpAndAway text-2xl font-extrabold text-warning-yellow sm:text-3xl"
             aria-hidden="true"
           >
             +{points.value}
-            {points.bonus > 0 && <span className="ml-1 text-base text-orange-400">🔥</span>}
+            {points.bonus > 0 && <span className="ml-1 text-base text-danger-red">🔥</span>}
           </span>
         )}
 
@@ -567,9 +596,9 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') onCheck();
+              if (event.key === 'Enter' && !overlayOpen) onCheck();
             }}
-            disabled={phase !== 'guessing'}
+            disabled={phase !== 'guessing' || overlayOpen}
             placeholder={speech.listening ? 'Listening…' : 'Type the word…'}
             autoComplete="off"
             autoCorrect="off"
@@ -586,22 +615,22 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           <button
             type="button"
             onClick={speech.listening ? speech.stop : speech.start}
-            disabled={!speech.supported || phase !== 'guessing'}
+            disabled={!speech.supported || phase !== 'guessing' || overlayOpen}
             title={speech.supported ? 'Answer by voice' : 'Voice input needs Chrome, Edge or Safari'}
             aria-label={speech.listening ? 'Stop listening' : 'Answer by voice'}
-            className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-xl border-2 text-xl transition disabled:opacity-40 ${
+            className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-xl transition disabled:opacity-40 ${
               speech.listening
                 ? 'animate-pulse border-danger-red bg-danger-red/20 text-danger-red'
-                : 'border-cyan-400/50 bg-cyan-400/10 text-cyan-300 hover:bg-cyan-400/20'
+                : 'border-electric-blue/50 bg-electric-blue/10 text-electric-blue hover:bg-electric-blue/20'
             }`}
           >
-            🎤
-          </button>
+              <Icon name="mic" size={20} />
+            </button>
           <button
             type="button"
             onClick={onCheck}
-            disabled={!input.trim() || phase !== 'guessing'}
-            className="futuristic-button shrink-0 rounded-xl bg-gradient-to-r from-neon-green to-electric-blue px-5 py-3 text-sm font-bold text-dark-metal disabled:opacity-40"
+            disabled={!input.trim() || phase !== 'guessing' || overlayOpen}
+            className="futuristic-button shrink-0 rounded-[var(--r-md)] bg-neon-green px-5 py-3 text-sm font-bold text-dark-metal hover:bg-emerald-400 disabled:opacity-40"
           >
             Check
           </button>
@@ -612,7 +641,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           {speech.error ? (
             <span role="status" className="truncate text-warning-yellow">{speech.error}</span>
           ) : speech.listening && speech.interim ? (
-            <span className="truncate text-cyan-300">“{speech.interim}”</span>
+            <span className="truncate text-electric-blue">“{speech.interim}”</span>
           ) : (
             <span className="text-muted-text/70">Enter to check · 🎤 to speak · −1 ❤️ per wrong guess</span>
           )}
@@ -622,20 +651,74 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       <div className="flex w-full shrink-0 gap-2">
         <button
           type="button"
-          onClick={onExit}
-          className="futuristic-button rounded-lg border border-cyber-purple/50 bg-cyber-purple/30 px-4 py-2 text-xs font-semibold text-light-text/80 hover:bg-cyber-purple/50"
+          onClick={() => setConfirmQuit(true)}
+          disabled={overlayOpen || phase === 'correct'}
+          className="futuristic-button rounded-lg border border-cyber-purple/50 bg-cyber-purple/30 px-4 py-2 text-xs font-semibold text-light-text/80 hover:bg-cyber-purple/50 disabled:opacity-40"
         >
           Quit
         </button>
         <button
           type="button"
           onClick={handleSkip}
-          disabled={phase !== 'guessing'}
+          disabled={phase !== 'guessing' || overlayOpen}
           className="futuristic-button flex-grow rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-xs font-semibold text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
         >
           {skipCostsHeart ? 'Skip word → (−1 ❤️)' : `Skip word → (${stats.freeSkips} free)`}
         </button>
       </div>
+
+      {autoPaused && !confirmQuit && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Run paused"
+        >
+          <div className="w-full max-w-sm rounded-xl border border-electric-blue/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
+            <p className="font-heading text-lg font-bold text-electric-blue">Paused</p>
+            <p className="mt-1 text-sm text-muted-text">The clock is stopped while you are away.</p>
+            <button
+              type="button"
+              onClick={() => setAutoPaused(false)}
+              className="futuristic-button mt-4 w-full rounded-[var(--r-md)] bg-neon-green px-4 py-2.5 font-bold text-dark-metal hover:bg-emerald-400"
+            >
+              ▶️ Resume
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confirmQuit && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm quitting the run"
+        >
+          <div className="w-full max-w-sm rounded-xl border border-warning-yellow/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
+            <p className="font-heading text-lg font-bold text-warning-yellow">Quit this run?</p>
+            <p className="mt-1 text-sm text-muted-text">
+              Your score of <strong className="text-light-text">{stats.score.toLocaleString()}</strong> will be lost.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmQuit(false)}
+                className="futuristic-button rounded-[var(--r-md)] bg-neon-green px-4 py-2.5 font-bold text-dark-metal hover:bg-emerald-400"
+              >
+                Keep playing
+              </button>
+              <button
+                type="button"
+                onClick={onExit}
+                className="futuristic-button rounded-[var(--r-md)] border border-cyber-purple/60 bg-cyber-purple/40 px-4 py-2.5 font-semibold text-light-text hover:bg-cyber-purple/60"
+              >
+                Quit run
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

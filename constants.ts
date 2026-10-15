@@ -18,6 +18,10 @@ export const MAX_COMBO_TIME_BONUS_APPLICATIONS = 1; // How many times the time b
 export const POWERUP_TIME_FREEZE_SECONDS = 5;   // Seconds added by Time Freeze power-up
 export const RUSH_HOUR_DURATION_SECONDS = 30; // Duration of Rush Hour mode
 
+// The closing stretch of a round: the clock turns red and the "Hurry up!" announcer
+// callout fires once.
+export const FINAL_COUNTDOWN_SECONDS = 10;
+
 // Hell Mode Constants
 export const HELL_MODE_INITIAL_SKIPS = 3;
 export const HELL_MODE_SKIP_PENALTY = 200;
@@ -157,8 +161,66 @@ export const SINGLE_SOUND_EFFECTS = {
   ] as string[], // Type refined to string[] as it's always initialized with an array
 };
 
+// ** 6. ANNOUNCER CALLOUTS **
+// Pre-rendered voice lines shipped in /public/audio (same self-hosted, offline-first
+// approach as the music tracks). They fire the instant a milestone lands — no network
+// round-trip, no AI fetch at runtime. The voice is an open-source Kokoro model, so no
+// copyrighted talent is reproduced. Milestones are deliberately sparse so a callout
+// stays a reward rather than constant chatter.
+export const ANNOUNCER_CALLOUTS = {
+  COMBO: AUDIO_BASE + 'announcer-combo.mp3',
+  ON_FIRE: AUDIO_BASE + 'announcer-on-fire.mp3',
+  UNSTOPPABLE: AUDIO_BASE + 'announcer-unstoppable.mp3',
+  HURRY_UP: AUDIO_BASE + 'announcer-hurry-up.mp3',
+};
+
+// Streak counts that trigger a callout. Kept here so gameplay and any future mode
+// agree on the same ladder.
+export const ANNOUNCER_STREAK_MILESTONES = {
+  COMBO: COMBO_ACTIVATION_THRESHOLD,
+  ON_FIRE: 5,
+  UNSTOPPABLE: 8,
+};
+
 // --- Helper function to play sounds ---
 // This function handles both URLs and Base64 data (from custom uploads).
+//
+// Sound effects fire constantly (every correct/skip), so each URL keeps one warm
+// HTMLAudioElement here. The browser fetches and decodes it once; replays just rewind.
+// When the same effect is already sounding, a throwaway clone plays instead so the
+// previous hit is not cut off. The map is bounded so uploaded data-URLs cannot pile up.
+const audioEffectCache = new Map<string, HTMLAudioElement>();
+const MAX_CACHED_EFFECTS = 48;
+
+const getCachedEffect = (soundUrl: string): HTMLAudioElement => {
+  let audio = audioEffectCache.get(soundUrl);
+  if (!audio) {
+    audio = new Audio(soundUrl);
+    audio.preload = 'auto';
+    if (audioEffectCache.size >= MAX_CACHED_EFFECTS) {
+      const oldestKey = audioEffectCache.keys().next().value;
+      if (oldestKey !== undefined) audioEffectCache.delete(oldestKey);
+    }
+    audioEffectCache.set(soundUrl, audio);
+  }
+  return audio;
+};
+
+const clampVolume = (volume?: number): number =>
+  typeof volume === 'number' && volume >= 0 && volume <= 1 ? volume : 1;
+
+const playAudioElement = (audio: HTMLAudioElement, volume?: number) => {
+  audio.volume = clampVolume(volume);
+  const playPromise = audio.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(error => {
+      if (error.name !== 'AbortError' && error.name !== 'NotAllowedError') {
+        console.warn("Error playing sound:", error.name, error.message);
+      }
+    });
+  }
+};
+
 export const playSound = (
   soundSource: string | string[] | CustomSoundFile | CustomSoundFile[] | null | undefined,
   volume?: number
@@ -198,19 +260,16 @@ export const playSound = (
         return;
     }
     try {
-        const audio = new Audio(soundUrl);
-        if (typeof volume === 'number' && volume >= 0 && volume <= 1) {
-          audio.volume = volume;
-        } else {
-          audio.volume = 1; // Default to full volume if not specified or invalid
+        const audio = getCachedEffect(soundUrl);
+        if (!audio.paused && !audio.ended) {
+          // Same effect still ringing — let it finish and play a detached clone for this hit.
+          playAudioElement(audio.cloneNode(true) as HTMLAudioElement, volume);
+          return;
         }
-        audio.play().catch(error => {
-          if (error.name !== 'AbortError' && error.name !== 'NotAllowedError') {
-            console.warn("Error playing sound:", error.name, error.message, "URL snippet:", soundUrl.substring(0, 100));
-          }
-        });
+        audio.currentTime = 0;
+        playAudioElement(audio, volume);
     } catch (e: any) {
-        console.error("Error creating Audio object with URL:", soundUrl.substring(0,100), e.name, e.message);
+        console.error("Error playing sound with URL:", soundUrl.substring(0,100), e.name, e.message);
     }
   }
 };

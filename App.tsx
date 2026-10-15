@@ -1,19 +1,32 @@
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { AuthDialog } from './components/AuthDialog';
 import { PurchaseDialog } from './components/PurchaseDialog';
-import { LandingScreen } from './components/LandingScreen';
 import { useAuth } from './contexts/AuthContext';
-import { SetupScreen } from './components/SetupScreen';
-import { InstructionScreen } from './components/InstructionScreen'; 
-import { GameScreen } from './components/GameScreen';
-import { ResultsScreen } from './components/ResultsScreen';
-import { SoloSetupScreen } from './components/SoloSetupScreen';
-import { SoloGameScreen } from './components/SoloGameScreen';
-import { SoloResultsScreen } from './components/SoloResultsScreen';
 import { type SoloTrack, type SoloRunResult } from './services/solo';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
+import { FeedbackHost, toast } from './components/Feedback';
+import { Icon } from './components/Icon';
+
+// The portal dashboard is the entry point, so it ships in the initial bundle.
+// Every game-side screen is loaded on first navigation instead — the setup wizard
+// and the two play screens are the bulk of the app and most sessions never open them.
+const LandingScreen = lazy(() => import('./components/LandingScreen').then((m) => ({ default: m.LandingScreen })));
+const SetupScreen = lazy(() => import('./components/SetupScreen').then((m) => ({ default: m.SetupScreen })));
+const InstructionScreen = lazy(() => import('./components/InstructionScreen').then((m) => ({ default: m.InstructionScreen })));
+const GameScreen = lazy(() => import('./components/GameScreen').then((m) => ({ default: m.GameScreen })));
+const ResultsScreen = lazy(() => import('./components/ResultsScreen').then((m) => ({ default: m.ResultsScreen })));
+const SoloGameScreen = lazy(() => import('./components/SoloGameScreen').then((m) => ({ default: m.SoloGameScreen })));
+const SoloResultsScreen = lazy(() => import('./components/SoloResultsScreen').then((m) => ({ default: m.SoloResultsScreen })));
+
+/** Neutral placeholder shown for the instant a split screen chunk is still loading. */
+const ScreenFallback: React.FC = () => (
+  <div className="flex h-full min-h-[12rem] w-full items-center justify-center" role="status" aria-live="polite">
+    <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--hairline-strong)] border-t-electric-blue" />
+    <span className="sr-only">Loading…</span>
+  </div>
+);
 import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
@@ -81,14 +94,13 @@ const App: React.FC = () => {
   // Custom sounds are base64 audio stored in localStorage; warn once per session when the
   // (small) quota is full, otherwise the upload would silently vanish on the next reload.
   const storageWarningShown = useRef(false);
-  const previousGamePhase = usePrevious(gamePhase);
 
   // The portal dashboard is the app's home; the game is one destination inside it.
   const [view, setView] = useState<'dashboard' | 'game' | 'solo'>('dashboard');
   // Landing (marketing) screen shown when entering a game, before its setup shell.
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // Mode the player picked on the landing screen; pre-selected in SetupScreen.
-  const [initialGameMode, setInitialGameMode] = useState<GameMode>(GameMode.NORMAL);
+  const [initialGameMode, setInitialGameMode] = useState<GameMode | 'solo'>(GameMode.NORMAL);
   // Single source of truth for the demo/full state. Mirrored to localStorage so a
   // classroom machine stays unlocked between sessions.
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => readUnlockFlag());
@@ -102,7 +114,7 @@ const App: React.FC = () => {
   // == Solo mode state ==
   // Solo is a self-contained single-player flow (the player is the guesser), so it keeps
   // its own phase machine rather than borrowing the pass-and-play GamePhase/GameMode.
-  const [soloPhase, setSoloPhase] = useState<'setup' | 'playing' | 'results' | null>(null);
+  const [soloPhase, setSoloPhase] = useState<'playing' | 'results' | null>(null);
   const [soloTrack, setSoloTrack] = useState<SoloTrack | null>(null);
   const [soloResult, setSoloResult] = useState<SoloRunResult | null>(null);
   // Bumped on each new run so the endless game screen remounts with a fresh word source.
@@ -299,22 +311,38 @@ const App: React.FC = () => {
     initialLoadDone.current = true;
   }, []);
   
+  // Which screen the shared track belongs to. A Solo run lives on its own view while
+  // `gamePhase` stays at SETUP, so a run is folded in here as PLAYING — without this the
+  // setup track would keep looping for the whole run.
+  const musicPhase: GamePhase | 'SILENT' =
+    view === 'solo'
+      ? (soloPhase === 'playing' ? GamePhase.PLAYING : 'SILENT')
+      : gamePhase;
+  const previousMusicPhase = usePrevious(musicPhase);
+
   useEffect(() => {
     let newActiveMusicUrl: string | null = null; // Default to null (stop music / no change)
 
-    if (gamePhase === GamePhase.PLAYING) {
+    if (musicPhase === GamePhase.PLAYING) {
         if (customGameMusic?.data) {
             newActiveMusicUrl = customGameMusic.data;
-        } else if (Array.isArray(GAME_MUSIC_URL) && GAME_MUSIC_URL.length > 0) {
-            newActiveMusicUrl = GAME_MUSIC_URL[Math.floor(Math.random() * GAME_MUSIC_URL.length)];
-        } else if (typeof GAME_MUSIC_URL === 'string') {
-            newActiveMusicUrl = GAME_MUSIC_URL;
+        } else if (previousMusicPhase !== GamePhase.PLAYING) {
+            // Entering gameplay: roll exactly one track from the pool. Rolling on the
+            // transition only (never on every render) is what stops the track re-shuffling.
+            if (Array.isArray(GAME_MUSIC_URL) && GAME_MUSIC_URL.length > 0) {
+                newActiveMusicUrl = GAME_MUSIC_URL[Math.floor(Math.random() * GAME_MUSIC_URL.length)];
+            } else if (typeof GAME_MUSIC_URL === 'string') {
+                newActiveMusicUrl = GAME_MUSIC_URL;
+            }
+        } else {
+            // Mid-round: keep the track that was rolled on entry.
+            newActiveMusicUrl = activeMusicUrl;
         }
-    } else if (gamePhase === GamePhase.SETUP) {
+    } else if (musicPhase === GamePhase.SETUP) {
         // Set setup music if:
         // 1. Coming from a phase that isn't INSTRUCTION (e.g., RESULTS, PLAYING, or initial undefined)
         // 2. Or if custom background music has changed.
-        if (previousGamePhase !== GamePhase.INSTRUCTION || (customBackgroundMusic && customBackgroundMusic.data !== activeMusicUrl)) {
+        if (previousMusicPhase !== GamePhase.INSTRUCTION || (customBackgroundMusic && customBackgroundMusic.data !== activeMusicUrl)) {
             if (customBackgroundMusic?.data) {
                 newActiveMusicUrl = customBackgroundMusic.data;
             } else if (Array.isArray(BACKGROUND_MUSIC_URL) && BACKGROUND_MUSIC_URL.length > 0) {
@@ -326,10 +354,10 @@ const App: React.FC = () => {
             // Coming from INSTRUCTION to SETUP, keep current music.
             newActiveMusicUrl = activeMusicUrl;
         }
-    } else if (gamePhase === GamePhase.INSTRUCTION) {
+    } else if (musicPhase === GamePhase.INSTRUCTION) {
         // If coming from SETUP, keep the current music.
         // Otherwise (e.g., direct navigation or custom music change), select setup music.
-        if (previousGamePhase === GamePhase.SETUP) {
+        if (previousMusicPhase === GamePhase.SETUP) {
             newActiveMusicUrl = activeMusicUrl;
         } else if (customBackgroundMusic && customBackgroundMusic.data !== activeMusicUrl) {
              if (customBackgroundMusic?.data) {
@@ -352,13 +380,13 @@ const App: React.FC = () => {
             newActiveMusicUrl = activeMusicUrl;
         }
     }
-    // For GamePhase.RESULTS, newActiveMusicUrl remains its initial null, so music stops.
-    // (Handled by default unless one of the above conditions sets it)
+    // For RESULTS / SILENT (e.g. a Solo run's results screen), newActiveMusicUrl stays
+    // null, so the music stops.
 
     if (newActiveMusicUrl !== activeMusicUrl) {
         setActiveMusicUrl(newActiveMusicUrl);
     }
-  }, [gamePhase, customBackgroundMusic, customGameMusic, previousGamePhase, activeMusicUrl]);
+  }, [musicPhase, previousMusicPhase, customBackgroundMusic, customGameMusic, activeMusicUrl]);
 
 
   const saveJSON = useCallback((key: string, value: any) => {
@@ -369,7 +397,7 @@ const App: React.FC = () => {
         console.error(`Error saving ${key} to localStorage:`, e);
         if (key.startsWith('custom') && !storageWarningShown.current) {
             storageWarningShown.current = true;
-            window.alert('Browser storage is full, so this audio could not be saved and would be lost on reload. Remove a custom sound (or use "Reset all to default sounds") and upload a smaller file.');
+            toast('Browser storage is full, so this audio could not be saved and would be lost on reload. Remove a custom sound (or use "Reset all to default sounds") and upload a smaller file.', 'error');
         }
     }
   }, []); 
@@ -415,7 +443,7 @@ const App: React.FC = () => {
   }, []);
 
   // Leaving the landing screen and entering the game setup with the chosen mode.
-  const handleEnterGame = useCallback((mode: GameMode = GameMode.NORMAL) => {
+  const handleEnterGame = useCallback((mode: GameMode | 'solo' = GameMode.NORMAL) => {
     setInitialGameMode(mode);
     setShowLanding(false);
   }, []);
@@ -430,19 +458,13 @@ const App: React.FC = () => {
   }, []);
 
   // == Solo mode handlers ==
-  // Solo is picked from the game's mode list; it then opens its own track picker.
-  const handlePlaySolo = useCallback(() => {
-    setSoloPhase('setup');
-    setSoloTrack(null);
-    setSoloResult(null);
-    setShowLanding(false);
-    setView('solo');
-  }, []);
-
+  // The run is fully configured inside the game setup wizard (mode → track → settings),
+  // so starting one is a single call carrying the chosen track.
   const handleStartSolo = useCallback((track: SoloTrack) => {
     setSoloTrack(track);
     setSoloResult(null);
     setSoloRunId((id) => id + 1);
+    setView('solo');
     setSoloPhase('playing');
   }, []);
 
@@ -453,34 +475,26 @@ const App: React.FC = () => {
 
   // "Play again" rebuilds the same track so the player can try to beat their own run.
   const handleSoloPlayAgain = useCallback(() => {
-    if (!soloTrack) {
-      setSoloPhase('setup');
-      return;
-    }
+    if (!soloTrack) return;
     setSoloResult(null);
     setSoloRunId((id) => id + 1);
     setSoloPhase('playing');
   }, [soloTrack]);
 
   // Leaving a run (Quit / Home) always lands back on the portal dashboard.
+  // `showLanding` is reset here too: the portal is a silent screen, exactly as it is
+  // when leaving the pass-and-play game — without this the setup music kept looping
+  // on the dashboard after a Solo exit.
   const handleSoloExit = useCallback(() => {
     setSoloPhase(null);
     setSoloTrack(null);
     setSoloResult(null);
+    setActiveMusicOverride(null);
+    setShowLanding(true);
     setView('dashboard');
   }, []);
 
-  // Backing out of the track picker returns to the game setup wizard, where Solo
-  // sits alongside the other modes — no detour through the dashboard.
-  const handleSoloBackToSetup = useCallback(() => {
-    setSoloPhase(null);
-    setSoloTrack(null);
-    setSoloResult(null);
-    setShowLanding(false);
-    setGamePhase(GamePhase.SETUP);
-    setView('game');
-  }, []);
-
+  // Returning from the instructions screen drops back into the setup wizard.
   const handleBackToSetupFromInstruction = useCallback(() => {
     setIsAppRushHourActive(false); 
     setGamePhase(GamePhase.SETUP);
@@ -665,7 +679,7 @@ const App: React.FC = () => {
     if (gamePhase === GamePhase.INSTRUCTION) return getInstructionCardClass();
     if (isAppRushHourActive && gamePhase === GamePhase.PLAYING) {
         return gameSettings?.gameMode === GameMode.HELL 
-            ? 'rush-hour-active-visuals border-2 border-danger-red/80 shadow-xl shadow-danger-red/40' // More intense for Hell Mode Rush
+            ? 'rush-hour-active-visuals shadow-[var(--elev-3)]' // Hell Mode Rush keeps the same pulses
             : 'rush-hour-active-visuals'; // Normal Rush
     }
     return ''; // Default card style
@@ -680,7 +694,8 @@ const App: React.FC = () => {
                   isUnlocked={isUnlocked}
                   onUnlock={handleUnlock}
                   onGameStart={handleGameStart}
-                  onStartSolo={handlePlaySolo}
+                  onStartSolo={handleStartSolo}
+                  isSignedIn={Boolean(user)}
                   musicVolume={musicVolume}
                   onMusicVolumeChange={handleMusicVolumeChange}
                   effectsVolume={effectsVolume}
@@ -768,17 +783,6 @@ const App: React.FC = () => {
   };
 
   const renderSoloScreen = () => {
-    if (soloPhase === 'setup') {
-      return (
-        <SoloSetupScreen
-          isSignedIn={Boolean(user)}
-          isUnlocked={isUnlocked}
-          onUnlock={requestPurchase}
-          onStart={handleStartSolo}
-          onExit={handleSoloBackToSetup}
-        />
-      );
-    }
     if (soloPhase === 'playing' && soloTrack) {
       return (
         <SoloGameScreen
@@ -808,34 +812,50 @@ const App: React.FC = () => {
   
   const rushHourBounceClass = isAppRushHourActive && gamePhase === GamePhase.PLAYING ? 'animate-rushHourBounce' : '';
   const isSolo = view === 'solo';
+  // Solo now configures itself inside the shared setup wizard, so the header simply
+  // frames that wizard as solo while the mode is pre-selected.
+  const isSoloSetup = !isSolo && !showLanding && gamePhase === GamePhase.SETUP && initialGameMode === 'solo';
   // Never interrupt an active round: a pending major update is announced once the
   // player is back on a static screen.
   const isRoundInProgress =
     (view === 'game' && !showLanding && gamePhase === GamePhase.PLAYING) ||
     (isSolo && soloPhase === 'playing');
-  // Escape hatch back to the portal, offered on the setup screens only so a live round
+
+  // A live round is painful to lose to a stray refresh, Cmd+W or a mis-swiped tab, so ask
+  // the browser to confirm before the page unloads. Browsers only honour the prompt once
+  // the page has been interacted with — always true while a round is being played — and
+  // they show their own generic wording, which is the most we can control.
+  useEffect(() => {
+    if (!isRoundInProgress) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isRoundInProgress]);
+  // Escape hatch back to the portal, offered on the setup wizard only so a live round
   // (in either mode) can never be abandoned by a stray tap on the header.
-  const canExitToHome = isSolo
-    ? soloPhase === 'setup'
-    : !showLanding && gamePhase === GamePhase.SETUP;
+  const canExitToHome = !isSolo && !showLanding && gamePhase === GamePhase.SETUP;
   const showMajorUpdateNotice = Boolean(majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion);
   // The minor/patch reload offer is surfaced on a static screen only — never while a
   // round is being played — and steps aside for the louder MAJOR notice when both are due.
   const isStaticScreen =
     view === 'dashboard' ||
     showLanding ||
-    (isSolo ? soloPhase === 'setup' : gamePhase === GamePhase.SETUP);
+    (!isSolo && gamePhase === GamePhase.SETUP);
   const showPwaUpdatePill = pwaUpdateReady && !dismissedPwaUpdate && isStaticScreen && !showMajorUpdateNotice;
 
   return (
-    <div className={`h-screen flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${view === 'dashboard' ? 'wc-theme bg-[var(--page-bg)]' : 'bg-dark-metal'} ${isFullscreen || view === 'dashboard' || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
+    <div className={`h-screen flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${view === 'dashboard' ? 'wc-theme bg-[var(--page-bg)]' : 'bg-[var(--surface-0)]'} ${isFullscreen || view === 'dashboard' || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
       <BackgroundMusicPlayer 
         volume={musicVolume} 
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
       />
+      <FeedbackHost />
       {showMajorUpdateNotice && !isRoundInProgress && (
         <div className="pointer-events-none fixed inset-x-0 top-2 z-[200] flex justify-center px-2">
-          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-electric-blue/50 bg-dark-metal/95 px-3 py-1.5 shadow-xl backdrop-blur animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-electric-blue/50 bg-dark-metal/95 px-3 py-1.5 shadow-[var(--elev-3)] animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
             <span className="text-base sm:text-lg" aria-hidden="true">🎉</span>
             <p className="font-sans text-xs text-light-text sm:text-sm">
               <span className="font-heading tracking-wide text-electric-blue">WordCrew {majorUpdateVersion}</span> is available.
@@ -843,24 +863,24 @@ const App: React.FC = () => {
             <button
               type="button"
               onClick={handleReloadForUpdate}
-              className="futuristic-button rounded-full bg-gradient-to-r from-cyber-purple to-electric-blue px-3 py-1 text-xs font-bold text-dark-metal sm:text-sm"
+              className="futuristic-button rounded-full bg-electric-blue px-3 py-1 text-xs font-bold text-dark-metal hover:bg-sky-400 sm:text-sm"
             >
               Reload
             </button>
             <button
               type="button"
               onClick={handleDismissUpdateNotice}
-              className="rounded-full px-1.5 py-0.5 text-sm leading-none text-muted-text hover:text-light-text"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-text hover:text-light-text"
               aria-label="Dismiss update notice"
             >
-              ✕
+              <Icon name="close" size={16} />
             </button>
           </div>
         </div>
       )}
       {showPwaUpdatePill && (
         <div className="pointer-events-none fixed inset-x-0 top-2 z-[190] flex justify-center px-2">
-          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-neon-green/50 bg-dark-metal/95 px-3 py-1.5 shadow-xl backdrop-blur animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-neon-green/50 bg-dark-metal/95 px-3 py-1.5 shadow-[var(--elev-3)] animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
             <span className="text-base sm:text-lg" aria-hidden="true">✨</span>
             <p className="font-sans text-xs text-light-text sm:text-sm">
               A new build is ready.
@@ -868,17 +888,17 @@ const App: React.FC = () => {
             <button
               type="button"
               onClick={handleReloadForUpdate}
-              className="futuristic-button rounded-full bg-gradient-to-r from-neon-green to-electric-blue px-3 py-1 text-xs font-bold text-dark-metal sm:text-sm"
+              className="futuristic-button rounded-full bg-neon-green px-3 py-1 text-xs font-bold text-dark-metal hover:bg-emerald-400 sm:text-sm"
             >
               Reload
             </button>
             <button
               type="button"
               onClick={() => setDismissedPwaUpdate(true)}
-              className="rounded-full px-1.5 py-0.5 text-sm leading-none text-muted-text hover:text-light-text"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-text hover:text-light-text"
               aria-label="Dismiss update offer"
             >
-              ✕
+              <Icon name="close" size={16} />
             </button>
           </div>
         </div>
@@ -891,28 +911,29 @@ const App: React.FC = () => {
           onUnlock={requestPurchase}
         />
       ) : showLanding ? (
-        <LandingScreen
-          isUnlocked={isUnlocked}
-          onUnlock={handleUnlock}
-          onUpgrade={requestPurchase}
-          onPlay={handleEnterGame}
-          onPlaySolo={handlePlaySolo}
-          onBack={handleGoHome}
-        />
+        <Suspense fallback={<ScreenFallback />}>
+          <LandingScreen
+            isUnlocked={isUnlocked}
+            onUnlock={handleUnlock}
+            onUpgrade={requestPurchase}
+            onPlay={handleEnterGame}
+            onBack={handleGoHome}
+          />
+        </Suspense>
       ) : (
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
           <span className="block text-[0.65rem] sm:text-xs font-sans uppercase tracking-[0.35em] text-electric-blue/80 mb-1">
-            {isSolo ? 'Solo Challenge' : 'Only Talented Guessers'}
+            {isSolo || isSoloSetup ? 'Solo Challenge' : 'Only Talented Guessers'}
           </span>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold tracking-wider text-warning-yellow animate-goldPulseGlow">
             {canExitToHome ? (
               <button
                 type="button"
-                onClick={isSolo ? handleSoloBackToSetup : handleGoHome}
+                onClick={handleGoHome}
                 className="cursor-pointer rounded-md transition-transform duration-200 hover:scale-[1.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
-                title={isSolo ? 'Back to setup' : 'Back to home'}
-                aria-label={isSolo ? 'WordCrew — back to setup' : 'WordCrew — back to home'}
+                title="Back to home"
+                aria-label="WordCrew — back to home"
               >
                 WordCrew
               </button>
@@ -920,8 +941,8 @@ const App: React.FC = () => {
               'WordCrew'
             )}
           </h1>
-          <p className="mt-1 sm:mt-2 text-md sm:text-lg text-muted-text font-sans">
-            {isSolo
+          <p className="mt-1 sm:mt-2 text-base sm:text-lg text-muted-text font-sans">
+            {isSolo || isSoloSetup
               ? soloPhase === 'playing' && soloTrack
                 ? `${soloTrack.emoji} ${soloTrack.name} — type or say your guess before time runs out!`
                 : 'Play solo, climb the CEFR ladder and top the leaderboard.'
@@ -932,15 +953,17 @@ const App: React.FC = () => {
           <main 
             className={`futuristic-card shadow-2xl rounded-xl w-full min-h-0 flex-grow overflow-y-auto ${getMainCardClass()}`}
           >
-            {isSolo ? renderSoloScreen() : renderScreen()}
+            <Suspense fallback={<ScreenFallback />}>
+              {isSolo ? renderSoloScreen() : renderScreen()}
+            </Suspense>
           </main>
           {canExitToHome && (
             <button
               type="button"
-              onClick={isSolo ? handleSoloBackToSetup : handleGoHome}
+              onClick={handleGoHome}
               className="absolute right-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full text-muted-text transition-colors hover:bg-cyber-purple/40 hover:text-light-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-electric-blue"
-              aria-label={isSolo ? 'Back to setup' : 'Exit setup and return home'}
-              title={isSolo ? 'Back to setup' : 'Exit setup'}
+              aria-label="Exit setup and return home"
+              title="Exit setup"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-5 w-5 sm:h-6 sm:w-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

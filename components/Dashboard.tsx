@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { LoginButton } from './LoginButton';
 import { ThemeToggle } from './ThemeToggle';
+import { confirmDialog } from './Feedback';
+import { Icon, type IconName } from './Icon';
 import { db } from '../services/firebase';
 import {
   fetchAdminOverview,
@@ -12,6 +14,10 @@ import {
   type AdminOverview,
   type EntitlementItem,
 } from '../services/payments';
+import { cefrWordLists } from '../cefrWordLists';
+
+/** Loaded on demand — the leaderboard is opt-in, so it stays out of the entry chunk. */
+const SoloLeaderboardPanel = lazy(() => import('./SoloLeaderboardPanel'));
 
 type SectionId = 'games' | 'progress' | 'account' | 'admin';
 
@@ -30,7 +36,7 @@ interface GameEntry {
   id: string;
   name: string;
   tagline: string;
-  emoji: string;
+  icon: IconName;
   meta: string;
   available: boolean;
 }
@@ -44,20 +50,34 @@ const GAMES: GameEntry[] = [
     id: 'wordcrew',
     name: 'WordCrew',
     tagline: 'One player describes the word, the crew guesses it before time runs out.',
-    emoji: '🔤',
+    icon: 'type',
     meta: 'Normal, Hell, Team and Solo modes',
     available: true,
   },
 ];
 
-/** Facts pulled straight from the word data — kept honest so the home page never over-claims. */
+/** Word totals read straight from the word data, so the copy can never over-claim. */
+const WORD_COUNT = Object.values(cefrWordLists).reduce(
+  (total, list) =>
+    total + list.nouns.length + list.verbs.length + list.adjectives.length + (list.phrasalVerbs?.length ?? 0),
+  0,
+);
+const PACK_COUNT = Object.keys(cefrWordLists).length;
+/** Normal, Hell, Team and Solo — the modes the game ships with. */
+const GAME_MODE_COUNT = 4;
+
 const HOME_STATS = [
-  { label: 'Words ready', value: 2842 },
-  { label: 'CEFR packs', value: 6 },
-  { label: 'Game modes', value: 4 },
+  { label: 'Words ready', value: WORD_COUNT },
+  { label: 'CEFR packs', value: PACK_COUNT },
+  { label: 'Game modes', value: GAME_MODE_COUNT },
 ];
 
-const HOME_CHIPS = ['Levels Pre-A1 to B2', '2,842 words', 'Pass-and-play', 'Works offline'];
+const HOME_CHIPS = [
+  'Levels Pre-A1 to B2',
+  `${WORD_COUNT.toLocaleString()} words`,
+  'Pass-and-play',
+  'Works offline',
+];
 
 const HOME_PERKS = [
   {
@@ -83,23 +103,23 @@ const SAMPLE_ROUND = {
   progress: 40,
 };
 
-const SECTIONS: { id: SectionId; label: string; icon: string; title: string; subtitle: string }[] = [
-  { id: 'games', label: 'Games', icon: '🎮', title: 'Game collection', subtitle: 'Pick a game and start a round.' },
-  { id: 'progress', label: 'My progress', icon: '📈', title: 'My progress', subtitle: 'Your rounds, scores and streaks.' },
-  { id: 'account', label: 'Account', icon: '👤', title: 'Account', subtitle: 'Sign-in status and this device.' },
+const SECTIONS: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string }[] = [
+  { id: 'games', label: 'Games', icon: 'gamepad', title: 'Game collection', subtitle: 'Pick a game and start a round.' },
+  { id: 'progress', label: 'My progress', icon: 'chart', title: 'My progress', subtitle: 'Your rounds, scores and streaks.' },
+  { id: 'account', label: 'Account', icon: 'user', title: 'Account', subtitle: 'Sign-in status and this device.' },
 ];
 
 /** Owner-only section, appended to the nav only once the admin probe succeeds. */
-const ADMIN_SECTION: { id: SectionId; label: string; icon: string; title: string; subtitle: string } = {
+const ADMIN_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
   id: 'admin',
   label: 'Admin',
-  icon: '🛠️',
+  icon: 'wrench',
   title: 'Admin',
   subtitle: 'Orders, revenue and access grants.',
 };
 
 const INPUT_CLASS =
-  'w-full rounded-xl border border-[var(--wn-4)] bg-[var(--field-bg)] px-4 py-3 text-sm text-[var(--wn-12)] outline-none transition placeholder:text-[var(--wn-8)] focus:border-[var(--wa-5)] focus:ring-2 focus:ring-[var(--wa-4)]';
+  'w-full rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] px-4 py-3 text-sm text-[var(--wn-12)] outline-none transition placeholder:text-[var(--wn-8)] focus:border-[var(--wa-5)] focus:ring-2 focus:ring-[var(--wa-4)]';
 
 /** Minimal shape of `users/{uid}` — the Firestore side of the user/progress split. */
 interface ProgressDoc {
@@ -154,24 +174,6 @@ const useCountUp = (target: number, durationMs = 1100): number => {
   return value;
 };
 
-/** Padlock glyph — closed by default, `open` for the unlocked state. */
-const LockIcon: React.FC<{ open?: boolean }> = ({ open }) => (
-  <svg
-    viewBox="0 0 24 24"
-    width="20"
-    height="20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <rect x="4" y="11" width="16" height="10" rx="2" />
-    {open ? <path d="M8 11V7a4 4 0 0 1 7.5-2" /> : <path d="M8 11V7a4 4 0 0 1 8 0v4" />}
-  </svg>
-);
-
 const StatValue: React.FC<{ value: number; className?: string }> = ({ value, className }) => {
   const shown = useCountUp(value);
   return <p className={className}>{shown.toLocaleString()}</p>;
@@ -192,6 +194,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminNotice, setAdminNotice] = useState('');
   const [grantEmail, setGrantEmail] = useState('');
+  const [showSoloBoard, setShowSoloBoard] = useState(false);
   const progress = useProgressDoc();
 
   // Probing the owner-only endpoint is how the portal learns whether the Admin section
@@ -247,7 +250,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
   const handleRevoke = async (licenseKey: string) => {
     if (adminBusy) return;
-    if (!window.confirm(`Revoke ${licenseKey}? The licence stops unlocking immediately.`)) return;
+    if (!(await confirmDialog(`Revoke ${licenseKey}? The licence stops unlocking immediately.`, { confirmLabel: 'Revoke' }))) return;
     const token = await getIdToken();
     if (!token) return;
     setAdminBusy(true);
@@ -288,11 +291,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 onClick={onPlayGame}
                 className="wc-btn wc-btn-primary flex-1 sm:flex-none sm:px-8"
               >
-                ▶ {isUnlocked ? 'Play full version' : 'Play free demo'}
+                <Icon name="play" size={16} />
+                {isUnlocked ? 'Play full version' : 'Play free demo'}
               </button>
               {isUnlocked ? (
                 <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--wa-11)]">
-                  <LockIcon open />
+                  <Icon name="unlock" size={18} />
                   Full version
                 </span>
               ) : (
@@ -303,9 +307,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                   aria-label="Unlock full version"
                   title="Unlock full version"
                 >
-                  <LockIcon />
+                  <Icon name="lock" size={20} />
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowSoloBoard(true)}
+                className="wc-icon-btn"
+                aria-label="Open the Solo leaderboard"
+                title="Solo leaderboard"
+              >
+                <Icon name="trophy" size={20} />
+              </button>
             </div>
           </div>
 
@@ -339,6 +352,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </div>
       </section>
 
+      <Suspense fallback={null}>
+        <SoloLeaderboardPanel
+          isOpen={showSoloBoard}
+          onClose={() => setShowSoloBoard(false)}
+          isUnlocked={isUnlocked}
+        />
+      </Suspense>
+
       {/* Proof, not decoration: real counts straight from the word data. */}
       <section className="wc-stats lg:shrink-0" aria-label="What is in the box">
         {HOME_STATS.map((stat) => (
@@ -361,7 +382,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 className="wc-cover flex h-32 items-center justify-center md:h-auto md:w-48 md:shrink-0"
                 aria-hidden="true"
               >
-                <span className="text-5xl drop-shadow-sm">{game.emoji}</span>
+                <Icon name={game.icon} size={56} className="text-[var(--wa-9)]" />
               </div>
 
               <div className="flex flex-1 flex-col p-5">
@@ -394,12 +415,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                   ))}
                 </ul>
 
+                {/* Secondary: the hero above already owns the primary action. */}
                 <button
                   type="button"
                   onClick={onPlayGame}
-                  className="wc-btn wc-btn-primary mt-4 w-full"
+                  className="wc-btn wc-btn-secondary mt-4 w-full"
                 >
-                  ▶ Play
+                  <Icon name="play" size={16} />
+                  Play
                 </button>
               </div>
             </div>
@@ -423,9 +446,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     if (!loading && !user) {
       return (
         <div className="wc-card flex flex-col items-center gap-3 p-8 text-center">
-          <span className="text-3xl" aria-hidden="true">
-            📈
-          </span>
+          <Icon name="chart" size={30} className="text-[var(--wn-10)]" />
           <p className="text-sm text-[var(--wn-10)]">
             Sign in to sync your rounds and scores across devices.
           </p>
@@ -446,8 +467,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const renderAccount = () => (
     <div className="wc-card max-w-lg p-6">
       <div className="flex items-center gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--wa-2)] text-xl" aria-hidden="true">
-          👤
+        <span
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--wa-2)] text-[var(--wa-11)]"
+          aria-hidden="true"
+        >
+          <Icon name="user" size={22} />
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
@@ -476,7 +500,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             aria-label="Unlock full version"
             title="Unlock full version"
           >
-            <LockIcon />
+            <Icon name="lock" size={20} />
           </button>
         )}
       </div>
@@ -488,7 +512,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           <p className="text-sm font-semibold text-[var(--wn-12)]">Your purchases</p>
           <ul className="mt-3 space-y-3">
             {entitlements.map((item) => (
-              <li key={item.productId} className="rounded-xl border border-[var(--wn-4)] p-3">
+              <li key={item.productId} className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-[var(--wn-12)]">{item.name}</p>
@@ -593,7 +617,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           ) : (
             <ul className="mt-3 space-y-3">
               {admin.orders.map((order) => (
-                <li key={order.code} className="rounded-xl border border-[var(--wn-4)] p-3">
+                <li key={order.code} className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
@@ -655,20 +679,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           </div>
         </div>
 
-        <nav className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible" aria-label="Dashboard sections">
-          {navSections.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setSection(item.id)}
-              className="wc-nav-item whitespace-nowrap md:whitespace-normal"
-              aria-current={current === item.id ? 'page' : undefined}
-            >
-              <span aria-hidden="true">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        <div className="wc-nav-fade">
+          <nav
+            className="flex gap-1 overflow-x-auto pr-6 md:flex-col md:overflow-visible md:pr-0"
+            aria-label="Dashboard sections"
+          >
+            {navSections.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSection(item.id)}
+                className="wc-nav-item whitespace-nowrap md:whitespace-normal"
+                aria-current={current === item.id ? 'page' : undefined}
+              >
+                <Icon name={item.icon} size={18} />
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </div>
 
         <div className="mt-4 hidden md:block md:mt-auto md:pt-4">
           <LoginButton variant="block" />

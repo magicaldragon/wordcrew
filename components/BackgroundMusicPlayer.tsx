@@ -35,11 +35,14 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
 
     // Case 1: No valid URL provided (or explicitly told to stop)
     if (!newAudioSrc || typeof newAudioSrc !== 'string' || newAudioSrc.trim() === '') {
+      // Silence the loop but keep the loaded source. Clearing `currentAudioSrcRef` here
+      // made the very same URL count as "changed" the next time music was requested,
+      // which re-assigned `src` and called load() — aborting the in-flight request
+      // (net::ERR_ABORTED) and re-downloading a multi-MB file every time the player
+      // passed through a silent screen (portal / landing). Pausing is enough.
       if (audioRef.current && !audioRef.current.paused) {
         audioRef.current.pause();
       }
-      currentAudioSrcRef.current = null; // No valid source loaded
-      // Optionally: if (audioRef.current) audioRef.current.src = ''; // To release resource fully, but can cause issues if not handled well
       return; // Stop further processing for this effect run
     }
 
@@ -59,7 +62,7 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       audioJustInitializedOrSrcChanged = true;
     }
 
-    // Apply volume (applies on initial load/change, or if only volume prop changed)
+    // Apply volume (on initial load, src change, or a plain volume change)
     if (audioRef.current) {
       audioRef.current.volume = volume;
     }

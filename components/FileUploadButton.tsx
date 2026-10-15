@@ -1,6 +1,7 @@
 
 import React, { useRef, useCallback } from 'react';
 import { CustomSoundFile } from '../types';
+import { toast } from './Feedback';
 
 interface FileUploadButtonProps {
   id: string;
@@ -60,19 +61,19 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
         const isAcceptedFormat = (ACCEPTED_AUDIO_FORMATS as readonly string[]).includes(fileExtension(file.name));
 
         if (!isAcceptedFormat) {
-          alert(`Unsupported file type. Please choose an audio file: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`);
+          toast(`Unsupported file type. Please choose an audio file: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`, 'error');
           resetInput();
           return;
         }
 
         if (!canBrowserDecode(file)) {
-          alert(`This browser cannot play "${file.type}" audio. Please choose: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`);
+          toast(`This browser cannot play "${file.type}" audio. Please choose: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`, 'error');
           resetInput();
           return;
         }
 
         if (file.size > MAX_AUDIO_FILE_SIZE_BYTES) {
-          alert(`File size exceeds ${MAX_AUDIO_FILE_SIZE_MB}MB limit. Please pick a shorter clip or a lower bitrate file.`);
+          toast(`File size exceeds ${MAX_AUDIO_FILE_SIZE_MB}MB limit. Please pick a shorter clip or a lower bitrate file.`, 'error');
           resetInput();
           return;
         }
@@ -83,13 +84,13 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
             onFileUpload({ name: file.name, data: e.target.result });
           } else {
             console.error("FileReader did not return a string result for file:", file.name);
-            alert("Error reading file. The file data could not be processed.");
+            toast("Error reading file. The file data could not be processed.", 'error');
           }
           resetInput(); // Reset after successful or failed load attempt (within onload)
         };
         reader.onerror = () => {
           console.error("FileReader error:", reader.error, "for file:", file.name);
-          alert("Error reading file. Please try again or select a different file.");
+          toast("Error reading file. Please try again or select a different file.", 'error');
           resetInput(); // Reset on error
         };
         reader.readAsDataURL(file);
@@ -119,7 +120,7 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
       <button
         type="button"
         onClick={handleClick}
-        className={`futuristic-button bg-cyber-purple/70 hover:bg-cyber-purple text-light-text py-2 px-4 rounded-md text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`futuristic-button min-h-[44px] bg-cyber-purple/70 hover:bg-cyber-purple text-light-text py-2.5 px-4 rounded-[var(--r-md)] text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         disabled={disabled}
       >
         {buttonText}

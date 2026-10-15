@@ -38,7 +38,7 @@ export const SOLO_TRACKS: SoloTrack[] = [
     levels: [L.STARTERS, L.MOVERS],
     accentText: 'text-neon-green',
     accentBorder: 'border-neon-green/40 hover:border-neon-green',
-    glow: 'hover:shadow-[0_0_25px_rgba(57,255,20,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
   {
     id: 'explorer',
@@ -48,7 +48,7 @@ export const SOLO_TRACKS: SoloTrack[] = [
     levels: [L.STARTERS, L.MOVERS, L.FLYERS, L.KET],
     accentText: 'text-electric-blue',
     accentBorder: 'border-electric-blue/40 hover:border-electric-blue',
-    glow: 'hover:shadow-[0_0_25px_rgba(0,255,255,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
   {
     id: 'challenger',
@@ -58,7 +58,7 @@ export const SOLO_TRACKS: SoloTrack[] = [
     levels: [L.STARTERS, L.MOVERS, L.FLYERS, L.KET, L.PET],
     accentText: 'text-warning-yellow',
     accentBorder: 'border-warning-yellow/40 hover:border-warning-yellow',
-    glow: 'hover:shadow-[0_0_25px_rgba(255,214,0,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
   {
     id: 'master',
@@ -68,7 +68,7 @@ export const SOLO_TRACKS: SoloTrack[] = [
     levels: [L.STARTERS, L.MOVERS, L.FLYERS, L.KET, L.PET, L.PRE_IELTS],
     accentText: 'text-cyber-purple',
     accentBorder: 'border-cyber-purple/40 hover:border-cyber-purple',
-    glow: 'hover:shadow-[0_0_25px_rgba(191,0,255,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
 ];
 

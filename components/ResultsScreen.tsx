@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { GameMode } from '../types'; // Import GameMode
 import { UnlockDialog } from './UnlockDialog';
+import { Icon } from './Icon';
 import type { UnlockOutcome } from '../services/payments';
 
 interface ResultsScreenProps {
@@ -185,7 +186,7 @@ const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore
         <p className="text-xl sm:text-2xl text-muted-text score-breakdown">Your Score:</p>
         <p 
           key={scoreAnimationKey} 
-          className={`text-6xl sm:text-7xl font-extrabold font-heading text-transparent bg-clip-text bg-gradient-to-r from-neon-green via-electric-blue to-cyber-purple my-2 sm:my-3 final-score ${scoreAnimationKey > 0 ? 'animate-pulseOnce' : ''}`}
+          className={`text-6xl sm:text-7xl font-extrabold font-heading text-neon-green my-2 sm:my-3 final-score ${scoreAnimationKey > 0 ? 'animate-pulseOnce' : ''}`}
         >
           {displayedScore}
         </p>
@@ -262,13 +263,13 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
   }, [onHome]);
   
   const resultCardClass = gameMode === GameMode.HELL 
-    ? 'border-2 border-danger-red/70 shadow-danger-red/40'
+    ? 'border border-danger-red/60 shadow-[var(--elev-3)]'
     : gameMode === GameMode.TEAM
-    ? 'border-2 border-cyan-400/70 shadow-cyan-400/30'
-    : 'border-2 border-neon-green/70 shadow-neon-green/30';
+    ? 'border border-electric-blue/60 shadow-[var(--elev-3)]'
+    : 'border border-neon-green/60 shadow-[var(--elev-3)]';
 
   return (
-    <div className={`flex flex-col items-center space-y-4 sm:space-y-5 text-light-text ${resultCardClass} p-3 sm:p-4 rounded-lg h-full justify-center`}>
+    <div className={`flex flex-col items-center space-y-4 sm:space-y-5 text-light-text ${resultCardClass} p-3 sm:p-4 rounded-[var(--r-lg)] h-full justify-center`}>
       
       {gameMode === GameMode.TEAM && teamAScore !== undefined && teamBScore !== undefined ? (
         <TeamResults teamAScore={teamAScore} teamBScore={teamBScore} />
@@ -279,7 +280,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
       <button
         type="button"
         onClick={handleHomeClick}
-        className="bg-gradient-to-r from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green text-dark-metal font-bold py-2.5 sm:py-3 px-6 sm:px-8 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg mt-2 sm:mt-3 home-button"
+        className="bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2.5 sm:py-3 px-6 sm:px-8 rounded-[var(--r-md)] min-h-[44px] futuristic-button text-base sm:text-lg mt-2 sm:mt-3 home-button"
         aria-label="Back to home"
       >
         Home
@@ -288,7 +289,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
       {/* Conversion touchpoint: offered at the emotional peak, right after the score.
           The pitch gets firmer from the second demo round onwards. */}
       {!isUnlocked && (
-        <div className="w-full max-w-sm rounded-xl border border-warning-yellow/40 bg-warning-yellow/10 p-3 text-center animate-fadeInScaleUp">
+        <div className="w-full max-w-sm rounded-[var(--r-lg)] border border-warning-yellow/40 bg-warning-yellow/10 p-3 text-center animate-fadeInScaleUp">
           <p className="font-heading text-sm font-bold tracking-wide text-warning-yellow">
             {demoRounds >= 2
               ? `🔥 ${demoRounds} rounds — ready for more?`
@@ -303,9 +304,10 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
           <button
             type="button"
             onClick={() => setShowUnlockDialog(true)}
-            className="futuristic-button mt-2 w-full rounded-lg bg-gradient-to-r from-warning-yellow to-amber-500 px-4 py-2 font-bold text-dark-metal"
+            className="futuristic-button mt-2 inline-flex w-full items-center justify-center gap-2 rounded-[var(--r-md)] min-h-[44px] bg-warning-yellow px-4 py-2 font-bold text-dark-metal hover:bg-amber-400"
           >
-            🔓 Unlock Full Version
+            <Icon name="unlock" size={18} />
+            Unlock Full Version
           </button>
         </div>
       )}

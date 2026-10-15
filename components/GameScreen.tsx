@@ -3,12 +3,14 @@ import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from
 import { GameSettings, CustomSoundFile, GameMode } from '../types'; 
 import CircularTimer from './CircularTimer'; // Import CircularTimer
 import { VolumeControls } from './VolumeControls';
+import { Icon } from './Icon';
 import { 
     playSound, CORRECT_SOUNDS, SKIP_SOUNDS, SINGLE_SOUND_EFFECTS,
     COMBO_ACTIVATION_THRESHOLD, COMBO_POINT_BONUS, 
     COMBO_TIME_BONUS_THRESHOLD, COMBO_TIME_BONUS_SECONDS, MAX_COMBO_TIME_BONUS_APPLICATIONS,
-    POWERUP_TIME_FREEZE_SECONDS, RUSH_HOUR_DURATION_SECONDS,
-    HELL_MODE_INITIAL_SKIPS, HELL_MODE_SKIP_PENALTY, HELL_MODE_LUCKY_SKIP_PENALTY
+    POWERUP_TIME_FREEZE_SECONDS, RUSH_HOUR_DURATION_SECONDS, FINAL_COUNTDOWN_SECONDS,
+    HELL_MODE_INITIAL_SKIPS, HELL_MODE_SKIP_PENALTY, HELL_MODE_LUCKY_SKIP_PENALTY,
+    ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES
 } from '../constants';
 import { resolveVietnameseHint } from '../vietnameseMeanings';
 import { resolveEnglishSynonym } from '../services/synonyms';
@@ -59,7 +61,7 @@ interface WordCardProps {
   meaningHint?: string;
 }
 
-const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColorClass, isWordVisible, meaningHint }) => {
+const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColorClass, isWordVisible, meaningHint }) => {
   const getCardStyling = () => { 
     switch (status) { 
       case 'correct':
@@ -131,7 +133,7 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
     return `${
         pointsAwardedAnim.isPenalty ? 'text-danger-red font-extrabold text-3xl sm:text-4xl' :
         (pointsAwardedAnim.isLucky || pointsAwardedAnim.isCombo || pointsAwardedAnim.isRushHourBonus) 
-        ? 'text-yellow-400 font-extrabold text-3xl sm:text-4xl' 
+        ? 'text-warning-yellow font-extrabold text-3xl sm:text-4xl' 
         : 'text-neon-green font-bold text-2xl sm:text-3xl'
     }`;
   };
@@ -149,7 +151,7 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
     <div
       key={wordKey}
       ref={wordCardRef}
-      className={`relative futuristic-card text-light-text p-2 sm:p-2 md:p-3 rounded-xl shadow-xl w-full h-full flex items-center justify-center animate-fadeInScaleUp ${cardFlashClass} ${bounceClass} word-card-animated-border`}
+      className={`relative futuristic-card text-light-text p-2 sm:p-2 md:p-3 rounded-[var(--r-xl)] w-full h-full flex items-center justify-center animate-fadeInScaleUp ${cardFlashClass} ${bounceClass} word-card-animated-border`}
     >
       <div ref={measureBoxRef} className="word-animation-container flex items-center justify-center">
         <div className="relative max-w-full">
@@ -190,6 +192,10 @@ const WordCard: React.FC<WordCardProps> = ({ word, wordKey, animationClass, anim
     </div>
   );
 };
+
+// Memoised: the parent re-renders every clock tick, but the card only changes when its own
+// props do (word, status, reveal state, hint) — so it skips those re-renders entirely.
+const WordCard = React.memo(WordCardBase);
 
 // ... (other interfaces)
 
@@ -252,17 +258,17 @@ const getMessageStyling = (type: GameMessage['type']): string => {
         case 'rushHour':
             return 'text-2xl sm:text-3xl md:text-4xl font-heading font-extrabold text-danger-red animate-fastRushTextGlow filter drop-shadow-[0_2px_2px_rgba(0,0,0,0.7)]';
         case 'rushHourOver':
-            return 'text-2xl sm:text-3xl md:text-4xl font-heading font-extrabold text-red-400 animate-flash filter drop-shadow-[0_2px_2px_rgba(0,0,0,0.7)] [text-shadow:0_0_8px_#FF4136]';
+            return 'text-2xl sm:text-3xl md:text-4xl font-heading font-extrabold text-danger-red animate-flash filter drop-shadow-[0_2px_2px_rgba(0,0,0,0.7)] [text-shadow:0_0_8px_#F87171]';
         case 'comboActivate':
             return 'bg-orange-500/90 text-white animate-comboActivatePop text-lg sm:text-xl md:text-2xl font-bold p-1.5 sm:p-2 rounded-lg';
         case 'timeBonus':
-            return 'bg-blue-500/90 text-white animate-timeBonusFloatUp text-md sm:text-lg md:text-xl font-semibold p-1.5 sm:p-2 rounded-lg';
+            return 'bg-blue-500/90 text-white animate-timeBonusFloatUp text-base sm:text-lg md:text-xl font-semibold p-1.5 sm:p-2 rounded-lg';
         case 'powerUpFeedback':
-            return 'bg-purple-600/90 text-white animate-powerUpAppear text-md sm:text-lg font-semibold p-1.5 sm:p-2 rounded-lg';
+            return 'bg-purple-600/90 text-white animate-powerUpAppear text-base sm:text-lg font-semibold p-1.5 sm:p-2 rounded-lg';
         case 'hellModeWarning':
-            return 'bg-red-700/90 text-white animate-powerUpAppear text-md sm:text-lg font-semibold p-1.5 sm:p-2 rounded-lg border-2 border-red-400';
+            return 'bg-red-700/90 text-white animate-powerUpAppear text-base sm:text-lg font-semibold p-1.5 sm:p-2 rounded-lg border-2 border-red-400';
         default:
-            return 'text-md p-1 sm:p-1.5 rounded-lg'; 
+            return 'text-base p-1 sm:p-1.5 rounded-lg'; 
     }
 };
 
@@ -361,6 +367,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const wordProcessingTimerIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onGameEndRef = useRef(onGameEnd);
   const setActiveMusicOverrideRef = useRef(setActiveMusicOverride);
+  // Latest volume / countdown sound, read by the round-reset effect *without* being a
+  // dependency of it. Otherwise dragging the Effects slider in the pause menu would
+  // re-run the reset effect and restart the round from scratch.
+  const effectsVolumeRef = useRef(effectsVolume);
+  const customCountdownGoSoundRef = useRef(customCountdownGoSound);
+  // A round must only ever be scored once (timer, pool exhaustion, manual end).
+  const endedRef = useRef(false);
 
   const gameScreenRootRef = useRef<HTMLDivElement>(null);
   const correctButtonRef = useRef<HTMLButtonElement>(null);
@@ -377,8 +390,16 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setActiveMusicOverrideRef.current = setActiveMusicOverride;
   }, [setActiveMusicOverride]);
 
+  // Mirror the two props the reset effect reads into refs, so the reset only fires on a
+  // genuine new round (settings / mode) rather than on every volume tweak.
+  useEffect(() => {
+    effectsVolumeRef.current = effectsVolume;
+    customCountdownGoSoundRef.current = customCountdownGoSound;
+  }, [effectsVolume, customCountdownGoSound]);
+
 
   useEffect(() => {
+    endedRef.current = false;
     const array = [...settings.words]; 
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -464,20 +485,20 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         }
     }
 
-    const soundUrl = customCountdownGoSound?.data || SINGLE_SOUND_EFFECTS.COUNTDOWN_GO;
+    const soundUrl = customCountdownGoSoundRef.current?.data || SINGLE_SOUND_EFFECTS.COUNTDOWN_GO;
     if (soundUrl) {
       if (countdownAudioRef.current && countdownAudioRef.current.src === soundUrl) {
         if (countdownAudioRef.current.paused && countdownAudioRef.current.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
             countdownAudioRef.current.load(); 
         }
-        countdownAudioRef.current.volume = effectsVolume; 
+        countdownAudioRef.current.volume = effectsVolumeRef.current; 
       } else {
         if (countdownAudioRef.current) {
           countdownAudioRef.current.pause(); 
         }
         countdownAudioRef.current = new Audio(soundUrl);
         countdownAudioRef.current.preload = 'auto';
-        countdownAudioRef.current.volume = effectsVolume; 
+        countdownAudioRef.current.volume = effectsVolumeRef.current; 
         countdownAudioRef.current.load(); 
       }
     } else {
@@ -499,7 +520,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       onSetRushHourActiveVisuals(false); 
       setActiveMusicOverrideRef.current(null); 
     };
-  }, [settings, isTeamMode, customCountdownGoSound, effectsVolume, onSetRushHourActiveVisuals]); 
+  }, [settings, isTeamMode, onSetRushHourActiveVisuals]); 
 
   // ... (countdown useEffect)
     useEffect(() => {
@@ -511,10 +532,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     }
     
     if (countdownStepIndex === 0) { 
-      const currentSoundUrl = customCountdownGoSound?.data || SINGLE_SOUND_EFFECTS.COUNTDOWN_GO;
+      const currentSoundUrl = customCountdownGoSoundRef.current?.data || SINGLE_SOUND_EFFECTS.COUNTDOWN_GO;
       if (countdownAudioRef.current && countdownAudioRef.current.src && countdownAudioRef.current.src === currentSoundUrl) {
         countdownAudioRef.current.currentTime = 0; 
-        countdownAudioRef.current.volume = effectsVolume; 
+        countdownAudioRef.current.volume = effectsVolumeRef.current; 
         const playPromise = countdownAudioRef.current.play();
         if (playPromise !== undefined) {
             playPromise.catch(error => {
@@ -523,7 +544,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             });
         }
       } else if (currentSoundUrl) { 
-        playSound(currentSoundUrl, effectsVolume); 
+        playSound(currentSoundUrl, effectsVolumeRef.current); 
       }
     }
 
@@ -534,7 +555,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     return () => {
       if (countdownTimerIdRef.current) clearTimeout(countdownTimerIdRef.current);
     };
-  }, [countdownStepIndex, customCountdownGoSound, effectsVolume, isTeamMode]); 
+  }, [countdownStepIndex, isTeamMode]); 
 
   // FIX: Hoisted helper functions (`triggerGameMessage`, `triggerHappyAnimations`, `triggerSadAnimation`) to be declared before they are used inside the `advanceWord` useCallback hook, resolving a block-scoped variable error.
   const triggerGameMessage = useCallback((text: string, type: GameMessage['type'], duration: number = 2000) => {
@@ -594,6 +615,34 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     }, 800);
   }, []);
 
+  // Scores the round exactly once. Every end path (clock, word pool, manual) funnels
+  // through here so a double-fire can never post two results.
+  const endGameOnce = useCallback((details: { baseScore: number; timeLeftSeconds: number } | { teamAScore: number; teamBScore: number }) => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+    if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
+    if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
+    onGameEndRef.current(details);
+  }, []);
+
+  // Rush Hour can start from a score milestone (Normal) or off the clock (Hell). One
+  // helper keeps the activation song, banner and music override in sync for both.
+  const startRushHour = useCallback(() => {
+    setIsRushHourActiveState(true);
+    setRushHourEndTime(Date.now() + RUSH_HOUR_DURATION_SECONDS * 1000);
+    playSound(customRushHourActivationSound || SINGLE_SOUND_EFFECTS.RUSH_HOUR_ACTIVATED, effectsVolumeRef.current);
+    triggerGameMessage("💎 RUSH HOUR !", 'rushHour', RUSH_HOUR_DURATION_SECONDS * 1000);
+
+    let musicToPlay: string | null = null;
+    const rushMusicSource = customRushHourMusicLoop?.data || SINGLE_SOUND_EFFECTS.RUSH_HOUR_MUSIC_LOOP;
+    if (Array.isArray(rushMusicSource) && rushMusicSource.length > 0) {
+        musicToPlay = rushMusicSource[Math.floor(Math.random() * rushMusicSource.length)];
+    } else if (typeof rushMusicSource === 'string') {
+        musicToPlay = rushMusicSource;
+    }
+    if (musicToPlay) setActiveMusicOverrideRef.current(musicToPlay);
+  }, [customRushHourActivationSound, customRushHourMusicLoop, triggerGameMessage]);
+
   // FIX: Moved 'advanceWord' declaration before its usage in useEffect hooks.
   const advanceWord = useCallback((isCorrectGuess: boolean) => {
     if (isProcessingWord || !showGameUI) return;
@@ -620,7 +669,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             triggerHappyAnimations();
         } else { // Skipped
             playSound(customSkipSounds.length > 0 ? customSkipSounds : SKIP_SOUNDS, effectsVolume);
-            awardedPointsThisTurn = -30;
+            // A skip must never push a team's score below zero: the 30-point penalty
+            // is capped at whatever the team still has.
+            awardedPointsThisTurn = -Math.min(30, Math.max(0, teamScores[currentTurn]));
             const opponent: Team = currentTurn === 'A' ? 'B' : 'A';
             const opponentBonus = permanentBuffs[opponent].pointsFromOpponentSkip;
             if (opponentBonus > 0) {
@@ -631,20 +682,24 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             triggerSadAnimation();
         }
         
-        setPointAnimationKey(prevKey => prevKey + 1);
-        setPointsAwardedAnim({
-            points: awardedPointsThisTurn,
-            isLucky: false,
-            isCombo: wasSpeedBonus,
-            isRushHourBonus: false,
-            isPenalty: awardedPointsThisTurn < 0,
-            key: wordKey,
-        });
-        setTimeout(() => setPointsAwardedAnim(null), 1500);
+        // A fully-absorbed penalty (team already at 0) awards nothing, so there is no
+        // floating number worth showing.
+        if (awardedPointsThisTurn !== 0) {
+          setPointAnimationKey(prevKey => prevKey + 1);
+          setPointsAwardedAnim({
+              points: awardedPointsThisTurn,
+              isLucky: false,
+              isCombo: wasSpeedBonus,
+              isRushHourBonus: false,
+              isPenalty: awardedPointsThisTurn < 0,
+              key: wordKey,
+          });
+          setTimeout(() => setPointsAwardedAnim(null), 1500);
+        }
 
-        setTeamScores(prev => ({ ...prev, [currentTurn]: prev[currentTurn] + awardedPointsThisTurn }));
+        setTeamScores(prev => ({ ...prev, [currentTurn]: Math.max(0, prev[currentTurn] + awardedPointsThisTurn) }));
         
-        const scoreAfterThisTurn = teamScores[currentTurn] + awardedPointsThisTurn;
+        const scoreAfterThisTurn = Math.max(0, teamScores[currentTurn] + awardedPointsThisTurn);
         const lastMilestone = teamMilestones[currentTurn];
         const nextMilestone = (Math.floor(lastMilestone / 500) + 1) * 500;
 
@@ -659,7 +714,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 if (isGameOver) {
                     const finalTeamScores = { ...teamScores };
                     finalTeamScores[currentTurn] += awardedPointsThisTurn;
-                    onGameEndRef.current({ teamAScore: finalTeamScores.A, teamBScore: finalTeamScores.B });
+                    endGameOnce({ teamAScore: finalTeamScores.A, teamBScore: finalTeamScores.B });
                 } else {
                     setCurrentWordIndex(prev => prev + 1);
                     setWordKey(prev => prev + 1);
@@ -710,6 +765,22 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           triggerGameMessage(`+${COMBO_TIME_BONUS_SECONDS} SECONDS!`, 'timeBonus');
         }
       }
+      // Announcer callouts land exactly on the ladder rungs. The lines are pre-rendered
+      // audio shipped in /public/audio, so they fire with no network round-trip. Kept
+      // sparse (3 / 5 / 8) so the line stays a reward rather than constant chatter.
+      if (
+        newStreak === ANNOUNCER_STREAK_MILESTONES.COMBO ||
+        newStreak === ANNOUNCER_STREAK_MILESTONES.ON_FIRE ||
+        newStreak === ANNOUNCER_STREAK_MILESTONES.UNSTOPPABLE
+      ) {
+        const callout =
+          newStreak === ANNOUNCER_STREAK_MILESTONES.UNSTOPPABLE
+            ? ANNOUNCER_CALLOUTS.UNSTOPPABLE
+            : newStreak === ANNOUNCER_STREAK_MILESTONES.ON_FIRE
+              ? ANNOUNCER_CALLOUTS.ON_FIRE
+              : ANNOUNCER_CALLOUTS.COMBO;
+        playSound(callout, effectsVolume);
+      }
       if (isRushHourActiveState) {
         awardedPointsThisTurn *= 2;
         wasRushHourBonusThisTurn = true;
@@ -736,58 +807,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         setLastSkipFreebieComboMilestone(newStreak);
         playSound(customPowerupCollectedSound || SINGLE_SOUND_EFFECTS.POWERUP_COLLECTED, effectsVolume);
         triggerGameMessage("↪️ SKIP FREEBIE EARNED!", 'powerUpFeedback');
-        if (settings.gameMode === GameMode.HELL) {
-            if (remainingSkipsHellMode === 0) { 
-                setRemainingSkipsHellMode(1);
-            }
-        }
       }
       
-      if (settings.gameMode === GameMode.HELL) {
-        const oneThirdTimeMark = settings.totalTimeLimit / 3;
-        const twoThirdsTimeMark = (settings.totalTimeLimit * 2) / 3;
-        if (!isRushHourActiveState && rushHourEndTime === null) {
-            let triggerRush = false;
-            if (lastRushHourTriggerFlag === 0 && gameTimeLeft <= twoThirdsTimeMark && gameTimeLeft > oneThirdTimeMark) {
-                triggerRush = true;
-                setLastRushHourTriggerFlag(1); 
-            } else if (lastRushHourTriggerFlag === 1 && gameTimeLeft <= oneThirdTimeMark && gameTimeLeft > 0) {
-                triggerRush = true;
-                setLastRushHourTriggerFlag(2); 
-            }
-            if (triggerRush) {
-                setIsRushHourActiveState(true);
-                setRushHourEndTime(Date.now() + RUSH_HOUR_DURATION_SECONDS * 1000);
-                playSound(customRushHourActivationSound || SINGLE_SOUND_EFFECTS.RUSH_HOUR_ACTIVATED, effectsVolume);
-                triggerGameMessage("💎 RUSH HOUR !", 'rushHour', RUSH_HOUR_DURATION_SECONDS * 1000);
-                
-                let musicToPlay: string | null = null;
-                const rushMusicSource = customRushHourMusicLoop?.data || SINGLE_SOUND_EFFECTS.RUSH_HOUR_MUSIC_LOOP;
-                if (Array.isArray(rushMusicSource) && rushMusicSource.length > 0) {
-                    musicToPlay = rushMusicSource[Math.floor(Math.random() * rushMusicSource.length)];
-                } else if (typeof rushMusicSource === 'string') {
-                    musicToPlay = rushMusicSource;
-                }
-                if (musicToPlay) setActiveMusicOverrideRef.current(musicToPlay);
-            }
-        }
-      } else { 
+      // Normal Mode earns Rush Hour from score milestones. Hell Mode instead triggers it
+      // off the clock (see the time-based effect below), so it is not handled here.
+      if (settings.gameMode !== GameMode.HELL) {
           const nextRushHourScoreMilestone = (Math.floor(lastRushHourTriggerFlag / 2000) + 1) * 2000;
           if (newScore >= nextRushHourScoreMilestone && scoreBeforeThisWord < nextRushHourScoreMilestone && !isRushHourActiveState && rushHourEndTime === null) {
-              setIsRushHourActiveState(true);
-              setRushHourEndTime(Date.now() + RUSH_HOUR_DURATION_SECONDS * 1000);
-              setLastRushHourTriggerFlag(nextRushHourScoreMilestone); 
-              playSound(customRushHourActivationSound || SINGLE_SOUND_EFFECTS.RUSH_HOUR_ACTIVATED, effectsVolume);
-              triggerGameMessage("💎 RUSH HOUR !", 'rushHour', RUSH_HOUR_DURATION_SECONDS * 1000);
-
-              let musicToPlay: string | null = null;
-              const rushMusicSource = customRushHourMusicLoop?.data || SINGLE_SOUND_EFFECTS.RUSH_HOUR_MUSIC_LOOP;
-              if (Array.isArray(rushMusicSource) && rushMusicSource.length > 0) {
-                  musicToPlay = rushMusicSource[Math.floor(Math.random() * rushMusicSource.length)];
-              } else if (typeof rushMusicSource === 'string') {
-                  musicToPlay = rushMusicSource;
-              }
-              if (musicToPlay) setActiveMusicOverrideRef.current(musicToPlay);
+              setLastRushHourTriggerFlag(nextRushHourScoreMilestone);
+              startRushHour();
           }
       }
 
@@ -803,9 +831,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           if (luckyWordMultipliers.has(currentWordIndex)) {
             penalty = HELL_MODE_LUCKY_SKIP_PENALTY;
           }
-          newScore -= penalty;
-          awardedPointsThisTurn = -penalty; 
-          wasPenalty = true;
+          // Never let the score go negative: the skip penalty is capped at the
+          // points the player still has left.
+          const appliedPenalty = Math.min(penalty, Math.max(0, newScore));
+          newScore -= appliedPenalty;
+          awardedPointsThisTurn = -appliedPenalty;
+          wasPenalty = appliedPenalty > 0;
           setCurrentScore(newScore);
           playSound(customSkipSounds.length > 0 ? customSkipSounds : SKIP_SOUNDS, effectsVolume);
         } else {
@@ -837,7 +868,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     wordProcessingTimerIdRef.current = setTimeout(() => {
       if (currentWordIndex + 1 >= shuffledWords.length) {
         onSetRushHourActiveVisuals(false); 
-        onGameEndRef.current({ baseScore: newScore, timeLeftSeconds: gameTimeLeft });
+        endGameOnce({ baseScore: newScore, timeLeftSeconds: gameTimeLeft });
       } else {
         setCurrentWordIndex(prevIndex => prevIndex + 1);
         setWordKey(prevKey => prevKey + 1); 
@@ -854,63 +885,90 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     customPowerupCollectedSound, customPowerupTimeFreezeSound, customPowerupSkipFreebieUsedSound, 
     customRushHourActivationSound, customRushHourMusicLoop, onSetRushHourActiveVisuals,
     teamScores, currentTurn, wordStartTime, teamMilestones, permanentBuffs, isPaused, customSkipSounds,
-    onGameEndRef, setActiveMusicOverrideRef, triggerGameMessage, triggerHappyAnimations, triggerSadAnimation
+    onGameEndRef, setActiveMusicOverrideRef, triggerGameMessage, triggerHappyAnimations, triggerSadAnimation,
+    endGameOnce, startRushHour
   ]);
 
-  // Single Player Game Timer
+  // Latest values the timers/effects read without taking them as dependencies, so the
+  // intervals are not torn down and rebuilt on every tick.
+  const gameTimeLeftRef = useRef(gameTimeLeft);
+  gameTimeLeftRef.current = gameTimeLeft;
+  const turnTimeLeftRef = useRef(turnTimeLeft);
+  turnTimeLeftRef.current = turnTimeLeft;
+  const advanceWordRef = useRef(advanceWord);
+  advanceWordRef.current = advanceWord;
+
+  // Single Player Game Timer — the interval only decrements the clock. Ending the round
+  // lives in its own effect below, so no state updater carries a side effect (that used
+  // to let the game end twice: once from the tick, once from re-running the effect).
   useEffect(() => {
     if (isTeamMode || !showGameUI || isProcessingWord || isTimerFrozen || isPaused) {
         if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
         return;
     }
-
-    const handleGameOver = () => {
-        setTimeUpEffect(true);
-        onSetRushHourActiveVisuals(false);
-        onGameEndRef.current({ baseScore: currentScore, timeLeftSeconds: 0 });
-    };
-    
-    if (gameTimeLeft <= 0) {
-        if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
-        handleGameOver();
-        return;
-    }
+    if (gameTimeLeftRef.current <= 0) return;
 
     if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
-
-    const timerTick = () => {
-        setGameTimeLeft(prevTime => {
-            const newTime = Math.max(0, prevTime - 1); 
-            if (newTime === 0) {
-                if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
-                handleGameOver();
-            }
-            return newTime;
-        });
-    };
-    
-    const intervalDuration = isRushHourActiveState ? 500 : 1000; 
-    gameTimerIdRef.current = setInterval(timerTick, intervalDuration);
+    const intervalDuration = isRushHourActiveState ? 500 : 1000;
+    gameTimerIdRef.current = setInterval(() => {
+        setGameTimeLeft(prevTime => Math.max(0, prevTime - 1));
+    }, intervalDuration);
 
     return () => {
         if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
     };
-  }, [gameTimeLeft, currentScore, showGameUI, isProcessingWord, isTimerFrozen, isRushHourActiveState, onSetRushHourActiveVisuals, isTeamMode, isPaused]);
+  }, [showGameUI, isProcessingWord, isTimerFrozen, isRushHourActiveState, isTeamMode, isPaused]);
 
+  // Single Player: the round ends the moment the clock hits zero. `endGameOnce` makes
+  // this idempotent, so it can never post two results.
+  useEffect(() => {
+    if (isTeamMode || !showGameUI) return;
+    if (gameTimeLeft > 0) return;
+    setTimeUpEffect(true);
+    onSetRushHourActiveVisuals(false);
+    endGameOnce({ baseScore: currentScore, timeLeftSeconds: 0 });
+  }, [gameTimeLeft, isTeamMode, showGameUI, currentScore, onSetRushHourActiveVisuals, endGameOnce]);
 
-    // Team Mode Turn Timer
+  // Hell Mode: Rush Hour is tied to the clock, not to correct guesses — so a player who
+  // keeps skipping still gets both Rush Hours, exactly as the instructions promise.
+  useEffect(() => {
+    if (isTeamMode || !showGameUI || isPaused) return;
+    if (settings.gameMode !== GameMode.HELL) return;
+    if (isRushHourActiveState || rushHourEndTime !== null) return;
+    const oneThirdTimeMark = settings.totalTimeLimit / 3;
+    const twoThirdsTimeMark = (settings.totalTimeLimit * 2) / 3;
+    if (lastRushHourTriggerFlag === 0 && gameTimeLeft <= twoThirdsTimeMark && gameTimeLeft > oneThirdTimeMark) {
+        setLastRushHourTriggerFlag(1);
+        startRushHour();
+    } else if (lastRushHourTriggerFlag === 1 && gameTimeLeft <= oneThirdTimeMark && gameTimeLeft > 0) {
+        setLastRushHourTriggerFlag(2);
+        startRushHour();
+    }
+  }, [gameTimeLeft, isTeamMode, showGameUI, isPaused, settings.gameMode, settings.totalTimeLimit, isRushHourActiveState, rushHourEndTime, lastRushHourTriggerFlag, startRushHour]);
+
+  // Closing seconds: voice the "Hurry up!" callout once when the clock drops into the
+  // final window. The ref latches so it fires a single time per descent into the window
+  // and is cleared again above it (start of a round / a rematch).
+  const hurryUpCalledRef = useRef(false);
+  useEffect(() => {
+    if (isTeamMode || !showGameUI || isPaused) return;
+    if (gameTimeLeft > FINAL_COUNTDOWN_SECONDS) {
+      hurryUpCalledRef.current = false;
+      return;
+    }
+    if (gameTimeLeft <= 0 || hurryUpCalledRef.current) return;
+    hurryUpCalledRef.current = true;
+    playSound(ANNOUNCER_CALLOUTS.HURRY_UP, effectsVolumeRef.current);
+  }, [gameTimeLeft, isTeamMode, showGameUI, isPaused]);
+
+    // Team Mode Turn Timer — ticks only; the auto-skip on expiry is a separate effect so
+    // the interval is not rebuilt every second.
     useEffect(() => {
         if (!isTeamMode || !showGameUI || isProcessingWord || isPaused) {
             if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
             return;
         }
-
-        if (turnTimeLeft <= 0) {
-            if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
-            // Auto-skip
-            advanceWord(false);
-            return;
-        }
+        if (turnTimeLeftRef.current <= 0) return;
 
         if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
         turnTimerIdRef.current = setInterval(() => {
@@ -920,7 +978,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         return () => {
             if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
         };
-    }, [isTeamMode, showGameUI, isProcessingWord, isPaused, turnTimeLeft, advanceWord]);
+    }, [isTeamMode, showGameUI, isProcessingWord, isPaused]);
+
+    // A team turn that runs out is auto-skipped.
+    useEffect(() => {
+        if (!isTeamMode || !showGameUI || isProcessingWord || isPaused) return;
+        if (turnTimeLeft > 0) return;
+        advanceWordRef.current(false);
+    }, [isTeamMode, showGameUI, isProcessingWord, isPaused, turnTimeLeft]);
 
 
   // ... (Rush Hour useEffect, wordTextAnimation useEffect, wordStatus useEffect)
@@ -992,6 +1057,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     remainingSkipsHellMode, skipFreebiesAvailable, isTeamMode
   ]);
 // ... (useEffect for keydown)
+  // The handlers change identity every render (they capture the live score/clock). Holding
+  // them in refs lets the key listener subscribe once per word instead of every second.
+  const handleCorrectRef = useRef(handleCorrect);
+  handleCorrectRef.current = handleCorrect;
+  const handleSkipRef = useRef(handleSkip);
+  handleSkipRef.current = handleSkip;
+
    useEffect(() => {
     if (!showGameUI || isProcessingWord) return;
 
@@ -1003,8 +1075,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
       if (isPaused) return;
-      const isTimeUp = isTeamMode ? turnTimeLeft <= 0 : gameTimeLeft <= 0;
-      if (isTimeUp) return;
+      // Both handlers re-check the clock themselves, so no time guard is needed here.
 
       // Team Mode shortcuts: Enter = Correct, S = Skip.
       const isTeamCorrectKey = isTeamMode && event.key === 'Enter' && !isInteractiveTarget(event.target);
@@ -1012,10 +1083,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
       if (event.key === 'ArrowLeft' || isTeamCorrectKey) {
         event.preventDefault();
-        handleCorrect();
+        handleCorrectRef.current();
       } else if (event.key === 'ArrowRight' || isTeamSkipKey) {
         event.preventDefault();
-        handleSkip();
+        handleSkipRef.current();
       }
     };
 
@@ -1023,7 +1094,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     return () => {
       document.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [showGameUI, isProcessingWord, gameTimeLeft, turnTimeLeft, isTeamMode, handleCorrect, handleSkip, isPaused]);
+  }, [showGameUI, isProcessingWord, isTeamMode, isPaused]);
 
   // Anti-cheat (hot-seat): tự hiện từ trong WORD_AUTO_HIDE_MS rồi ẩn đi.
   useEffect(() => {
@@ -1171,6 +1242,21 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [showGameUI, isProcessingWord, surpriseBoxInfo, isPauseMenuOpen, openPauseMenu, closePauseMenu]);
 
+  // Leaving the tab mid-round must not burn the clock. The moment the page is hidden the
+  // game pauses behind the pause menu, so the player resumes deliberately on their return
+  // instead of coming back to a round that quietly expired in the background.
+  useEffect(() => {
+    if (!showGameUI) return;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'hidden') return;
+      setShowEndGameConfirm(false);
+      setIsPauseMenuOpen(true);
+      setIsGamePaused(true);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [showGameUI]);
+
   // "End Game" now opens an in-game confirmation instead of a browser dialog.
   const requestEndGame = useCallback(() => {
     if (!showGameUI || isProcessingWord) return;
@@ -1187,18 +1273,16 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   }, [isPauseMenuOpen]);
 
   const confirmEndGame = useCallback(() => {
-    if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
-    if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
     onSetRushHourActiveVisuals(false);
     setShowEndGameConfirm(false);
     setIsPauseMenuOpen(false);
     if (isTeamMode) {
-        onGameEndRef.current({ teamAScore: teamScores.A, teamBScore: teamScores.B });
+        endGameOnce({ teamAScore: teamScores.A, teamBScore: teamScores.B });
     } else {
-        onGameEndRef.current({ baseScore: currentScore, timeLeftSeconds: 0 });
+        endGameOnce({ baseScore: currentScore, timeLeftSeconds: 0 });
     }
     setActiveMusicOverrideRef.current(null);
-  }, [currentScore, onSetRushHourActiveVisuals, isTeamMode, teamScores]);
+  }, [currentScore, onSetRushHourActiveVisuals, isTeamMode, teamScores, endGameOnce]);
 
   // ... (Team Mode functions)
   // == Team Mode Specific Functions ==
@@ -1207,13 +1291,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       { id: 'ADD_50', description: '+50 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 50})) },
       { id: 'ADD_100', description: '+100 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 100})) },
       { id: 'ADD_200', description: '+200 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 200})) },
-      { id: 'SUB_50', description: '-50 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] - 50})) },
+      { id: 'SUB_50', description: '-50 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: Math.max(0, p[t] - 50)})) },
       { id: 'PERMA_BONUS_10', description: '+10 Points Per Correct Word!', apply: (t: Team) => setPermanentBuffs(p => ({...p, [t]: {...p[t], extraPointsPerWord: p[t].extraPointsPerWord + 10 }})) },
       { id: 'SWAP_SCORES', description: 'Scores Swapped!', apply: () => setTeamScores(s => ({ A: s.B, B: s.A })) },
       { id: 'STEAL_20', description: "Steal 20% of Opponent's Points!", apply: (t: Team) => {
           const opponent = t === 'A' ? 'B' : 'A';
           const stolen = Math.floor(teamScores[opponent] * 0.2);
-          setTeamScores(s => ({ ...s, [t]: s[t] + stolen, [opponent]: s[opponent] - stolen }));
+          setTeamScores(s => ({ ...s, [t]: s[t] + stolen, [opponent]: Math.max(0, s[opponent] - stolen) }));
       }},
       { id: 'OPP_SKIP_BONUS', description: "+30 Pts When Opponent Skips!", apply: (t: Team) => setPermanentBuffs(p => ({...p, [t]: {...p[t], pointsFromOpponentSkip: p[t].pointsFromOpponentSkip + 30 }})) },
     ];
@@ -1237,7 +1321,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         setIsProcessingWord(true); // Prevent clicks during transition
         wordProcessingTimerIdRef.current = setTimeout(() => {
             if (currentWordIndex + 1 >= shuffledWords.length) {
-                onGameEndRef.current({ teamAScore: teamScores.A, teamBScore: teamScores.B });
+                endGameOnce({ teamAScore: teamScores.A, teamBScore: teamScores.B });
             } else {
                 setCurrentWordIndex(prev => prev + 1);
                 setWordKey(prev => prev + 1);
@@ -1248,7 +1332,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             }
         }, 600);
     }, 3000); // Show effect for 3 seconds
-  }, [teamScores, currentTurn, currentWordIndex, shuffledWords.length, settings.timePerWord]);
+  }, [teamScores, currentTurn, currentWordIndex, shuffledWords.length, settings.timePerWord, endGameOnce]);
 
 
   const formatTime = (seconds: number) => { 
@@ -1308,7 +1392,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             <button
               type="button"
               onClick={closePauseMenu}
-              className="futuristic-button w-full rounded-lg bg-gradient-to-r from-neon-green to-green-500 px-4 py-2.5 font-bold text-dark-metal"
+              className="futuristic-button w-full rounded-[var(--r-md)] bg-neon-green px-4 py-2.5 font-bold text-dark-metal hover:bg-emerald-400"
             >
               ▶️ Resume
             </button>
@@ -1349,7 +1433,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               <button
                 type="button"
                 onClick={confirmEndGame}
-                className="futuristic-button rounded-lg bg-gradient-to-r from-danger-red to-red-700 px-4 py-2 text-sm font-bold text-light-text"
+                className="futuristic-button rounded-[var(--r-md)] bg-danger-red px-4 py-2 text-sm font-bold text-light-text hover:bg-red-400"
               >
                 End Game
               </button>
@@ -1361,8 +1445,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   );
 
   if (isTeamMode) {
-    const teamAClasses = currentTurn === 'A' && !isPaused ? 'border-cyan-400 animate-teamAPulse' : 'border-gray-600/50';
-    const teamBClasses = currentTurn === 'B' && !isPaused ? 'border-orange-400 animate-teamBPulse' : 'border-gray-600/50';
+    const teamAClasses = currentTurn === 'A' && !isPaused ? 'border-cyan-400 animate-teamAPulse' : 'border-[var(--hairline)]';
+    const teamBClasses = currentTurn === 'B' && !isPaused ? 'border-orange-400 animate-teamBPulse' : 'border-[var(--hairline)]';
     const teamColorClass = currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400';
 
     return (
@@ -1457,15 +1541,17 @@ export const GameScreen: React.FC<GameScreenProps> = ({
              {showGameUI && (
                 <div className="w-full flex-shrink-0 mt-auto pt-2">
                     <div className="grid grid-cols-2 gap-2 sm:gap-2.5 w-full gamescreen-buttons">
-                        <button ref={correctButtonRef} type="button" onClick={handleCorrect} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="w-full bg-gradient-to-r from-neon-green to-green-500 hover:from-green-400 hover:to-neon-green text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg">
-                            CORRECT ✔️
+                        <button ref={correctButtonRef} type="button" onClick={handleCorrect} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="inline-flex w-full items-center justify-center gap-1.5 bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg">
+                            CORRECT
+                            <Icon name="check" size={18} />
                         </button>
-                        <button ref={skipButtonRef} type="button" onClick={handleSkip} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="w-full bg-gradient-to-r from-warning-yellow to-amber-500 hover:from-amber-400 hover:to-warning-yellow text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg">
-                            SKIP ✖️
+                        <button ref={skipButtonRef} type="button" onClick={handleSkip} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="inline-flex w-full items-center justify-center gap-1.5 bg-warning-yellow hover:bg-amber-400 text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg">
+                            SKIP
+                            <Icon name="close" size={18} />
                         </button>
                     </div>
                      <div className="w-full mt-1.5 sm:mt-2 gamescreen-buttons">
-                        <button type="button" onClick={requestEndGame} disabled={!wordForCardDisplay || isProcessingWord || isPaused} className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-lg shadow futuristic-button text-md sm:text-lg">
+                        <button type="button" onClick={requestEndGame} disabled={!wordForCardDisplay || isProcessingWord || isPaused} className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg">
                             End Game & See Score
                         </button>
                     </div>
@@ -1502,7 +1588,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       )}
       {/* Top Row: Points and Timer */}
       <div className={`w-full flex justify-between items-center px-1 sm:px-1.5 gap-2 flex-shrink-0 ${rushHourBounceClass} ${showGameUI ? 'pr-12' : ''}`}>
-        <div className="text-md sm:text-lg font-semibold text-neon-green text-left relative flex-1 score-display">
+        <div className="text-base sm:text-lg font-semibold text-neon-green text-left relative flex-1 score-display">
           POINTS: <span className="text-xl sm:text-2xl font-bold">{currentScore}</span>
         </div>
 
@@ -1531,7 +1617,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             ) : showGameUI && settings.gameMode === GameMode.NORMAL ? (
                 <div className="flex-1"></div>
             ) : ( 
-            <div className="text-md sm:text-lg font-semibold text-right flex-1 text-electric-blue opacity-0"> 
+            <div className="text-base sm:text-lg font-semibold text-right flex-1 text-electric-blue opacity-0"> 
                 TIME: <span className="text-xl sm:text-2xl font-bold">{formatTime(gameTimeLeft)}</span>
             </div>
         )}
@@ -1541,7 +1627,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         <div className={`flex justify-center items-center my-1 flex-shrink-0 ${rushHourBounceClass}`}>
             {isTimerFrozen && (
                 <div className="timer-frozen-display mr-2" aria-label="Timer Frozen">
-                    <span className="text-lg leading-none text-cyan-400" aria-hidden="true">❄️</span>
+                    <Icon name="snowflake" size={18} className="text-cyan-400" />
                     <span className="ml-1 text-xs font-semibold text-light-text hidden sm:inline">FROZEN</span>
                 </div>
             )}
@@ -1558,8 +1644,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             <span>Word {Math.min(currentWordIndex + 1, shuffledWords.length)} of {shuffledWords.length}</span>
             <div className="flex items-center space-x-1.5 sm:space-x-2">
                 {skipFreebiesAvailable > 0 && (
-                  <span className="text-lg sm:text-xl text-yellow-400" title={`Skip Freebies: ${skipFreebiesAvailable}`}>
-                    ↪️ x{skipFreebiesAvailable}
+                  <span className="inline-flex items-center gap-1 text-lg sm:text-xl text-yellow-400" title={`Skip Freebies: ${skipFreebiesAvailable}`}>
+                    <Icon name="skip" size={18} /> x{skipFreebiesAvailable}
                   </span>
                 )}
                 {currentComboStreak > 0 && (
@@ -1576,7 +1662,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             {Array.from({ length: HELL_MODE_INITIAL_SKIPS }).map((_, i) => (
             <span
                 key={i}
-                className={`text-2xl sm:text-3xl transition-colors duration-300 ${i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? 'text-gray-700 opacity-60' : 'text-danger-red animate-subtlePulse'}`}
+                className={`text-2xl sm:text-3xl transition-colors duration-300 ${i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? 'text-muted-text/40' : 'text-danger-red animate-subtlePulse'}`}
                 role="img"
                 aria-label={i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? "Used Skip Heart" : "Available Skip Heart"}
             >
@@ -1633,8 +1719,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 aria-live="polite"
                 role="status"
               >
-                <span className="text-yellow-300 text-md sm:text-lg drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" aria-hidden="true">🌟</span>
-                <span className="ml-1 text-xs sm:text-sm font-bold text-yellow-300 uppercase tracking-wider drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
+                <span className="text-warning-yellow text-base sm:text-lg drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" aria-hidden="true">🌟</span>
+                <span className="ml-1 text-xs sm:text-sm font-bold text-warning-yellow uppercase tracking-wider drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
                   Lucky x{luckyWordMultipliers.get(currentWordIndex)}!
                 </span>
               </div>
@@ -1671,7 +1757,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       {starEffects.length > 0 && starEffects.map(star => (
         <div
           key={star.id}
-          className="absolute text-yellow-300 text-xl sm:text-2xl animate-starPop pointer-events-none"
+          className="absolute text-warning-yellow text-xl sm:text-2xl animate-starPop pointer-events-none"
           style={{ top: star.y, left: star.x, animationDelay: star.delay, zIndex: 35 }}
           aria-hidden="true"
         >
@@ -1688,10 +1774,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 type="button"
                 onClick={handleCorrect}
                 disabled={!wordForCardDisplay || gameTimeLeft <= 0 || isProcessingWord || !!wordTextAnimation}
-                className="w-full bg-gradient-to-r from-neon-green to-green-500 hover:from-green-400 hover:to-neon-green text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg"
+                className="inline-flex w-full items-center justify-center gap-1.5 bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg"
                 aria-label="Correct guess (Left Arrow)"
                 >
-                CORRECT <span role="img" aria-label="correct">✔️</span>
+                CORRECT <Icon name="check" size={18} />
                 </button>
             </div>
             <div className="flex flex-col items-center">
@@ -1700,14 +1786,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 type="button"
                 onClick={handleSkip}
                 disabled={!wordForCardDisplay || gameTimeLeft <= 0 || isProcessingWord || !!wordTextAnimation || isHellModeSkipDisabled}
-                className={`w-full font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg shadow-md hover:shadow-lg futuristic-button text-md sm:text-lg ${
+                className={`inline-flex w-full items-center justify-center gap-1.5 font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg ${
                     isHellModeSkipDisabled 
-                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-400 cursor-not-allowed opacity-80 border-gray-600' 
-                    : 'bg-gradient-to-r from-warning-yellow to-amber-500 hover:from-amber-400 hover:to-warning-yellow text-dark-metal'
+                    ? 'bg-[var(--surface-2)] text-muted-text cursor-not-allowed opacity-80 border border-[var(--hairline)]'
+                    : 'bg-warning-yellow hover:bg-amber-400 text-dark-metal'
                 }`}
                 aria-label="Pass word (Right Arrow)"
                 >
-                SKIP {isHellModeSkipDisabled ? <span className="ml-1 text-lg sm:text-xl leading-none text-red-500">🚫</span> : <span role="img" aria-label="skip">✖️</span>}
+                SKIP {isHellModeSkipDisabled ? <Icon name="ban" size={18} className="text-danger-red" /> : <Icon name="close" size={18} />}
                 </button>
             </div>
             </div>
@@ -1716,7 +1802,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     type="button"
                     onClick={requestEndGame}
                     disabled={!wordForCardDisplay || gameTimeLeft <= 0 || isProcessingWord || !!wordTextAnimation}
-                    className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-lg shadow futuristic-button text-md sm:text-lg"
+                    className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg"
                     aria-label="End game and see score"
                 >
                     End Game & See Score

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AuthDialog } from './AuthDialog';
+import { Icon } from './Icon';
 import type { SoloRunResult, SoloTrack } from '../services/solo';
 import { shortLevel } from '../services/solo';
 import {
@@ -94,7 +95,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
       <p className="shrink-0 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-muted-text">
         Final score
       </p>
-      <p className="font-heading text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-neon-green via-electric-blue to-cyber-purple sm:text-7xl">
+      <p className="font-heading text-6xl font-extrabold text-neon-green sm:text-7xl">
         {shownScore.toLocaleString()}
       </p>
       {isNewBest && (
@@ -104,22 +105,22 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
       )}
 
       <div className="grid w-full shrink-0 grid-cols-3 gap-2 text-center">
-        <div className="rounded-xl border border-dark-metal bg-dark-metal/50 p-2">
+        <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
           <p className="text-lg font-bold text-light-text">{result.wordsGuessed}</p>
           <p className="text-[0.65rem] text-muted-text">Words guessed</p>
         </div>
-        <div className="rounded-xl border border-dark-metal bg-dark-metal/50 p-2">
-          <p className="text-lg font-bold text-orange-400">{result.bestStreak}</p>
+        <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
+          <p className="text-lg font-bold text-danger-red">{result.bestStreak}</p>
           <p className="text-[0.65rem] text-muted-text">Best streak</p>
         </div>
-        <div className="rounded-xl border border-dark-metal bg-dark-metal/50 p-2">
+        <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
           <p className="text-lg font-bold text-neon-green">{accuracy}%</p>
           <p className="text-[0.65rem] text-muted-text">Accuracy</p>
         </div>
       </div>
 
       {/* Leaderboard */}
-      <div className="w-full shrink-0 rounded-xl border border-electric-blue/30 bg-dark-metal/50 p-3">
+      <div className="w-full shrink-0 rounded-[var(--r-lg)] border border-electric-blue/30 bg-[var(--surface-1)] p-3">
         <p className="mb-2 text-center text-xs font-semibold uppercase tracking-widest text-electric-blue">
           🏆 {track.name} leaderboard
         </p>
@@ -132,9 +133,10 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
             <button
               type="button"
               onClick={() => setShowAuth(true)}
-              className="futuristic-button mt-2 rounded-lg border border-neon-green/50 bg-neon-green/10 px-4 py-2 text-xs font-semibold text-neon-green hover:bg-neon-green/20"
+              className="futuristic-button mt-2 inline-flex items-center justify-center gap-1.5 rounded-lg border border-neon-green/50 bg-neon-green/10 px-4 py-2 text-xs font-semibold text-neon-green hover:bg-neon-green/20"
             >
-              👤 Sign in
+              <Icon name="user" size={15} />
+              Sign in
             </button>
           </div>
         ) : loadingBoard ? (
@@ -179,7 +181,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
         <button
           type="button"
           onClick={onPlayAgain}
-          className="futuristic-button w-full flex-grow rounded-lg bg-gradient-to-r from-neon-green to-electric-blue px-8 py-2.5 text-md font-bold text-dark-metal shadow-md hover:shadow-lg"
+          className="futuristic-button w-full flex-grow rounded-[var(--r-md)] min-h-[44px] bg-neon-green px-8 py-2.5 text-base font-bold text-dark-metal hover:bg-emerald-400"
         >
           ▶ Play again
         </button>

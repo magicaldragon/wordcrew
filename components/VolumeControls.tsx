@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from './Icon';
 
 interface VolumeControlsProps {
   musicVolume: number;
@@ -27,7 +28,7 @@ export const VolumeControls: React.FC<VolumeControlsProps> = ({
         Music
       </label>
       <div className="flex items-center gap-2">
-        <span className="text-sm" aria-hidden="true">🎵</span>
+        <span className="text-muted-text" aria-hidden="true"><Icon name="music" size={16} /></span>
         <input
           type="range"
           id={`${idPrefix}musicVolume`}
@@ -47,7 +48,7 @@ export const VolumeControls: React.FC<VolumeControlsProps> = ({
         Effects
       </label>
       <div className="flex items-center gap-2">
-        <span className="text-sm" aria-hidden="true">🔊</span>
+        <span className="text-muted-text" aria-hidden="true"><Icon name="volume" size={16} /></span>
         <input
           type="range"
           id={`${idPrefix}effectsVolume`}

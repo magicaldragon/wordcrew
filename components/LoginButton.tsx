@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthDialog } from './AuthDialog';
+import { Icon } from './Icon';
 
 interface LoginButtonProps {
   /** `pill` for the top bar, `block` for the sidebar footer. */
@@ -52,7 +53,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
           onClick={() => setShowDialog(true)}
           className={`${baseClass} ${interactionClass} inline-flex items-center gap-2 text-sm font-semibold text-[var(--wn-11)]`}
         >
-          <span aria-hidden="true">👤</span>
+          <Icon name="user" size={18} />
           Sign in
         </button>
         <AuthDialog isOpen={showDialog} onClose={() => setShowDialog(false)} />
@@ -100,7 +101,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
             }}
             className="wc-nav-item"
           >
-            <span aria-hidden="true">↩︎</span>
+            <Icon name="arrowLeft" size={18} />
             Sign out
           </button>
         </div>

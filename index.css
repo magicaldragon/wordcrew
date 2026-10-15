@@ -41,7 +41,8 @@
   --wn-6: #b7b3a5;
   --wn-7: #9d9887;
   --wn-8: #847f72;
-  --wn-9: #6b675c;
+  /* Kept AA on the tinted "wn-3" chips as well as on white. */
+  --wn-9: #5f5b51;
   --wn-10: #534f46;
   --wn-11: #3a372f;
   --wn-12: #202420;
@@ -64,10 +65,12 @@
   --warn: #b4791f;
   --danger: #c0392b;
 
-  --shadow-sm: 0 1px 3px rgba(42, 39, 33, 0.08), 0 1px 2px rgba(42, 39, 33, 0.05);
-  --shadow-md: 0 4px 16px rgba(42, 39, 33, 0.11), 0 2px 4px rgba(42, 39, 33, 0.05);
-  --shadow-lg: 0 12px 40px rgba(42, 39, 33, 0.13), 0 4px 12px rgba(42, 39, 33, 0.07);
-  --shadow-xl: 0 20px 60px rgba(42, 39, 33, 0.16), 0 8px 20px rgba(42, 39, 33, 0.07);
+  /* Elevation — the one ladder, re-pointed for light: softer, warm-tinted ink.
+     The dark rule below restores the shared ink values from :root. */
+  --elev-1: 0 1px 3px rgba(42, 39, 33, 0.08), 0 1px 2px rgba(42, 39, 33, 0.05);
+  --elev-2: 0 4px 16px rgba(42, 39, 33, 0.11), 0 2px 4px rgba(42, 39, 33, 0.05);
+  --elev-3: 0 12px 40px rgba(42, 39, 33, 0.13), 0 4px 12px rgba(42, 39, 33, 0.07);
+  --elev-4: 0 20px 60px rgba(42, 39, 33, 0.16), 0 8px 20px rgba(42, 39, 33, 0.07);
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
@@ -89,16 +92,19 @@
   --wa-11: #85eeaa;
   --wa-12: #b9f6ce;
 
-  /* Neutral — cool navy-gray, 12-step (dark mode values) */
-  --wn-1: #0d0d14;
-  --wn-2: #14141c;
-  --wn-3: #1c1c26;
-  --wn-4: #252530;
-  --wn-5: #30303d;
+  /* Neutral — shared "ink" ramp (see :root). The portal dark mode and the game
+     screens now resolve to the exact same neutral steps. */
+  --wn-1: var(--ink-0);
+  --wn-2: var(--ink-1);
+  --wn-3: var(--ink-2);
+  --wn-4: var(--ink-3);
+  --wn-5: var(--ink-4);
   --wn-6: #3d3d4b;
   --wn-7: #4d4d5c;
   --wn-8: #606072;
-  --wn-9: #76768a;
+  /* #76768a only cleared 4.2:1 on the card surface — one notch lighter so the
+     portal's muted captions pass WCAG AA without flattening the ramp. */
+  --wn-9: #88889c;
   --wn-10: #8f8fa3;
   --wn-11: #aeaec2;
   --wn-12: #d6d6e8;
@@ -118,10 +124,11 @@
   --warn: #c9952e;
   --danger: #c84a4a;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.45);
-  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.5);
+  /* Restore the shared ink ladder from :root. */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.3);
+  --elev-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.32);
+  --elev-3: 0 4px 10px rgba(0, 0, 0, 0.42), 0 12px 28px rgba(0, 0, 0, 0.36);
+  --elev-4: 0 10px 24px rgba(0, 0, 0, 0.45), 0 28px 64px rgba(0, 0, 0, 0.5);
 }
 
 /* Login fields must show a caret — the game hides it globally. */
@@ -138,12 +145,12 @@
   gap: 0.5rem;
   padding: 0.85rem 1.75rem;
   min-height: 52px;
-  border-radius: 1rem;
+  border-radius: var(--r-lg);
   border: 1px solid transparent;
   font-weight: 700;
   font-size: 1.05rem;
   line-height: 1.1;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--elev-2);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -155,7 +162,7 @@
 }
 .wc-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--elev-3);
 }
 .wc-btn:active:not(:disabled) {
   transform: scale(0.97);
@@ -191,9 +198,9 @@
   color: var(--wn-12);
 }
 .wc-btn-sm {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0.5rem 1rem;
-  border-radius: 0.75rem;
+  border-radius: var(--r-md);
   font-size: 0.9rem;
 }
 
@@ -205,7 +212,7 @@
   width: 3.25rem;
   height: 3.25rem;
   flex: none;
-  border-radius: 1rem;
+  border-radius: var(--r-lg);
   border: 1px solid var(--wn-4);
   background: var(--wn-2);
   color: var(--wn-11);
@@ -233,16 +240,16 @@
 .wc-card {
   background: var(--card-bg);
   border: 1px solid var(--wn-4);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-md);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-2);
 }
 
 /* Interactive collection tile: the border is the affordance. */
 .wc-tile {
   background: var(--card-bg);
   border: 1px solid var(--wn-4);
-  border-radius: 1rem;
-  box-shadow: var(--shadow-md);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-2);
   transition:
     border-color 200ms ease,
     box-shadow 200ms ease,
@@ -252,7 +259,7 @@
 .wc-tile:hover {
   border-color: var(--wa-4);
   background: var(--surface-hover);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--elev-3);
   transform: translateY(-2px);
 }
 .wc-tile:active {
@@ -266,7 +273,7 @@
   gap: 0.75rem;
   width: 100%;
   padding: 0.7rem 0.9rem;
-  border-radius: 0.75rem;
+  border-radius: var(--r-md);
   border: 1px solid transparent;
   color: var(--wn-10);
   font-weight: 600;
@@ -287,6 +294,25 @@
   background: var(--wa-2);
   border-color: var(--wa-4);
   color: var(--wa-11);
+}
+
+/* Mobile nav is a horizontally scrollable row — the fade hints there is more. */
+.wc-nav-fade {
+  position: relative;
+}
+.wc-nav-fade::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 2rem;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--rail-bg));
+}
+@media (min-width: 768px) {
+  .wc-nav-fade::after {
+    display: none;
+  }
 }
 
 /* ── Text helpers ────────────────────────────────────────────────────────── */
@@ -329,9 +355,9 @@
   position: relative;
   overflow: hidden;
   border: 1px solid var(--wn-4);
-  border-radius: 1.25rem;
+  border-radius: var(--r-xl);
   background: var(--card-bg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--elev-3);
 }
 
 /* A round in play — the most characteristic thing in the game's world. */
@@ -341,11 +367,11 @@
   gap: 1rem;
   padding: 1.25rem;
   border: 1px solid var(--wa-4);
-  border-radius: 1rem;
+  border-radius: var(--r-lg);
   background:
     radial-gradient(130% 130% at 100% 0%, var(--wa-2) 0%, transparent 62%),
     var(--card-bg);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--elev-2);
 }
 .wc-round-word {
   font-size: clamp(1.75rem, 4.5vw, 2.5rem);
@@ -417,8 +443,83 @@
   );
 }
 
+/* Respect the OS "reduce motion" setting everywhere. Gameplay signals still land
+   (colours, text, state), they just arrive without the travel/loop animation. */
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
   .wc-live-dot {
     animation: none;
+    opacity: 1;
   }
+}
+
+/* ============================================================================
+   WordCrew Studio — shared elevation / shape / border layer
+   ----------------------------------------------------------------------------
+   One scale for the whole app. The neutral "ink" ramp below is shared: the
+   portal's dark mode and the game screens resolve to the same surfaces, so the
+   two worlds read as one product. Every surface is a solid fill, a 1px hairline
+   and a two-part shadow (a tight contact shadow beneath a soft ambient one)
+   instead of the old coloured neon glow.
+
+   The legacy colour keys (neon-green, cyber-purple, ...) were repointed to this
+   palette in tailwind.config.js, so existing utility classes already render the
+   professional accents — no per-file rename was needed.
+   ============================================================================ */
+:root {
+  /* ── Single palette source ────────────────────────────────────────────────
+     The "ink" ramp is the one dark neutral scale in the app. The portal's dark
+     mode (`.dark .wc-theme`) and the game screens both read from it, so a card
+     in the dashboard and a card in a game are literally the same colour. */
+  --ink-0: #0d0d14; /* page background, darkest */
+  --ink-1: #14141c; /* surface 1 — cards, panels */
+  --ink-2: #1c1c26; /* surface 2 — raised / hover */
+  --ink-3: #252530; /* surface 3 — inputs, deepest raised */
+  --ink-4: #30303d; /* strong surface / hover on surface 3 */
+
+  /* Shape ladder — every control, card and dialog picks one of these. */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* Game-side surfaces, derived from the shared ink ramp. */
+  --surface-0: var(--ink-0);
+  --surface-1: var(--ink-1);
+  --surface-2: var(--ink-2);
+  --surface-3: var(--ink-3);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+
+  /* Elevation — a tight contact shadow plus a soft ambient one. */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 1px rgba(0, 0, 0, 0.3);
+  --elev-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.32);
+  --elev-3: 0 4px 10px rgba(0, 0, 0, 0.42), 0 12px 28px rgba(0, 0, 0, 0.36);
+  --elev-4: 0 10px 24px rgba(0, 0, 0, 0.45), 0 28px 64px rgba(0, 0, 0, 0.5);
+
+  /* Overlay stacking — one ladder, so dialogs never fight over z-index. */
+  --z-dialog: 500;
+  --z-dialog-top: 600;
+}
+
+/* A raised panel inside the game screens: solid surface, hairline, ambient shadow. */
+.app-panel {
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-2);
+}
+.app-panel-raised {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-3);
 }

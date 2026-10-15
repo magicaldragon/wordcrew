@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GameMode } from '../types';
 import { DEMO_POLICY } from '../constants';
 import { UnlockDialog } from './UnlockDialog';
+import { Icon } from './Icon';
 import type { UnlockOutcome } from '../services/payments';
 
 interface LandingScreenProps {
@@ -9,9 +10,12 @@ interface LandingScreenProps {
   onUnlock: (code: string) => Promise<UnlockOutcome>;
   /** Start the paid path. The app gates this behind sign-in. */
   onUpgrade: () => void;
-  onPlay: (mode: GameMode) => void;
-  /** Solo takes the shortcut straight to its track picker. */
-  onPlaySolo: () => void;
+  /**
+   * Opens the game setup container with this mode pre-selected. Solo is a mode
+   * choice too, so it enters through the very same container as the other three
+   * instead of jumping to a second, differently-shaped setup screen.
+   */
+  onPlay: (mode: GameMode | 'solo') => void;
   /** Return to the portal dashboard. */
   onBack: () => void;
 }
@@ -38,7 +42,7 @@ const MODES: ModeInfo[] = [
     tagline: 'The classic run. Lucky words, combo streaks and time bonuses — great for any classroom.',
     accentBorder: 'border-neon-green/40 hover:border-neon-green',
     accentText: 'text-neon-green',
-    glow: 'hover:shadow-[0_0_25px_rgba(57,255,20,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
   {
     mode: GameMode.HELL,
@@ -48,7 +52,7 @@ const MODES: ModeInfo[] = [
     tagline: 'Only 3 skips, brutal penalties and double Rush Hour. Survive — or don’t.',
     accentBorder: 'border-danger-red/40 hover:border-danger-red',
     accentText: 'text-danger-red',
-    glow: 'hover:shadow-[0_0_25px_rgba(255,65,54,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
   {
     mode: GameMode.TEAM,
@@ -58,7 +62,7 @@ const MODES: ModeInfo[] = [
     tagline: 'Two teams battle in turns. Speed bonuses and surprise boxes — sabotage your rivals.',
     accentBorder: 'border-electric-blue/40 hover:border-electric-blue',
     accentText: 'text-electric-blue',
-    glow: 'hover:shadow-[0_0_25px_rgba(0,255,255,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
   {
     mode: 'solo',
@@ -68,7 +72,7 @@ const MODES: ModeInfo[] = [
     tagline: 'Play alone. Guess each word from its letter boxes and a Vietnamese clue — endless until your hearts run out.',
     accentBorder: 'border-cyber-purple/40 hover:border-cyber-purple',
     accentText: 'text-cyber-purple',
-    glow: 'hover:shadow-[0_0_25px_rgba(191,0,255,0.35)]',
+    glow: 'hover:shadow-[var(--elev-3)]',
   },
 ];
 
@@ -77,14 +81,13 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
   onUnlock,
   onUpgrade,
   onPlay,
-  onPlaySolo,
   onBack,
 }) => {
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
   const handleModeClick = (mode: GameMode | 'solo') => {
     if (mode === 'solo') {
-      onPlaySolo();
+      onPlay('solo');
       return;
     }
     const isLocked = !DEMO_POLICY.freeModes.includes(mode);
@@ -97,22 +100,16 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
   return (
     <div className="relative h-full w-full bg-dark-metal">
-      {/* Ambient neon glows — decorative only */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="absolute -left-24 -top-32 h-96 w-96 rounded-full bg-electric-blue/20 blur-[120px]" />
-        <div className="absolute -right-24 top-1/3 h-[28rem] w-[28rem] rounded-full bg-cyber-purple/30 blur-[130px]" />
-        <div className="absolute -bottom-40 left-1/4 h-96 w-96 rounded-full bg-neon-green/10 blur-[130px]" />
-      </div>
-
       <div className="relative z-10 h-full overflow-y-auto overflow-x-hidden">
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center px-5 py-10 sm:py-14">
           {/* Back to the portal dashboard */}
           <button
             type="button"
             onClick={onBack}
-            className="futuristic-button mb-6 self-start rounded-lg border border-electric-blue/30 px-3 py-2 font-sans text-xs text-muted-text transition hover:text-electric-blue"
+            className="futuristic-button mb-6 inline-flex min-h-[44px] items-center gap-1.5 self-start rounded-[var(--r-md)] border border-electric-blue/30 px-4 py-2.5 font-sans text-xs text-muted-text transition hover:text-electric-blue"
           >
-            ← Dashboard
+            <Icon name="arrowLeft" />
+            Dashboard
           </button>
 
           {/* HERO */}
@@ -120,7 +117,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             <span className="mb-3 font-sans text-[0.7rem] uppercase tracking-[0.4em] text-electric-blue/80 sm:text-xs">
               Only Talented Guessers
             </span>
-            <h1 className="font-heading text-[clamp(3rem,14vw,5.5rem)] font-bold leading-none tracking-wider text-warning-yellow animate-goldPulseGlow">
+            <h1 className="font-heading text-[clamp(3rem,14vw,5.5rem)] font-bold leading-none tracking-wider text-warning-yellow">
               WordCrew
             </h1>
             <p className="mt-5 max-w-xl font-sans text-base leading-relaxed text-muted-text sm:text-lg">
@@ -131,23 +128,18 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             <button
               type="button"
               onClick={() => onPlay(GameMode.NORMAL)}
-              className={`futuristic-button mt-8 w-full max-w-xs rounded-xl bg-gradient-to-r px-8 py-4 font-bold text-dark-metal shadow-lg transition sm:w-auto ${
-                isUnlocked
-                  ? 'from-neon-green to-electric-blue hover:from-electric-blue hover:to-neon-green'
-                  : 'from-cyber-purple to-electric-blue hover:from-electric-blue hover:to-neon-green'
-              }`}
+              className="futuristic-button mt-8 inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-[var(--r-lg)] bg-neon-green px-8 py-4 font-bold text-dark-metal transition hover:bg-emerald-400 sm:w-auto"
             >
+              <Icon name="play" size={20} />
               <span className="font-heading text-base tracking-wide sm:text-lg">
-                {isUnlocked ? '▶ Play Full Version' : '▶ Play Free Demo'}
+                {isUnlocked ? 'Play Full Version' : 'Play Free Demo'}
               </span>
             </button>
             <p className="mt-3 font-sans text-xs text-muted-text">Free · No sign-up · Works offline</p>
 
             {isUnlocked ? (
-              <p className="mt-4 font-sans text-xs text-neon-green">
-                <span role="img" aria-hidden="true">
-                  🔓
-                </span>{' '}
+              <p className="mt-4 inline-flex items-center gap-1.5 font-sans text-xs text-neon-green">
+                <Icon name="unlock" />
                 Full version unlocked on this device
               </p>
             ) : (
@@ -155,9 +147,10 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                 <button
                   type="button"
                   onClick={onUpgrade}
-                  className="futuristic-button rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
+                  className="futuristic-button inline-flex items-center gap-2 rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
                 >
-                  🔓 Unlock Full Version
+                  <Icon name="unlock" size={18} />
+                  Unlock Full Version
                 </button>
                 <button
                   type="button"
@@ -187,11 +180,12 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                     type="button"
                     onClick={() => handleModeClick(m.mode)}
                     aria-label={isLocked ? `Unlock ${m.title} mode (Full Version)` : `Play ${m.title} mode`}
-                    className={`group relative flex flex-col items-start rounded-xl border bg-white/5 p-5 text-left backdrop-blur-sm transition duration-200 hover:-translate-y-1 ${m.accentBorder} ${m.glow}`}
+                    className={`group relative flex flex-col items-start rounded-[var(--r-lg)] border bg-[var(--surface-1)] p-5 text-left shadow-[var(--elev-2)] transition duration-200 hover:-translate-y-1 ${m.accentBorder} ${m.glow}`}
                   >
                     {isLocked && (
-                      <span className="absolute right-3 top-3 font-sans text-[0.6rem] uppercase tracking-widest text-muted-text/80">
-                        🔒 Full
+                      <span className="absolute right-3 top-3 inline-flex items-center gap-1 font-sans text-[0.6rem] uppercase tracking-widest text-muted-text/80">
+                        <Icon name="lock" size={11} />
+                        Full
                       </span>
                     )}
                     <span className="text-3xl" role="img" aria-hidden="true">

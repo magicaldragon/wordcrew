@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WordCrew — Only Talented Guessers</title>
   <meta name="description" content="A classroom word game for 2+ players: one describes, the crew guesses. Normal, Hell and Team modes.">
-  <meta name="theme-color" content="#1A1A2E">
+  <meta name="theme-color" content="#0d0d14">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="WordCrew">
@@ -37,8 +37,8 @@
     }
     body {
       font-family: 'Exo 2', sans-serif;
-      background-color: #1A1A2E; /* dark-metal */
-      color: #EAEAEA; /* light-text */
+      background-color: #0d0d14; /* dark-metal (ink-0) */
+      color: #E8EAF0; /* light-text */
     }
     .countdown-text {
       position: absolute;
@@ -55,27 +55,31 @@
       width: 8px;
     }
     ::-webkit-scrollbar-track {
-      background: #1A1A2E; /* dark-metal */
+      background: #0d0d14; /* dark-metal (ink-0) */
     }
     ::-webkit-scrollbar-thumb {
-      background: #5E2ABF; /* cyber-purple */
+      background: rgba(255, 255, 255, 0.14);
       border-radius: 4px;
     }
     ::-webkit-scrollbar-thumb:hover {
-      background: #00FFFF; /* electric-blue */
+      background: rgba(255, 255, 255, 0.26);
     }
+    /* Shared control language: a solid shape with a hairline edge and a real
+       elevation shadow. Hover raises it one step; focus shows a ring, not a glow. */
     .futuristic-button {
-      transition: all 0.3s ease-in-out;
-      border: 1px solid rgba(0, 255, 255, 0.3); /* electric-blue border */
+      transition: transform 140ms cubic-bezier(0.2, 0, 0, 1), box-shadow 160ms ease,
+        background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+      border: 1px solid var(--hairline-strong);
+      box-shadow: var(--elev-1);
     }
     .futuristic-button:hover:not(:disabled) {
-      box-shadow: 0 0 15px 2px rgba(0, 255, 255, 0.6); /* electric-blue glow */
-      transform: translateY(-2px) scale(1.02);
+      box-shadow: var(--elev-2);
+      transform: translateY(-1px);
     }
-     .futuristic-button:focus-visible:not(:disabled) { /* Added focus-visible state */
+    .futuristic-button:focus-visible:not(:disabled) {
       outline: none;
-      box-shadow: 0 0 18px 4px rgba(0, 255, 255, 0.7); /* Brighter glow for focus */
-      transform: translateY(-2px) scale(1.03);
+      box-shadow: var(--elev-2), 0 0 0 3px rgba(52, 211, 153, 0.4);
+      transform: translateY(-1px);
     }
     /* Wide buttons that sit flush with a scrollable panel edge: keep the lift + glow
        but skip the horizontal scale, which used to overflow the panel, spawn a
@@ -87,32 +91,36 @@
       transform: translateY(-2px);
     }
     .futuristic-button:disabled {
-      border-color: rgba(160, 160, 184, 0.3); /* muted-text border */
+      border-color: var(--hairline);
       background-image: none;
-      background-color: rgba(160, 160, 184, 0.2);
+      background-color: var(--surface-2);
+      color: #9BA3B2; /* muted-text */
+      box-shadow: none;
       cursor: not-allowed;
     }
     .futuristic-input {
-      background-color: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(0, 255, 255, 0.3); /* electric-blue border */
-      color: #EAEAEA; /* light-text */
-      transition: all 0.3s ease;
+      background-color: var(--surface-2);
+      border: 1px solid var(--hairline-strong);
+      color: #E8EAF0; /* light-text */
+      transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
     }
-    .futuristic-input:focus, .futuristic-input:focus-visible { /* Added focus-visible for consistency */
-      background-color: rgba(255, 255, 255, 0.1);
-      border-color: #00FFFF; /* electric-blue */
-      box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    .futuristic-input:focus, .futuristic-input:focus-visible {
+      background-color: var(--surface-3);
+      border-color: #34D399; /* neon-green */
+      box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.28);
       outline: none;
     }
+    /* The main game surface: a solid raised panel. No blur, no coloured glow — the
+       fill sits above the page and the two-part shadow + hairline carry the depth. */
     .futuristic-card {
-      background: rgba(42, 42, 78, 0.6); /* Darker translucent */
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(0, 255, 255, 0.2); /* electric-blue subtle border, might be overridden by specific card styles */
-      box-shadow: 0 8px 32px 0 rgba(0, 255, 255, 0.1); /* Subtle glow */
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      box-shadow: var(--elev-3);
     }
+    /* Results read as a deliberate, static card. The mode colour is already set by the
+       caller's border-* classes, so the old cycling rainbow is gone. */
     .results-card-animation {
-      animation: rgbBorderAnimation 4s linear infinite;
-      border-width: 2px !important; 
+      box-shadow: var(--elev-3);
     }
     .cat-animation-container {
       z-index: 40; 
@@ -121,42 +129,42 @@
 
     /* Styling for select dropdown options */
     select.futuristic-input option {
-      background-color: #1A1A2E; /* dark-metal */
-      color: #EAEAEA; /* light-text */
+      background-color: var(--surface-2);
+      color: #E8EAF0; /* light-text */
       padding: 8px; /* Add some padding to options */
     }
 
     select.futuristic-input option:hover {
-      background-color: #5E2ABF; /* cyber-purple */
+      background-color: var(--surface-3);
       color: #FFFFFF; /* Brighter text on hover */
     }
     /* For Firefox, which needs a slightly different approach for option background */
     select.futuristic-input:-moz-focusring option {
-        background-color: #1A1A2E;
+        background-color: var(--surface-2);
     }
     select.futuristic-input:focus option:checked { /* Style the selected option in the dropdown */
-        background: #5E2ABF;
+        background: var(--surface-3);
         color: #FFFFFF;
     }
     /* Custom Checkbox Styling */
     .custom-checkbox {
       appearance: none;
-      background-color: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(0, 255, 255, 0.3);
+      background-color: var(--surface-2);
+      border: 1px solid var(--hairline-strong);
       padding: 0;
       display: inline-block;
       position: relative;
       width: 1.25em; /* 20px */
       height: 1.25em; /* 20px */
-      border-radius: 0.25rem; /* 4px */
+      border-radius: 6px;
       cursor: pointer;
       margin-right: 0.5em;
       vertical-align: middle;
-      transition: background-color 0.2s ease, border-color 0.2s ease;
+      transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
     .custom-checkbox:checked {
-      background-color: #39FF14; /* neon-green */
-      border-color: #39FF14;
+      background-color: #34D399; /* neon-green */
+      border-color: #34D399;
     }
     .custom-checkbox:checked::after {
       content: '✔';
@@ -164,27 +172,25 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      color: #1A1A2E; /* dark-metal for checkmark */
+      color: #0F1216; /* dark-metal for checkmark */
       font-size: 0.875em; /* 14px */
       font-weight: bold;
     }
     .custom-checkbox:focus, .custom-checkbox:focus-visible { /* Added focus-visible */
       outline: none;
-      box-shadow: 0 0 0 2px rgba(0, 255, 255, 0.5); /* electric-blue focus ring */
+      box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.35); /* brand focus ring */
     }
     
-    /* Enhanced Timer Freeze Visual */
+    /* Timer freeze chip: a solid sky-tinted badge rather than a glowing gradient. */
     .timer-frozen-display {
-      background: linear-gradient(145deg, rgba(173, 216, 230, 0.5), rgba(100, 149, 237, 0.6)); /* Light frosty blues */
-      border: 2px solid rgba(200, 240, 255, 0.7);
-      border-radius: 0.375rem; /* Tailwind's rounded-md */
+      background: rgba(56, 189, 248, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      border-radius: var(--r-sm);
       padding: 0.1rem 0.4rem; /* Tailwind's px-1.5 py-0.5 roughly */
-      box-shadow: 0 0 8px 2px rgba(0, 220, 255, 0.3), /* Outer glow */
-                  inset 0 0 6px rgba(220, 240, 255, 0.4); /* Inner frost */
+      box-shadow: inset 0 0 6px rgba(56, 189, 248, 0.15);
       display: inline-flex; 
       align-items: center;
-      text-shadow: 0 0 3px rgba(255,255,255,0.5);
-      animation: frostyPulse 2s infinite ease-in-out;
+      color: #E8EAF0; /* light-text */
     }
 
     .word-animation-container {
@@ -202,72 +208,25 @@
       /* animation: pulseOnce 0.7s infinite alternate; */ 
     }
 
-    /* Rush Hour Active Visuals - Main card styling and pseudo-element for running border */
+    /* Rush Hour: a clean solid danger border that breathes, instead of animated
+       diagonal neon bars. The pulse carries the urgency; the shape stays native. */
     .rush-hour-active-visuals {
-      position: relative; /* For pseudo-element positioning */
-      animation: rushHourGlowKeyframes 0.7s infinite ease-in-out;
+      position: relative;
+      border: 2px solid #F87171;
+      animation: rushHourBorderPulse 1.2s ease-in-out infinite;
     }
 
-    @keyframes runningBorderBarsAnimInternal {
-      to {
-        background-position: 33.94px 0; /* Adjusted for 12px bar thickness: (12px red + 12px transparent) * sqrt(2) for 45deg */
-      }
+    @keyframes rushHourBorderPulse {
+      0%, 100% { border-color: rgba(248, 113, 113, 0.55); }
+      50% { border-color: rgba(248, 113, 113, 1); }
     }
 
-    .rush-hour-active-visuals::before {
-      content: "";
-      position: absolute;
-      inset: 0; 
-      border-radius: 0.75rem; /* Tailwind's rounded-xl */
-      padding: 3px; /* Thickness of the border visual */
-      background: repeating-linear-gradient(
-        45deg,
-        #FF4136, 
-        #FF4136 12px, /* Thicker red bar */
-        transparent 12px,
-        transparent 24px /* Total pattern element width is 24px before rotation scaling */
-      );
-      background-size: 33.94px 33.94px; /* 24px * sqrt(2) to make pattern align correctly at 45deg */
-      animation: runningBorderBarsAnimInternal 0.25s linear infinite; /* Much Faster animation */
-      -webkit-mask:
-        linear-gradient(#fff 0 0) content-box, 
-        linear-gradient(#fff 0 0); 
-      -webkit-mask-composite: xor; 
-              mask-composite: exclude; 
-      pointer-events: none; 
-      z-index: 0; 
-    }
-
-    /* Word Card Animated Border "Water Flow" Effect */
-    @keyframes waterBorderFlowAnim {
-      to { background-position: 400% center; } /* Animates horizontal position of a wide gradient */
-    }
-
+    /* The word card: the game's hero surface. A crisp brand-tinted edge instead of
+       the old flowing rainbow border. */
     .word-card-animated-border {
       position: relative;
-      border: 2px solid transparent !important; /* Overrides .futuristic-card border, space for pseudo-element */
-      background-clip: padding-box !important; /* Element's background won't draw into the border area */
-    }
-
-    .word-card-animated-border::before {
-      content: "";
-      position: absolute;
-      inset: -2px; /* Makes pseudo-element cover the parent's border area */
-      border-radius: inherit; /* Inherits from parent (e.g., rounded-xl) */
-      padding: 2px; /* This becomes the actual animated border thickness */
-      background: linear-gradient(90deg, 
-        #00FFFF, #39FF14, #5E2ABF, #FF4136, 
-        #00FFFF, #39FF14, #5E2ABF, #FF4136, 
-        #00FFFF); /* Repeating gradient for smooth looping. Ensure first and last color match for seamless cycle if needed or use enough colors for full cycle */
-      background-size: 300% 100%; /* Gradient pattern width. Adjust for number of color stops for a full cycle. */
-      animation: waterBorderFlowAnim 4s linear infinite; /* Controls the speed of the "flow" */
-      -webkit-mask:
-        linear-gradient(#fff 0 0) content-box, /* Transparent content area */
-        linear-gradient(#fff 0 0);             /* Solid full area */
-      -webkit-mask-composite: xor;           /* XOR to punch out the content area */
-              mask-composite: exclude;       /* Standard equivalent */
-      pointer-events: none;
-      z-index: 0; /* Ensure it's behind content if card has its own direct content without padding */
+      border: 2px solid rgba(52, 211, 153, 0.4) !important; /* Overrides .futuristic-card border */
+      background-clip: padding-box !important;
     }
     
     /* Hell Mode Time Bar Styling */
@@ -278,8 +237,7 @@
         height: 0.75rem; /* h-3 */
         box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); /* shadow-inner */
         overflow: hidden;
-        border: 2px solid;
-        animation: hellTimebarGlow 2s infinite ease-in-out;
+        border: 1px solid var(--hairline-strong);
     }
     .hell-mode-timebar-container.time-depleted-spark::after {
         content: '';
@@ -309,16 +267,78 @@
     }
 
     /* --- Component-Specific Responsive Styles --- */
-    .instruction-screen-title, .setup-screen-title {
+    .instruction-screen-title {
         /* From text-2xl (1.5rem) to sm:text-3xl (1.875rem) */
         font-size: clamp(1.5rem, 5vw, 2.25rem) !important;
     }
-    .instruction-screen-content, .setup-screen-label, .setup-screen-input, .setup-screen-checkbox-label, .setup-screen-small-text {
+    .instruction-screen-content {
         font-size: clamp(0.875rem, 2.5vw, 1.1rem) !important;
     }
-    .instruction-buttons button, .setup-screen-button, .home-button {
+    /* Game Setup keeps its own fluid scale so it stays legible on a classroom
+       TV, but it is deliberately restrained: labels and fields top out at 18px,
+       captions at 16px, so every step still fits one viewport without scrolling.
+       Three tiers, in order of hierarchy:
+         title 1.75rem  >  label/field/tab 1.125rem  >  caption 1rem  */
+    .setup-screen-title {
+        font-size: clamp(1.5rem, 3vw, 2rem) !important;
+    }
+    .setup-screen-label, .setup-screen-input, .setup-screen-checkbox-label, .setup-screen-tab {
+        font-size: clamp(0.9375rem, 1.5vw, 1.125rem) !important;
+    }
+    .setup-screen-small-text {
+        font-size: clamp(0.875rem, 1.3vw, 1rem) !important;
+    }
+    .instruction-buttons button, .home-button {
         font-size: clamp(1rem, 3vw, 1.25rem) !important;
         padding: clamp(0.75rem, 2.5vh, 1.25rem) !important;
+    }
+    .setup-screen-button {
+        font-size: clamp(1rem, 1.6vw, 1.375rem) !important;
+        padding: clamp(0.625rem, 2vh, 0.875rem) !important;
+    }
+    /* Short viewports (720p laptops and projectors): give the wizard back the
+       vertical room it needs by compressing the surrounding chrome — the app
+       title, the wizard title and the step tabs. Nothing is hidden. */
+    @media (max-height: 780px) {
+        .container header h1 {
+            font-size: clamp(1.5rem, 4.5vh, 2.25rem) !important;
+        }
+        .container header p {
+            font-size: clamp(0.875rem, 2vh, 1.0625rem) !important;
+        }
+        .setup-screen-title {
+            font-size: clamp(1.375rem, 3vh, 1.75rem) !important;
+        }
+        .setup-screen-tab {
+            padding-top: 0.375rem !important;
+            padding-bottom: 0.375rem !important;
+        }
+        /* Reclaim the last few pixels from field padding and card gutters rather
+           than from type size, so the text stays at its readable scale. */
+        .setup-screen-input {
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
+        }
+        .setup-mode-card {
+            padding: 0.375rem !important;
+        }
+        .setup-mode-card .setup-screen-label {
+            margin-bottom: 0.125rem !important;
+        }
+        /* The demo banner is the tallest block on the Mode step and carries no
+           type smaller than the rest, so it is the right place to claw back the
+           last few pixels: tighten its shell and close the gap to its perk rows.
+           The wizard keeps a real 0.25rem rhythm between steps. */
+        .setup-demo-banner {
+            padding-top: 0.125rem !important;
+            padding-bottom: 0.125rem !important;
+        }
+        .setup-demo-banner > div + div {
+            margin-top: 0 !important;
+        }
+        .setup-wizard-panel {
+            gap: 0.25rem !important;
+        }
     }
 
     .gamescreen-buttons button {
@@ -384,9 +404,13 @@
         }
 
         /* Reduce button sizes */
-        .setup-screen-button, .home-button, .instruction-buttons button, .gamescreen-buttons button {
+        .home-button, .instruction-buttons button, .gamescreen-buttons button {
             padding: clamp(0.5rem, 2vh, 0.75rem) !important;
             font-size: clamp(0.8rem, 3vh, 1rem) !important;
+        }
+        .setup-screen-button {
+            padding: clamp(0.5rem, 2vh, 0.75rem) !important;
+            font-size: clamp(1rem, 3vh, 1.25rem) !important;
         }
         
         /* Shrink the giant word/score text based on limited height */
@@ -428,15 +452,21 @@
     }
 
     body.fullscreen-active .setup-screen-title {
-        font-size: clamp(1.75rem, 4.5vmin, 2.5rem) !important;
+        font-size: clamp(1.5rem, 2.8vmin, 2rem) !important;
     }
     body.fullscreen-active .setup-screen-label,
     body.fullscreen-active .setup-screen-input,
     body.fullscreen-active .setup-screen-checkbox-label,
-    body.fullscreen-active .setup-screen-small-text {
-        font-size: clamp(0.9rem, 2.2vmin, 1.1rem) !important;
+    body.fullscreen-active .setup-screen-tab {
+        font-size: clamp(0.9375rem, 1.4vmin, 1.125rem) !important;
     }
-    body.fullscreen-active .setup-screen-button,
+    body.fullscreen-active .setup-screen-small-text {
+        font-size: clamp(0.875rem, 1.2vmin, 1rem) !important;
+    }
+    body.fullscreen-active .setup-screen-button {
+        font-size: clamp(1rem, 1.5vmin, 1.375rem) !important;
+        padding: clamp(0.625rem, 1.5vmin, 0.875rem) !important;
+    }
     body.fullscreen-active .home-button,
     body.fullscreen-active .gamescreen-buttons button {
         font-size: clamp(1rem, 2.5vmin, 1.25rem) !important;
@@ -487,11 +517,12 @@
         width: auto;
         flex-direction: column;
         align-items: flex-end;
-        background-color: rgba(26, 26, 46, 0.7);
+        background-color: rgba(21, 26, 32, 0.85); /* surface-1 */
         backdrop-filter: blur(5px);
         padding: 1.5vmin;
-        border-radius: 0.75rem;
-        border: 1px solid rgba(0, 255, 255, 0.2);
+        border-radius: var(--r-md);
+        border: 1px solid var(--hairline-strong);
+        box-shadow: var(--elev-3);
         z-index: 100;
         margin: 0;
     }

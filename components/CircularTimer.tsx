@@ -10,7 +10,7 @@ interface CircularTimerProps {
   strokeWidth?: number; 
 }
 
-const CircularTimer: React.FC<CircularTimerProps> = ({
+const CircularTimerBase: React.FC<CircularTimerProps> = ({
   timeLeft,
   totalTime,
   isFrozen,
@@ -42,7 +42,7 @@ const CircularTimer: React.FC<CircularTimerProps> = ({
   }
 
   const timerTextClass = `text-2xl font-bold transition-colors duration-300 ${
-    isFrozen ? 'text-cyan-300' : 
+    isFrozen ? 'text-electric-blue' : 
     (isRushHour ? 'text-danger-red' : 
     (timeLeft <= 10 && timeLeft > 0 ? 'text-danger-red animate-pingOnce' :
     (timeLeft === 0 ? 'text-danger-red font-extrabold' : 
@@ -60,7 +60,7 @@ const CircularTimer: React.FC<CircularTimerProps> = ({
           className="timer-frozen-display flex items-center" // Uses existing class for background/animation
           aria-label="Timer Frozen"
         >
-          <span className="text-lg leading-none text-cyan-400" aria-hidden="true">❄️</span>
+          <span className="text-lg leading-none text-electric-blue" aria-hidden="true">❄️</span>
           <span className="ml-1 text-xs font-semibold text-light-text hidden sm:inline">
             FROZEN
           </span>
@@ -102,5 +102,9 @@ const CircularTimer: React.FC<CircularTimerProps> = ({
     </div>
   );
 };
+
+// Memoised so a parent re-render for unrelated state (score, messages) does not repaint
+// the SVG arc while the clock value is unchanged.
+const CircularTimer = React.memo(CircularTimerBase);
 
 export default CircularTimer;

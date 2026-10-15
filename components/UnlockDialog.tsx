@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FULL_VERSION_PERKS } from '../constants';
+import { Icon } from './Icon';
 import type { UnlockOutcome } from '../services/payments';
 
 interface UnlockDialogProps {
@@ -52,21 +53,22 @@ export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onU
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="unlockDialogTitle"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-cyber-purple/40 bg-dark-metal p-5 shadow-2xl"
+        className="w-full max-w-sm rounded-[var(--r-xl)] border border-[var(--hairline-strong)] bg-[var(--surface-2)] p-5 shadow-[var(--elev-4)]"
         onClick={(event) => event.stopPropagation()}
       >
         <h2
           id="unlockDialogTitle"
-          className="font-heading text-xl font-bold tracking-wide text-warning-yellow"
+          className="flex items-center gap-2 font-heading text-xl font-bold tracking-wide text-warning-yellow"
         >
-          🔓 Unlock Full Version
+          <Icon name="unlock" size={22} />
+          Unlock Full Version
         </h2>
         <ul className="mt-3 space-y-1.5 text-left font-sans text-xs text-muted-text">
           {FULL_VERSION_PERKS.map((perk) => (
@@ -90,14 +92,14 @@ export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onU
                 setCode(event.target.value);
                 if (error) setError('');
               }}
-              className="futuristic-input min-w-0 flex-grow rounded-lg px-3 py-2.5 text-sm uppercase tracking-wider"
+              className="futuristic-input min-w-0 flex-grow rounded-[var(--r-md)] px-3 py-3 text-sm uppercase tracking-wider"
               placeholder="WC-XXXX-XXXX-XXXX"
               aria-describedby={error ? 'unlockCodeError' : undefined}
             />
             <button
               type="submit"
               disabled={isSubmitting || !code.trim()}
-              className="futuristic-button rounded-lg bg-cyber-purple/70 px-4 py-2.5 text-sm font-semibold text-light-text hover:bg-cyber-purple"
+              className="futuristic-button min-h-[48px] rounded-[var(--r-md)] bg-cyber-purple/70 px-4 py-3 text-sm font-semibold text-light-text hover:bg-cyber-purple"
             >
               {isSubmitting ? '…' : 'Unlock'}
             </button>

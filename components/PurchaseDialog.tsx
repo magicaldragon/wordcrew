@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { createOrder, fetchOrder, formatPrice, type OrderDraft } from '../services/payments';
 import { FULL_VERSION_PERKS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
+import { Icon } from './Icon';
 
 interface PurchaseDialogProps {
   isOpen: boolean;
@@ -141,7 +142,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
 
   return (
     <div
-      className="wc-theme fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4"
+      className="wc-theme fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="purchaseDialogTitle"
@@ -158,10 +159,10 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="-mr-1 -mt-1 rounded-full px-2 py-1 text-sm leading-none text-[var(--wn-9)] transition hover:text-[var(--wn-12)]"
+            className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--wn-9)] transition hover:bg-[var(--wn-3)] hover:text-[var(--wn-12)]"
             aria-label="Close"
           >
-            ✕
+            <Icon name="close" size={18} />
           </button>
         </div>
 
