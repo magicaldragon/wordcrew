@@ -1,0 +1,95 @@
+rules_version = '2';
+
+// WordCrew — Firestore security rules.
+//
+// These live here so they are versioned with the code; the running ruleset is the copy
+// pasted into the Firebase console (Firestore Database → Rules), because this project
+// deploys through Wrangler and has no Firebase CLI config.
+//
+// The client touches exactly two things in Firestore, and nothing else:
+//
+//   users/{uid}
+//     The signed-in player's own document: a profile mirror plus the lifetime progress
+//     counters the portal's "My progress" tab reads (rounds, best score, words, streak).
+//
+//   soloLeaderboards/{trackId}/scores/{uid}
+//     One row per player per track. Everyone signed in may read a board; a player may
+//     only ever write the single row that carries their own uid.
+//
+// Orders, licences and entitlements are not here — they live in the Cloudflare Worker
+// backed by D1, and the client never reaches Firestore for them.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── The player's own document ─────────────────────────────────────────────
+    // Two callers write this with `merge: true`:
+    //   contexts/AuthContext.tsx  → profile mirror on sign-in (uid, email, name, …)
+    //   services/progress.ts      → progress counters, one merge per finished round
+    // Because both merge, the rules only enforce ownership, and validate each field
+    // loosely and only when present — so neither caller can break the other, and
+    // profile fields that are legitimately null (email on some providers) still pass.
+    match /users/{userId} {
+      allow read: if isSelf(userId);
+
+      allow create, update: if isSelf(userId)
+        && validProfileFields()
+        && validProgressFields();
+
+      // A player account is never deleted from the client.
+      allow delete: if false;
+    }
+
+    // ── Solo leaderboard ──────────────────────────────────────────────────────
+    // One board per track, so a beginner and a B2 student compete like-for-like. The
+    // document id is the player's uid, which is what the ownership check keys off.
+    // score / wordsGuessed / bestStreak / updatedAt are numbers the client guarantees
+    // and the board's ordering depends on.
+    match /soloLeaderboards/{trackId}/scores/{uid} {
+      allow read: if request.auth != null;
+
+      allow create, update: if isSelf(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.name is string
+        && request.resource.data.score is number
+        && request.resource.data.score >= 0
+        && request.resource.data.wordsGuessed is number
+        && request.resource.data.bestStreak is number
+        && request.resource.data.updatedAt is number;
+
+      allow delete: if false;
+    }
+
+    // ── Everything else is closed ─────────────────────────────────────────────
+    // Firestore already denies unmatched paths; stating it keeps any future collection
+    // from being exposed by accident.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    function isSelf(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Profile mirror fields, checked only where present (the write merges).
+    function validProfileFields() {
+      let data = request.resource.data;
+      return (!('uid' in data) || data.uid == request.auth.uid)
+        && (!('email' in data) || data.email == null || data.email is string)
+        && (!('displayName' in data) || data.displayName == null || data.displayName is string)
+        && (!('photoURL' in data) || data.photoURL == null || data.photoURL is string);
+    }
+
+    // Progress counters, checked only where present. The values are non-negative whole
+    // numbers, so the rules bound them without coupling to exact field sets.
+    function validProgressFields() {
+      let data = request.resource.data;
+      return (!('roundsPlayed' in data) || (data.roundsPlayed is number && data.roundsPlayed >= 0))
+        && (!('wordsGuessed' in data) || (data.wordsGuessed is number && data.wordsGuessed >= 0))
+        && (!('bestScore' in data) || (data.bestScore is number && data.bestScore >= 0))
+        && (!('bestStreak' in data) || (data.bestStreak is number && data.bestStreak >= 0));
+    }
+  }
+}

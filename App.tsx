@@ -36,6 +36,7 @@ import {
 } from './constants';
 import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
 import { verifyLicenseKey, verifyAccessCode, fetchPricing, fetchEntitlement, formatPrice, type EntitlementItem, type UnlockOutcome } from './services/payments';
+import { recordRound } from './services/progress';
 
 interface GameEndDetails {
   baseScore?: number; 
@@ -471,7 +472,13 @@ const App: React.FC = () => {
   const handleSoloEnd = useCallback((result: SoloRunResult) => {
     setSoloResult(result);
     setSoloPhase('results');
-  }, []);
+    // A solo run counts towards the same lifetime counters as a pass-and-play round.
+    void recordRound(user?.uid, {
+      score: result.score,
+      wordsGuessed: result.wordsGuessed,
+      bestStreak: result.bestStreak,
+    });
+  }, [user]);
 
   // "Play again" rebuilds the same track so the player can try to beat their own run.
   const handleSoloPlayAgain = useCallback(() => {
@@ -501,8 +508,11 @@ const App: React.FC = () => {
   }, []);
 
 
-  const handleGameEnd = useCallback((details: { baseScore?: number; timeLeftSeconds?: number; teamAScore?: number; teamBScore?: number; }) => {
+  const handleGameEnd = useCallback((details: { baseScore?: number; timeLeftSeconds?: number; teamAScore?: number; teamBScore?: number; wordsGuessed: number; bestStreak: number; }) => {
     let achievedScore = 0;
+    // What the progress counters record. For Normal/Hell that is the score the results
+    // screen shows (base + time bonus); for Team it is the winning team's points.
+    let roundScore = 0;
     // FIX: Replaced 'settings' with 'gameSettings' which is the correct state variable.
     let timeLeft = gameSettings?.totalTimeLimit ?? 0;
 
@@ -512,6 +522,7 @@ const App: React.FC = () => {
         teamBScore: details.teamBScore,
       });
       achievedScore = Math.max(details.teamAScore, details.teamBScore);
+      roundScore = achievedScore;
       timeLeft = 0; // Team mode ends when timer hits 0
     } else if (details.baseScore !== undefined && details.timeLeftSeconds !== undefined) {
       const { baseScore, timeLeftSeconds } = details;
@@ -523,8 +534,17 @@ const App: React.FC = () => {
         finalScore: calculatedFinalScore,
       });
       achievedScore = baseScore;
+      roundScore = calculatedFinalScore;
       timeLeft = timeLeftSeconds;
     }
+
+    // Fold the finished round into the account's lifetime counters. Best-effort: it only
+    // reaches Firestore for a signed-in player, and a failure never blocks the results.
+    void recordRound(user?.uid, {
+      score: roundScore,
+      wordsGuessed: details.wordsGuessed,
+      bestStreak: details.bestStreak,
+    });
 
     setIsAppRushHourActive(false);
     setGamePhase(GamePhase.RESULTS);
@@ -543,7 +563,7 @@ const App: React.FC = () => {
       playSound(customGameOverSound?.data || SINGLE_SOUND_EFFECTS.GAME_OVER, effectsVolume);
     }
     // FIX: Removed redundant 'settings' from dependency array.
-  }, [customTimesUpSound, customGameOverSound, effectsVolume, gameSettings]);
+  }, [customTimesUpSound, customGameOverSound, effectsVolume, gameSettings, user]);
 
   // == Version check: only a MAJOR release is worth interrupting the player for ==
   // Minor/patch releases are applied silently by the auto-updating service worker

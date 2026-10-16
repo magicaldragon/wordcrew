@@ -201,7 +201,11 @@ const WordCard = React.memo(WordCardBase);
 
 interface GameScreenProps {
   settings: GameSettings;
-  onGameEnd: (details: { baseScore: number; timeLeftSeconds: number } | { teamAScore: number; teamBScore: number }) => void;
+  onGameEnd: (
+    details:
+      | { baseScore: number; timeLeftSeconds: number; wordsGuessed: number; bestStreak: number }
+      | { teamAScore: number; teamBScore: number; wordsGuessed: number; bestStreak: number },
+  ) => void;
   effectsVolume: number; 
   customCorrectSounds: CustomSoundFile[];
   customSkipSounds: CustomSoundFile[];
@@ -374,6 +378,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const customCountdownGoSoundRef = useRef(customCountdownGoSound);
   // A round must only ever be scored once (timer, pool exhaustion, manual end).
   const endedRef = useRef(false);
+  // Round stats the portal's progress counters read. Refs, not state, because nothing
+  // renders from them mid-round — they only leave the screen with the final result.
+  const guessedCountRef = useRef(0);
+  const bestStreakRef = useRef(0);
 
   const gameScreenRootRef = useRef<HTMLDivElement>(null);
   const correctButtonRef = useRef<HTMLButtonElement>(null);
@@ -622,7 +630,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     endedRef.current = true;
     if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
     if (turnTimerIdRef.current) clearInterval(turnTimerIdRef.current);
-    onGameEndRef.current(details);
+    // The round stats ride along with every end path so the portal receives them once.
+    onGameEndRef.current({
+      ...details,
+      wordsGuessed: guessedCountRef.current,
+      bestStreak: bestStreakRef.current,
+    });
   }, []);
 
   // Rush Hour can start from a score milestone (Normal) or off the clock (Hell). One
@@ -666,6 +679,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             awardedPointsThisTurn = basePoints + speedBonus;
             setWordStatus('correct');
             setWordTextAnimation({ type: 'correct', key: Date.now() });
+            guessedCountRef.current += 1;
             triggerHappyAnimations();
         } else { // Skipped
             playSound(customSkipSounds.length > 0 ? customSkipSounds : SKIP_SOUNDS, effectsVolume);
@@ -749,6 +763,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       awardedPointsThisTurn += basePointsForWord;
       const newStreak = currentComboStreak + 1;
       setCurrentComboStreak(newStreak);
+      guessedCountRef.current += 1;
+      if (newStreak > bestStreakRef.current) bestStreakRef.current = newStreak;
       if (newStreak >= COMBO_ACTIVATION_THRESHOLD) {
         if (!isComboActive) {
              playSound(customPowerupCollectedSound || SINGLE_SOUND_EFFECTS.POWERUP_COLLECTED, effectsVolume); 
