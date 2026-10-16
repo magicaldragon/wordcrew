@@ -18,6 +18,11 @@
       "database_id": "cf1901c3-549c-4558-8597-a31b440fa620"
     }
   ],
+  // Speech recognition for devices that have no Web Speech API (Firefox, older
+  // Android WebViews). Browsers with `SpeechRecognition` never reach this binding.
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     // Bank short code understood by qr.sepay.vn (MSB, MBBank, Vietcombank, TPBank, ...)
     // and the numbered account that receives the transfers. These are plain vars rather

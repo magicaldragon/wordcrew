@@ -24,6 +24,7 @@ import {
   type SoloWord,
 } from '../services/solo';
 import { Icon } from './Icon';
+import { cloudSpeechSupported, listenOnce, type CloudListen } from '../services/asr';
 
 interface SoloGameScreenProps {
   track: SoloTrack;
@@ -51,15 +52,22 @@ interface SoloStats {
 const pick = <T,>(items: T[]): T | undefined =>
   items.length ? items[Math.floor(Math.random() * items.length)] : undefined;
 
-// ── Speech input (Web Speech API) ──────────────────────────────────────────
+// ── Speech input ───────────────────────────────────────────────────────────
 // Voice used to be one fragile utterance per tap: on Android the recognition object
 // would occasionally never fire `onstart`, leaving the button looking frozen, and
 // nothing released it when the word changed. This is now a small state machine — every
 // session is created fresh, a watchdog kills one that never starts or never ends, and
 // the run can listen hands-free so the player is not tapping per word.
+//
+// There are two tiers behind the same interface. Tier 1 is the Web Speech API, which
+// answers inside the browser for free and is what Chrome, Edge and Safari get. Tier 2,
+// used only when `SpeechRecognition` is missing (Firefox, older Android WebViews),
+// records a short clip and has it transcribed by the worker — see services/asr.ts.
 interface SpeechInput {
   supported: boolean;
   listening: boolean;
+  /** A clip is being transcribed on the worker; the mic is already closed. */
+  transcribing: boolean;
   interim: string;
   error: string | null;
   start: () => void;
@@ -105,9 +113,13 @@ const useSpeechInput = (
           .SpeechRecognition ||
         (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition)
       : undefined;
-  const supported = Boolean(Ctor);
+  // Tier 1 is the browser engine; tier 2 is the worker, and only for devices without it.
+  const browserTier = Boolean(Ctor);
+  const cloudTier = !browserTier && cloudSpeechSupported();
+  const supported = browserTier || cloudTier;
 
   const recRef = useRef<any>(null);
+  const cloudRef = useRef<CloudListen | null>(null);
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
 
@@ -119,6 +131,7 @@ const useSpeechInput = (
   const gotFinalRef = useRef(false);
 
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [interim, setInterim] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -148,7 +161,65 @@ const useSpeechInput = (
         /* already stopped */
       }
     }
+    const cloud = cloudRef.current;
+    cloudRef.current = null;
+    cloud?.cancel();
   }, [clearTimers]);
+
+  // Tier 2: record one clip and let the worker transcribe it. There is no interim
+  // transcript and no retry inside a session, so a miss is re-armed by the caller
+  // through the same `listenTick` path used after a wrong answer.
+  const beginCloud = useCallback(() => {
+    manualStopRef.current = false;
+    gotFinalRef.current = false;
+    teardown();
+    setError(null);
+    setInterim('');
+    setTranscribing(false);
+
+    const session = listenOnce(() => {
+      if (cloudRef.current !== session) return;
+      setListening(false);
+      setTranscribing(true);
+    });
+    cloudRef.current = session;
+    setListening(true);
+
+    void session.outcome.then((result) => {
+      if (cloudRef.current !== session) return;
+      cloudRef.current = null;
+      setListening(false);
+      setTranscribing(false);
+
+      if (result.kind === 'cancelled') return;
+      if (result.kind === 'heard') {
+        gotFinalRef.current = true;
+        onFinalRef.current(result.transcript, []);
+        return;
+      }
+      if (result.kind === 'mic-blocked') {
+        manualStopRef.current = true;
+        setError('Microphone access was blocked — allow it or type instead.');
+        return;
+      }
+      if (result.kind === 'network') {
+        setError('Couldn’t reach the recogniser — try again, or type your answer.');
+        return;
+      }
+      // Nothing was recognised in the clip. Hands-free simply listens again, exactly as a
+      // silent browser session does, and without costing a heart.
+      if (!autoListenRef.current) {
+        setError('Didn’t catch that — try again.');
+        return;
+      }
+      if (autoRestartsRef.current < SPEECH_MAX_AUTO_RESTARTS) {
+        autoRestartsRef.current += 1;
+        restartRef.current = window.setTimeout(() => {
+          if (autoListenRef.current && !manualStopRef.current) beginRef.current(false);
+        }, SPEECH_AUTO_RESTART_MS);
+      }
+    });
+  }, [teardown, autoListenRef]);
 
   // `onend` needs to reopen the mic for hands-free mode, so the starter lives in a ref
   // to avoid a declaration cycle. `user` starts a fresh restart budget; hands-free
@@ -157,6 +228,11 @@ const useSpeechInput = (
 
   const begin = useCallback(
     (user: boolean) => {
+      if (cloudTier) {
+        if (user) autoRestartsRef.current = 0;
+        beginCloud();
+        return;
+      }
       if (!Ctor) return;
       manualStopRef.current = false;
       gotFinalRef.current = false;
@@ -280,7 +356,7 @@ const useSpeechInput = (
 
       watchdogRef.current = window.setTimeout(checkStarted, SPEECH_START_WATCHDOG_MS);
     },
-    [Ctor, teardown, autoListenRef],
+    [Ctor, teardown, autoListenRef, cloudTier, beginCloud],
   );
 
   beginRef.current = begin;
@@ -291,6 +367,7 @@ const useSpeechInput = (
     manualStopRef.current = true;
     teardown();
     setListening(false);
+    setTranscribing(false);
     setInterim('');
   }, [teardown]);
 
@@ -300,6 +377,7 @@ const useSpeechInput = (
     autoRestartsRef.current = 0;
     gotFinalRef.current = false;
     setListening(false);
+    setTranscribing(false);
     setInterim('');
     setError(null);
   }, [teardown]);
@@ -315,6 +393,7 @@ const useSpeechInput = (
   return {
     supported,
     listening,
+    transcribing,
     interim,
     error,
     start,
@@ -805,7 +884,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               if (event.key === 'Enter' && !overlayOpen) onCheck();
             }}
             disabled={phase !== 'guessing' || overlayOpen}
-            placeholder={speech.listening ? 'Listening…' : 'Type the word…'}
+            placeholder={speech.transcribing ? 'Checking…' : speech.listening ? 'Listening…' : 'Type the word…'}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
@@ -821,7 +900,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           <button
             type="button"
             onClick={speech.listening ? speech.stop : speech.start}
-            disabled={!speech.supported || phase !== 'guessing' || overlayOpen}
+            disabled={!speech.supported || phase !== 'guessing' || overlayOpen || speech.transcribing}
             title={speech.supported ? 'Answer by voice' : 'Voice input needs Chrome, Edge or Safari'}
             aria-label={speech.listening ? 'Stop listening' : 'Answer by voice'}
             className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-xl transition disabled:opacity-40 ${
@@ -872,6 +951,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             </span>
           ) : speech.error ? (
             <span role="status" className="truncate text-warning-yellow">{speech.error}</span>
+          ) : speech.transcribing ? (
+            <span className="text-electric-blue">Checking what we heard…</span>
           ) : speech.listening ? (
             <span className="truncate text-electric-blue">
               {speech.interim ? `“${speech.interim}”` : 'Listening…'}

@@ -44,11 +44,23 @@ export interface Env {
    * granting and revoking access). Blank closes the admin surface entirely.
    */
   ADMIN_EMAILS?: string;
+  /**
+   * Workers AI. Used only by the speech fallback for devices without the Web Speech
+   * API, so a Chrome/Edge/Safari session never touches it.
+   */
+  AI: Ai;
 }
 
 const DEFAULT_PRICE_VND = 199000;
 const ORDER_TTL_MS = 30 * 60 * 1000;
 const ORDERS_PER_IP_PER_HOUR = 5;
+/** Speech fallback: `whisper-large-v3-turbo` at $0.00051 per audio minute. */
+const ASR_MODEL = '@cf/openai/whisper-large-v3-turbo';
+/**
+ * Cap on an uploaded clip. A three-second Opus answer lands around 20 kB, so anything
+ * near this is a hand-crafted request rather than a player talking.
+ */
+const MAX_CLIP_BYTES = 1_000_000;
 const PRODUCT = {
   id: 'pro',
   name: 'WordCrew Full Version',
@@ -539,11 +551,52 @@ const verifyLicense = async (request: Request, env: Env): Promise<Response> => {
   return json({ valid: true, productId: row.product_id });
 };
 
+/** Base64 is what the Whisper binding takes, and Workers has no streaming encoder. */
+const toBase64 = (bytes: Uint8Array): string => {
+  const CHUNK = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+};
+
+/**
+ * Speech-to-text for devices with no Web Speech API — Firefox and older Android
+ * WebViews, where the mic used to be dead. Chrome, Edge and Safari answer inside the
+ * browser and never call this, so the free Workers AI daily allocation (10,000 Neurons,
+ * roughly 215 audio minutes) normally covers every request.
+ *
+ * Solo needs no account, so this route is open. What stops it being a free Whisper
+ * proxy is the size cap plus that allocation, which is a hard ceiling on the free plan
+ * rather than a bill.
+ */
+const transcribeClip = async (request: Request, env: Env): Promise<Response> => {
+  const declared = Number(request.headers.get('content-length') || '0');
+  if (declared > MAX_CLIP_BYTES) return json({ error: 'Clip too long' }, 413);
+
+  const buffer = await request.arrayBuffer();
+  if (!buffer.byteLength) return json({ error: 'No audio received' }, 400);
+  if (buffer.byteLength > MAX_CLIP_BYTES) return json({ error: 'Clip too long' }, 413);
+
+  try {
+    const result = await env.AI.run(ASR_MODEL, {
+      audio: toBase64(new Uint8Array(buffer)),
+      language: 'en',
+      task: 'transcribe',
+    });
+    return json({ transcript: String(result?.text || '').trim() });
+  } catch {
+    return json({ error: 'Could not transcribe that clip.' }, 502);
+  }
+};
+
 const handleApi = async (request: Request, env: Env, url: URL): Promise<Response> => {
   const { pathname } = url;
   const method = request.method.toUpperCase();
 
   if (pathname === '/api/pricing' && method === 'GET') return getPricing(env);
+  if (pathname === '/api/asr' && method === 'POST') return transcribeClip(request, env);
   if (pathname === '/api/orders' && method === 'POST') return createOrder(request, env);
   if (pathname === '/api/licenses/verify' && method === 'POST') return verifyLicense(request, env);
   if (pathname === '/api/entitlements' && method === 'GET') return getEntitlement(request, env);
