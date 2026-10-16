@@ -127,6 +127,9 @@ interface ProgressDoc {
   bestScore?: number;
   wordsGuessed?: number;
   bestStreak?: number;
+  /** Consecutive days with at least one finished round, and the last such day. */
+  playStreak?: number;
+  lastPlayedDate?: string;
 }
 
 const useProgressDoc = (): ProgressDoc | null => {
@@ -455,7 +458,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       );
     }
     return (
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        {/* The streak leads: it is the one counter that measures coming back, not playing. */}
+        <StatCard label="Day streak" value={progress?.playStreak ?? 0} />
         <StatCard label="Rounds played" value={progress?.roundsPlayed ?? 0} />
         <StatCard label="Best score" value={progress?.bestScore ?? 0} />
         <StatCard label="Words guessed" value={progress?.wordsGuessed ?? 0} />

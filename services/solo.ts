@@ -11,6 +11,7 @@
 // guesses (with streak bonuses) and pays for mistakes with hearts and points.
 
 import { CEFRLevel, cefrWordLists } from '../cefrWordLists';
+import { localDateId } from './periods';
 import { checkSpokenPhonemes, loadPronunciations } from './pronunciation';
 
 export interface SoloTrack {
@@ -79,6 +80,70 @@ export const getSoloTrack = (id: string | null | undefined): SoloTrack | undefin
 /** The one track every player gets for free; the rest are part of the Full Version. */
 export const SOLO_FREE_TRACK_ID = 'rookie';
 
+// ── Today's Challenge ──────────────────────────────────────────────────────
+/** The board Today's Challenge posts to; the daily run is not one of the four tracks. */
+export const DAILY_BOARD_ID = 'daily';
+
+/**
+ * Today's Challenge. Everyone plays the same ladder on the same day: the word source is
+ * a *seeded* shuffle (see `createSoloSequence`), so the order is identical for every
+ * player and the daily board is a like-for-like race rather than a luck draw.
+ */
+export const DAILY_TRACK: SoloTrack = {
+  id: DAILY_BOARD_ID,
+  name: "Today's Challenge",
+  emoji: '🌅',
+  tagline: 'One seeded ladder a day — the same words for every player.',
+  levels: [L.STARTERS, L.MOVERS, L.FLYERS, L.KET],
+  accentText: 'text-warning-yellow',
+  accentBorder: 'border-warning-yellow/40 hover:border-warning-yellow',
+  glow: 'hover:shadow-[var(--elev-3)]',
+};
+
+const DAILY_DONE_KEY = 'wordcrew_daily_done';
+
+/** The day id of the last completed challenge, or null. */
+export const readDailyDoneDate = (): string | null => {
+  try {
+    return localStorage.getItem(DAILY_DONE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+/** True once today's challenge has been finished on this device. */
+export const isDailyDoneToday = (): boolean => readDailyDoneDate() === localDateId();
+
+export const markDailyDone = (dateId: string = localDateId()): void => {
+  try {
+    localStorage.setItem(DAILY_DONE_KEY, dateId);
+  } catch {
+    /* Storage blocked — the badge simply will not stick. */
+  }
+};
+
+/** Stable 32-bit seed for a day id, so the same day always yields the same ladder. */
+export const dailySeed = (dateId: string): number => {
+  let hash = 2166136261;
+  for (let i = 0; i < dateId.length; i += 1) {
+    hash ^= dateId.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+/** Small deterministic PRNG (mulberry32) — same seed, same word order, every device. */
+export const seededRng = (seed: number): (() => number) => {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
 /** Friendly "A2 Key" → "KET" label used in compact UI spots. */
 export const shortLevel = (level: CEFRLevel): string => level.replace(/\s*\(.*\)\s*$/, '');
 
@@ -117,6 +182,10 @@ export interface SoloWord {
 
 export interface SoloRunResult {
   trackId: string;
+  /** Board the run posts to: a track id, or `DAILY_BOARD_ID` for Today's Challenge. */
+  boardId: string;
+  /** Period the score belongs to (`YYYY-Www` for a track, `YYYY-MM-DD` for the daily). */
+  period: string;
   score: number;
   wordsGuessed: number;
   bestStreak: number;
@@ -125,6 +194,8 @@ export interface SoloRunResult {
   /** Hardest band the player reached before the run ended. */
   levelReached: CEFRLevel;
   timePerWord: number;
+  /** Words the player got wrong or timed out on — the run's Memory Anchors. */
+  missedWords: SoloWord[];
 }
 
 const shuffle = <T,>(input: T[], rng: () => number): T[] => {
@@ -154,12 +225,27 @@ export interface SoloSequence {
 export const createSoloSequence = (
   track: SoloTrack,
   rng: () => number = Math.random,
+  /**
+   * Words to serve before the shuffled bag — the Memory Anchors the player is still
+   * relearning. Only words whose band the track actually visits are used; anything
+   * above the track's ceiling would never be reached and is dropped up front.
+   */
+  priority: SoloWord[] = [],
 ): SoloSequence => {
   const bands = track.levels;
   const bags = new Map<CEFRLevel, string[]>();
+  const queued = new Map<CEFRLevel, string[]>();
+  for (const item of priority) {
+    if (!bands.includes(item.level)) continue;
+    const bucket = queued.get(item.level);
+    if (bucket) bucket.push(item.word);
+    else queued.set(item.level, [item.word]);
+  }
   let step = 0;
 
   const draw = (level: CEFRLevel): string => {
+    const anchor = queued.get(level);
+    if (anchor && anchor.length > 0) return anchor.shift() as string;
     let bag = bags.get(level);
     if (!bag || bag.length === 0) {
       bag = shuffle(wordsOfLevel(level), rng);

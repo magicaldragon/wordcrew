@@ -8,7 +8,9 @@ import {
   checkSoloAnswer,
   checkSpokenAnswer,
   createSoloSequence,
+  dailySeed,
   letterCount,
+  seededRng,
   shortLevel,
   soloStreakBonus,
   SOLO_CORRECT_POINTS,
@@ -23,13 +25,19 @@ import {
   type SoloTrack,
   type SoloWord,
 } from '../services/solo';
+import { isoWeekId } from '../services/periods';
+import { addMissedWords, markReviewCorrect, readDueReviews, REVIEW_PER_RUN } from '../services/review';
 import { Icon } from './Icon';
+import { SpeakButton } from './SpeakButton';
+import { stopSpeaking } from '../services/speech';
 import { cloudSpeechSupported, listenOnce, type CloudListen } from '../services/asr';
 
 interface SoloGameScreenProps {
   track: SoloTrack;
   effectsVolume: number;
   customCorrectSounds: CustomSoundFile[];
+  /** Set for Today's Challenge: the run is seeded from this day id and posts to the daily board. */
+  dailyDateId?: string;
   onEnd: (result: SoloRunResult) => void;
   onExit: () => void;
 }
@@ -418,12 +426,30 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   track,
   effectsVolume,
   customCorrectSounds,
+  dailyDateId,
   onEnd,
   onExit,
 }) => {
   // Endless word source, drawn from the track's ladder and stepping up in difficulty.
+  // Two things bend the source: Today's Challenge seeds the shuffle from the day id, so
+  // every player meets the same words in the same order; a normal run opens with the
+  // Memory Anchors the player still has to relearn. A daily run deliberately skips the
+  // anchors — they are personal, and the race of the day has to be the same for everyone.
   const seqRef = useRef<SoloSequence | null>(null);
-  if (!seqRef.current) seqRef.current = createSoloSequence(track);
+  if (!seqRef.current) {
+    const priority = dailyDateId
+      ? []
+      : readDueReviews()
+          .slice(0, REVIEW_PER_RUN)
+          .map((item) => ({ word: item.word, level: item.level }));
+    const rng = dailyDateId ? seededRng(dailySeed(dailyDateId)) : Math.random;
+    seqRef.current = createSoloSequence(track, rng, priority);
+  }
+  // The board the run posts to is simply the track, and the period is frozen at mount —
+  // a run that straddles midnight still scores inside one week (or one day).
+  const periodRef = useRef(dailyDateId ?? isoWeekId());
+  // Words missed during this run (wrong guess or timeout), collected for review.
+  const missedRef = useRef<SoloWord[]>([]);
 
   const [current, setCurrent] = useState<SoloWord>(() => seqRef.current!.next());
   const [wordNo, setWordNo] = useState(1);
@@ -482,6 +508,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    // Leaving the run must not leave a pronunciation talking over the results screen.
+    stopSpeaking();
   }, []);
 
   // Updates state and the mirror together so the timer callbacks never read stale values.
@@ -489,6 +517,16 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     const next = updater(statsRef.current);
     statsRef.current = next;
     setStats(next);
+  }, []);
+
+  // A missed word becomes a Memory Anchor twice over: it joins the run's review list for
+  // the results screen, and it is written to the local anchor store so the next run
+  // serves it back. Written per miss rather than at the end, so quitting mid-run still
+  // keeps the words the player struggled with.
+  const noteMiss = useCallback(() => {
+    const word = currentRef.current;
+    if (!missedRef.current.some((item) => item.word === word.word)) missedRef.current.push(word);
+    addMissedWords([word]);
   }, []);
 
   const showBanner = useCallback((text: string) => {
@@ -518,12 +556,15 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     const s = statsRef.current;
     onEnd({
       trackId: track.id,
+      boardId: track.id,
+      period: periodRef.current,
       score: s.score,
       wordsGuessed: s.guessed,
       bestStreak: s.bestStreak,
       wordsPlayed: s.played,
       levelReached: levelRef.current,
       timePerWord: SOLO_TIME_PER_WORD,
+      missedWords: missedRef.current,
     });
   }, [onEnd, track.id]);
 
@@ -595,6 +636,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       setInput(value ?? '');
       setPoints({ value: gained, bonus, key: Date.now() });
       speechStopRef.current();
+      // Getting it right pushes an anchored word one rung up the review ladder.
+      markReviewCorrect(currentRef.current.word);
       const sound = pick(customCorrectSounds)?.data || pick(CORRECT_SOUNDS);
       if (sound) playSound(sound, effectsVolume);
       // Pre-rendered announcer callout on the same streak ladder as the shared modes.
@@ -616,6 +659,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     () => {
       if (resolvedRef.current || phaseRef.current !== 'guessing') return;
       setInput('');
+      noteMiss();
       const hearts = statsRef.current.hearts - 1;
       applyStats((prev) => ({
         ...prev,
@@ -630,12 +674,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         scheduleAdvance(2000);
       }
     },
-    [applyStats, scheduleAdvance],
+    [applyStats, noteMiss, scheduleAdvance],
   );
 
   const handleTimeout = useCallback(() => {
     if (resolvedRef.current || phaseRef.current !== 'guessing') return;
     resolvedRef.current = true;
+    noteMiss();
     applyStats((prev) => ({
       ...prev,
       hearts: prev.hearts - 1,
@@ -645,7 +690,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     }));
     setPhase('revealed');
     scheduleAdvance(2200);
-  }, [applyStats, scheduleAdvance]);
+  }, [applyStats, noteMiss, scheduleAdvance]);
 
   // A skip is free while free skips last, and costs a heart afterwards (still
   // gentler than a wrong guess, which also forfeits points).
@@ -840,9 +885,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         )}
 
         {phase === 'revealed' && (
-          <p className="mt-1 animate-fadeInScaleUp font-heading text-xl font-bold text-danger-red sm:text-2xl">
-            Answer: {answer}
-          </p>
+          <div className="mt-1 flex animate-fadeInScaleUp items-center justify-center gap-2">
+            <p className="font-heading text-xl font-bold text-danger-red sm:text-2xl">
+              Answer: {answer}
+            </p>
+            {/* Hear it once it is on screen — the cheapest way to make a miss stick. */}
+            <SpeakButton word={answer} />
+          </div>
         )}
 
         {points && phase === 'correct' && (

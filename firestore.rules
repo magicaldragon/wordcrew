@@ -8,14 +8,24 @@ rules_version = '2';
 // versioned và để lần sau biết đang có gì mà chỉnh cho khớp.
 //
 // Client chỉ chạm đúng hai collection:
-//   users/{uid}
-//     Hồ sơ người chơi + các counter tiến độ (roundsPlayed, bestScore,
-//     wordsGuessed, bestStreak) mà tab "My progress" đọc. Client ghi bằng
-//     merge: AuthContext.tsx (hồ sơ) và services/progress.ts (counter).
 //
-//   soloLeaderboards/{trackId}/scores/{uid}
-//     Một dòng mỗi người chơi mỗi track. services/soloLeaderboard.ts đọc cả
-//     bảng và chỉ ghi dòng mang uid của chính mình.
+//   users/{uid}
+//     Hồ sơ người chơi + các counter tiến độ mà tab "My progress" đọc:
+//       roundsPlayed, bestScore, wordsGuessed, bestStreak   (services/progress.ts)
+//       playStreak, lastPlayedDate                          (chuỗi ngày chơi liên tiếp)
+//     Client ghi bằng merge: AuthContext.tsx (hồ sơ) và services/progress.ts.
+//     Rule không chặn theo tên field — trang này là của riêng chủ tài khoản, nên
+//     thêm counter mới KHÔNG cần sửa rules.
+//
+//   soloLeaderboards/{boardId}/scores/{uid}
+//     Một dòng mỗi người chơi mỗi board. boardId là id track ('rookie',
+//     'explorer', 'challenger', 'master') hoặc 'daily' cho Today's Challenge.
+//     services/soloLeaderboard.ts đọc cả bảng và chỉ ghi dòng mang uid của chính mình.
+//
+//     Mỗi board reset theo kỳ: track reset hằng tuần (period = "2026-W42"),
+//     Today's Challenge reset hằng ngày (period = "2026-10-16"). Không có cron
+//     và không có collection thứ hai — chỉ cần lọc theo `period`, nên update
+//     được phép khi điểm cao hơn HOẶC khi sang kỳ mới (kỳ mới = cuộc đua mới).
 //
 // Orders / licences / entitlements KHÔNG nằm ở đây — chúng ở Cloudflare Worker
 // (D1) và client không bao giờ đi qua Firestore để lấy.
@@ -23,14 +33,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Hồ sơ người dùng (giữ nguyên như rule hiện tại của bạn)
+    // Hồ sơ người dùng + counter tiến độ.
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     // WordCrew — bảng xếp hạng Solo.
-    // Mỗi người chơi 1 doc mỗi track: soloLeaderboards/{trackId}/scores/{uid}
-    match /soloLeaderboards/{trackId}/scores/{uid} {
+    match /soloLeaderboards/{boardId}/scores/{uid} {
       // Bảng công khai: cả người đã đăng nhập lẫn offline đều xem được.
       allow read: if true;
 
@@ -39,11 +48,16 @@ service cloud.firestore {
         && request.auth.uid == uid
         && isValidSoloEntry(request.resource.data);
 
-      // ...và chỉ được cập nhật khi điểm MỚI CAO HƠN (kỷ lục không bao giờ giảm).
+      // ...và chỉ được cập nhật khi điểm MỚI CAO HƠN (kỷ lục không bao giờ giảm),
+      // hoặc khi sang kỳ mới — lúc đó bảng đã reset nên điểm thấp hơn vẫn hợp lệ.
+      // `get('period', '')` để doc cũ (ghi trước khi có field này) vẫn update được.
       allow update: if request.auth != null
         && request.auth.uid == uid
         && isValidSoloEntry(request.resource.data)
-        && request.resource.data.score >= resource.data.score;
+        && (
+          request.resource.data.score >= resource.data.score
+          || request.resource.data.period != resource.data.get('period', '')
+        );
 
       // Điểm là kỷ lục cá nhân — không cho xoá.
       allow delete: if false;
@@ -51,14 +65,15 @@ service cloud.firestore {
 
     // Entry Solo hợp lệ: đúng các field, giá trị hợp lý.
     function isValidSoloEntry(data) {
-      return data.keys().hasAll(['uid', 'name', 'score', 'wordsGuessed', 'bestStreak', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'name', 'score', 'wordsGuessed', 'bestStreak', 'updatedAt'])
+      return data.keys().hasAll(['uid', 'name', 'score', 'wordsGuessed', 'bestStreak', 'updatedAt', 'period'])
+        && data.keys().hasOnly(['uid', 'name', 'score', 'wordsGuessed', 'bestStreak', 'updatedAt', 'period'])
         && data.uid == request.auth.uid
         && data.name is string && data.name.size() > 0 && data.name.size() <= 40
         && data.score is number && data.score >= 0 && data.score <= 1000000
         && data.wordsGuessed is number && data.wordsGuessed >= 0 && data.wordsGuessed <= 1000000
         && data.bestStreak is number && data.bestStreak >= 0 && data.bestStreak <= 100000
-        && data.updatedAt is number;
+        && data.updatedAt is number
+        && data.period is string && data.period.size() >= 8 && data.period.size() <= 16;
     }
 
     // Mặc định chặn tất cả những thứ còn lại.

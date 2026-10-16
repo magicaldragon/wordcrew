@@ -4,6 +4,7 @@ import { GameSettings, CustomSoundFile, GameMode } from '../types';
 import CircularTimer from './CircularTimer'; // Import CircularTimer
 import { VolumeControls } from './VolumeControls';
 import { Icon } from './Icon';
+import { SpeakButton } from './SpeakButton';
 import { 
     playSound, CORRECT_SOUNDS, SKIP_SOUNDS, SINGLE_SOUND_EFFECTS,
     COMBO_ACTIVATION_THRESHOLD, COMBO_POINT_BONUS, 
@@ -183,6 +184,12 @@ const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, 
         >
           {meaningHint}
         </p>
+      )}
+      {/* "Listen": only while the word is revealed, so the pronunciation never leaks to the guessers. */}
+      {isWordVisible && word && (
+        <div className="absolute right-2 top-2 z-20 animate-fadeInScaleUp">
+          <SpeakButton word={word} />
+        </div>
       )}
       {!isWordVisible && (
         <p className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] sm:text-xs text-light-text/50 tracking-wide select-none pointer-events-none">

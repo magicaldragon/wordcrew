@@ -4,7 +4,8 @@ import { Dashboard } from './components/Dashboard';
 import { AuthDialog } from './components/AuthDialog';
 import { PurchaseDialog } from './components/PurchaseDialog';
 import { useAuth } from './contexts/AuthContext';
-import { type SoloTrack, type SoloRunResult } from './services/solo';
+import { DAILY_TRACK, markDailyDone, type SoloTrack, type SoloRunResult } from './services/solo';
+import { localDateId } from './services/periods';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
 import { Icon } from './components/Icon';
@@ -131,6 +132,9 @@ const App: React.FC = () => {
   const [soloResult, setSoloResult] = useState<SoloRunResult | null>(null);
   // Bumped on each new run so the endless game screen remounts with a fresh word source.
   const [soloRunId, setSoloRunId] = useState(0);
+  // Set while the current run is Today's Challenge: the day id seeds the word order and
+  // is the period the score is posted under. Null for an ordinary track run.
+  const [soloDailyDateId, setSoloDailyDateId] = useState<string | null>(null);
 
   const { user, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
@@ -474,6 +478,17 @@ const App: React.FC = () => {
   // so starting one is a single call carrying the chosen track.
   const handleStartSolo = useCallback((track: SoloTrack) => {
     setSoloTrack(track);
+    setSoloDailyDateId(null);
+    setSoloResult(null);
+    setSoloRunId((id) => id + 1);
+    setView('solo');
+    setSoloPhase('playing');
+  }, []);
+
+  // Today's Challenge: the same seeded ladder for everyone, one board per day.
+  const handleStartDaily = useCallback(() => {
+    setSoloTrack(DAILY_TRACK);
+    setSoloDailyDateId(localDateId());
     setSoloResult(null);
     setSoloRunId((id) => id + 1);
     setView('solo');
@@ -483,6 +498,8 @@ const App: React.FC = () => {
   const handleSoloEnd = useCallback((result: SoloRunResult) => {
     setSoloResult(result);
     setSoloPhase('results');
+    // The challenge is "done" the moment it ends, so the setup card can say so.
+    if (result.boardId === DAILY_TRACK.id) markDailyDone(result.period);
     // A solo run counts towards the same lifetime counters as a pass-and-play round.
     void recordRound(user?.uid, {
       score: result.score,
@@ -491,7 +508,8 @@ const App: React.FC = () => {
     });
   }, [user]);
 
-  // "Play again" rebuilds the same track so the player can try to beat their own run.
+  // "Play again" rebuilds the same track so the player can try to beat their own run —
+  // and replays the *same* daily ladder while the day has not turned over.
   const handleSoloPlayAgain = useCallback(() => {
     if (!soloTrack) return;
     setSoloResult(null);
@@ -507,6 +525,7 @@ const App: React.FC = () => {
     setSoloPhase(null);
     setSoloTrack(null);
     setSoloResult(null);
+    setSoloDailyDateId(null);
     setActiveMusicOverride(null);
     setShowLanding(true);
     setView('dashboard');
@@ -726,6 +745,7 @@ const App: React.FC = () => {
                   onUnlock={handleUnlock}
                   onGameStart={handleGameStart}
                   onStartSolo={handleStartSolo}
+                  onStartDaily={handleStartDaily}
                   isSignedIn={Boolean(user)}
                   musicVolume={musicVolume}
                   onMusicVolumeChange={handleMusicVolumeChange}
@@ -821,6 +841,7 @@ const App: React.FC = () => {
           track={soloTrack}
           effectsVolume={effectsVolume}
           customCorrectSounds={customCorrectSounds}
+          dailyDateId={soloDailyDateId ?? undefined}
           onEnd={handleSoloEnd}
           onExit={handleSoloExit}
         />

@@ -8,8 +8,9 @@ import type { UnlockOutcome } from '../services/payments';
 import { VolumeControls } from './VolumeControls';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 import { addWordSet, readWordSets, removeWordSet, type SavedWordSet } from '../services/wordSets';
-import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_TIME_PER_WORD, SOLO_TRACKS, shortLevel, type SoloTrack } from '../services/solo';
+import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_TIME_PER_WORD, SOLO_TRACKS, DAILY_TRACK, isDailyDoneToday, shortLevel, type SoloTrack } from '../services/solo';
 import { readLocalSoloBest } from '../services/soloLeaderboard';
+import { readDueReviews, reviewCount } from '../services/review';
 import { confirmDialog, toast } from './Feedback';
 
 interface SetupScreenProps {
@@ -20,6 +21,8 @@ interface SetupScreenProps {
   onGameStart: (settings: GameSettings) => void;
   /** Solo is offered as a fourth mode; this container collects its track before launch. */
   onStartSolo: (track: SoloTrack) => void;
+  /** Today's Challenge launches straight from its card — no track, no settings. */
+  onStartDaily: () => void;
   /** Whether the player is signed in — used for the Solo leaderboard footnote. */
   isSignedIn: boolean;
   musicVolume: number;
@@ -109,6 +112,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   onUnlock,
   onGameStart,
   onStartSolo,
+  onStartDaily,
   isSignedIn,
   musicVolume, onMusicVolumeChange,
   effectsVolume, onEffectsVolumeChange,
@@ -163,6 +167,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // Local bests are device-scoped; read them once per mount for the track picker.
   const soloBests = useMemo(
     () => Object.fromEntries(SOLO_TRACKS.map((track) => [track.id, readLocalSoloBest(track.id)])),
+    [],
+  );
+  // Today's Challenge state and the Memory Anchor pile, read once per visit to the step.
+  const dailyStatus = useMemo(
+    () => ({ done: isDailyDoneToday(), anchors: reviewCount(), due: readDueReviews().length }),
     [],
   );
   const selectedSoloTrack = SOLO_TRACKS.find((track) => track.id === selectedSoloTrackId) ?? SOLO_TRACKS[0];
@@ -830,6 +839,43 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
       {currentStep === 'Pick a track' && (
       <>
+      {/* Today's Challenge — one tap, no track and no settings: the words are the same
+          for every player today, so the only variable is how far you get. */}
+      <div className="w-full rounded-lg border border-warning-yellow/40 bg-[var(--surface-1)] p-2.5 sm:p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 text-left">
+            <p className="flex items-center gap-1.5 font-heading text-base font-bold text-warning-yellow">
+              <span className="text-xl" role="img" aria-hidden="true">{DAILY_TRACK.emoji}</span>
+              {DAILY_TRACK.name}
+              {dailyStatus.done && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-neon-green/40 bg-neon-green/10 px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-neon-green">
+                  <Icon name="check" size={11} />
+                  Done
+                </span>
+              )}
+            </p>
+            <p className="mt-0.5 text-sm leading-snug text-muted-text setup-screen-small-text">
+              {DAILY_TRACK.tagline} Resets at midnight.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onStartDaily}
+            className="futuristic-button shrink-0 rounded-[var(--r-md)] min-h-[44px] bg-warning-yellow px-5 py-2 text-sm font-bold text-dark-metal hover:brightness-110"
+          >
+            {dailyStatus.done ? 'Replay' : 'Play'}
+          </button>
+        </div>
+      </div>
+
+      {dailyStatus.anchors > 0 && (
+        <p className="w-full text-left text-sm leading-snug text-warning-yellow setup-screen-small-text">
+          📌 {dailyStatus.due > 0
+            ? `${dailyStatus.due} word${dailyStatus.due === 1 ? '' : 's'} from earlier slips will lead your next run.`
+            : `${dailyStatus.anchors} word${dailyStatus.anchors === 1 ? '' : 's'} in your review pile — they come back as they fall due.`}
+        </p>
+      )}
+
       <div className="w-full rounded-lg border border-cyber-purple/30 p-2 sm:p-3">
         <span className="mb-2 block text-left text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
           Track:

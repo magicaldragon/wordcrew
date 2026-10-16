@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AuthDialog } from './AuthDialog';
 import { Icon } from './Icon';
+import { SpeakButton } from './SpeakButton';
+import { DAILY_BOARD_ID, shortLevel } from '../services/solo';
 import type { SoloRunResult, SoloTrack } from '../services/solo';
-import { shortLevel } from '../services/solo';
 import {
-  fetchSoloLeaderboard,
+  fetchSoloBoard,
   saveLocalSoloBest,
   submitSoloScore,
+  type SoloBoard,
   type SoloScoreEntry,
 } from '../services/soloLeaderboard';
 
@@ -44,14 +46,16 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   onHome,
 }) => {
   const shownScore = useCountUp(result.score);
-  const [board, setBoard] = useState<SoloScoreEntry[] | null>(null);
+  const [board, setBoard] = useState<SoloBoard | null>(null);
   const [loadingBoard, setLoadingBoard] = useState(Boolean(userId));
   const [showAuth, setShowAuth] = useState(false);
   const [localBest, setLocalBest] = useState<number>(result.score);
 
   const accuracy = result.wordsPlayed > 0 ? Math.round((result.wordsGuessed / result.wordsPlayed) * 100) : 0;
+  const isDaily = result.boardId === DAILY_BOARD_ID;
+  const missed = result.missedWords;
 
-  // Persist the run and, when signed in, publish it to the shared board.
+  // Persist the run and, when signed in, publish it to the board for this period.
   useEffect(() => {
     const entry: SoloScoreEntry = {
       uid: userId ?? 'local',
@@ -60,6 +64,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
       wordsGuessed: result.wordsGuessed,
       bestStreak: result.bestStreak,
       updatedAt: Date.now(),
+      period: result.period,
     };
     const best = saveLocalSoloBest(track.id, entry);
     setLocalBest(best.score);
@@ -71,7 +76,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
     let cancelled = false;
     void (async () => {
       await submitSoloScore(track.id, entry);
-      const rows = await fetchSoloLeaderboard(track.id, 10);
+      const rows = await fetchSoloBoard(track.id, result.period, userId, 10);
       if (cancelled) return;
       setBoard(rows);
       setLoadingBoard(false);
@@ -82,14 +87,17 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   }, [track.id, result, userId, userName]);
 
   const isNewBest = useMemo(() => result.score >= localBest && result.score > 0, [result.score, localBest]);
+  // A rank below the visible top 10 still matters: it is the player's standing, not the
+  // leaderboard's contents, that brings them back tomorrow.
+  const rankOutsideTop = Boolean(board && board.rank && board.rank > (board.rows.length || 10));
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center gap-3 overflow-y-auto py-2 text-light-text animate-fadeInScaleUp">
       <h2 className="shrink-0 text-center text-2xl font-bold text-electric-blue font-heading sm:text-3xl">
-        Run Over 🎯
+        {isDaily ? "Challenge complete 🌅" : 'Run Over 🎯'}
       </h2>
       <p className="shrink-0 text-center text-sm text-muted-text">
-        {track.emoji} {track.name} track · reached {shortLevel(result.levelReached)}
+        {track.emoji} {track.name} · reached {shortLevel(result.levelReached)}
       </p>
 
       <p className="shrink-0 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-muted-text">
@@ -119,10 +127,41 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
         </div>
       </div>
 
+      {/* Memory Anchors — the words missed this run, each one playable out loud. */}
+      {missed.length > 0 && (
+        <div className="w-full shrink-0 rounded-[var(--r-lg)] border border-warning-yellow/30 bg-[var(--surface-1)] p-3">
+          <p className="mb-1 text-center text-xs font-semibold uppercase tracking-widest text-warning-yellow">
+            📌 Words to review
+          </p>
+          <p className="mb-2 text-center text-[0.7rem] text-muted-text">
+            Anchored on this device — they come back in your next runs until they stick.
+          </p>
+          <ul className="space-y-1">
+            {missed.map((item) => (
+              <li
+                key={item.word}
+                className="flex items-center gap-2 rounded-lg bg-dark-metal/40 px-2 py-1.5"
+              >
+                <span className="min-w-0 flex-1 truncate font-heading text-base font-bold text-light-text">
+                  {item.word}
+                </span>
+                <span className="shrink-0 rounded-full border border-electric-blue/30 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-electric-blue">
+                  {shortLevel(item.level)}
+                </span>
+                <SpeakButton word={item.word} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Leaderboard */}
       <div className="w-full shrink-0 rounded-[var(--r-lg)] border border-electric-blue/30 bg-[var(--surface-1)] p-3">
         <p className="mb-2 text-center text-xs font-semibold uppercase tracking-widest text-electric-blue">
           🏆 {track.name} leaderboard
+        </p>
+        <p className="-mt-1 mb-2 text-center text-[0.65rem] text-muted-text">
+          {isDaily ? 'Today only — a fresh board tomorrow.' : 'This week — a fresh board every Monday.'}
         </p>
 
         {!userId ? (
@@ -141,32 +180,39 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
           </div>
         ) : loadingBoard ? (
           <p className="animate-subtlePulse text-center text-xs text-muted-text">Loading…</p>
-        ) : !board || board.length === 0 ? (
+        ) : !board || board.rows.length === 0 ? (
           <p className="text-center text-xs text-muted-text">
             {board ? 'No scores yet — you’re first!' : 'Leaderboard is unavailable right now.'}
           </p>
         ) : (
-          <ol className="space-y-1">
-            {board.map((row, i) => {
-              const isMe = row.uid === userId;
-              return (
-                <li
-                  key={row.uid}
-                  className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
-                    isMe ? 'bg-electric-blue/20 text-light-text' : 'text-muted-text'
-                  }`}
-                >
-                  <span className="w-5 shrink-0 text-center font-bold text-warning-yellow">
-                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{row.name}{isMe ? ' (you)' : ''}</span>
-                  <span className="shrink-0 font-bold tabular-nums text-light-text">
-                    {row.score.toLocaleString()}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+          <>
+            <ol className="space-y-1">
+              {board.rows.map((row, i) => {
+                const isMe = row.uid === userId;
+                return (
+                  <li
+                    key={row.uid}
+                    className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                      isMe ? 'bg-electric-blue/20 text-light-text' : 'text-muted-text'
+                    }`}
+                  >
+                    <span className="w-5 shrink-0 text-center font-bold text-warning-yellow">
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{row.name}{isMe ? ' (you)' : ''}</span>
+                    <span className="shrink-0 font-bold tabular-nums text-light-text">
+                      {row.score.toLocaleString()}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            {rankOutsideTop && (
+              <p className="mt-2 text-center text-xs font-semibold text-warning-yellow">
+                You’re #{board.rank} of {board.total} this {isDaily ? 'day' : 'week'}.
+              </p>
+            )}
+          </>
         )}
       </div>
 

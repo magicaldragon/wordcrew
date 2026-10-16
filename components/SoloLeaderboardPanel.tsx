@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AuthDialog } from './AuthDialog';
 import { Icon } from './Icon';
 import { useAuth } from '../contexts/AuthContext';
-import { SOLO_FREE_TRACK_ID, SOLO_TRACKS, shortLevel } from '../services/solo';
+import { DAILY_TRACK, SOLO_FREE_TRACK_ID, SOLO_TRACKS, shortLevel, type SoloTrack } from '../services/solo';
 import {
-  fetchSoloLeaderboard,
+  currentPeriod,
+  fetchSoloBoard,
   readLocalSoloBest,
-  type SoloScoreEntry,
+  type SoloBoard,
 } from '../services/soloLeaderboard';
 
 interface SoloLeaderboardPanelProps {
@@ -18,13 +19,20 @@ interface SoloLeaderboardPanelProps {
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
+/** Every board the panel can show: the four CEFR tracks, then the challenge of the day. */
+const BOARDS: SoloTrack[] = [...SOLO_TRACKS, DAILY_TRACK];
+
 /**
  * The Solo board, opened from the dashboard hero.
  *
  * One board per track (not one global board), so a beginner and a B2 student
- * compete like-for-like. The device best is shown straight from localStorage, so
- * the panel is useful signed out and offline; the shared Firestore board only
- * loads once there is a signed-in player to highlight.
+ * compete like-for-like — plus Today's Challenge, which is the same seeded run for
+ * everyone. Boards reset on a period (weekly for the tracks, daily for the challenge);
+ * only the current period is shown, so the board is always a fresh race.
+ *
+ * The device best is shown straight from localStorage, so the panel is useful signed
+ * out and offline; the shared Firestore board only loads once there is a signed-in
+ * player to highlight.
  */
 export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
   isOpen,
@@ -32,17 +40,15 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
   isUnlocked,
 }) => {
   const { user } = useAuth();
-  const [trackId, setTrackId] = useState(SOLO_TRACKS[0].id);
-  const [board, setBoard] = useState<SoloScoreEntry[] | null>(null);
+  const [boardId, setBoardId] = useState(SOLO_TRACKS[0].id);
+  const [board, setBoard] = useState<SoloBoard | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
 
-  const track = useMemo(
-    () => SOLO_TRACKS.find((item) => item.id === trackId) ?? SOLO_TRACKS[0],
-    [trackId],
-  );
-  const localBest = useMemo(() => (isOpen ? readLocalSoloBest(trackId) : null), [isOpen, trackId]);
-  const isTrackLocked = !isUnlocked && track.id !== SOLO_FREE_TRACK_ID;
+  const track = useMemo(() => BOARDS.find((item) => item.id === boardId) ?? BOARDS[0], [boardId]);
+  const isDaily = track.id === DAILY_TRACK.id;
+  const localBest = useMemo(() => (isOpen ? readLocalSoloBest(boardId) : null), [isOpen, boardId]);
+  const isTrackLocked = !isUnlocked && !isDaily && track.id !== SOLO_FREE_TRACK_ID;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -62,7 +68,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const rows = await fetchSoloLeaderboard(trackId, 10);
+      const rows = await fetchSoloBoard(boardId, currentPeriod(boardId), user.uid, 10);
       if (cancelled) return;
       setBoard(rows);
       setLoading(false);
@@ -70,7 +76,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user, trackId]);
+  }, [isOpen, user, boardId]);
 
   if (!isOpen) return null;
 
@@ -102,36 +108,43 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
         </p>
       );
     }
-    if (board.length === 0) {
+    if (board.rows.length === 0) {
       return (
         <p className="text-center text-xs text-[var(--wn-9)]">No scores yet — you’re first!</p>
       );
     }
     return (
-      <ol className="space-y-1">
-        {board.map((row, index) => {
-          const isMe = row.uid === user.uid;
-          return (
-            <li
-              key={row.uid}
-              className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
-                isMe ? 'bg-[var(--wa-3)] font-semibold text-[var(--wn-12)]' : 'text-[var(--wn-10)]'
-              }`}
-            >
-              <span className="w-5 shrink-0 text-center font-bold text-[var(--wa-10)]">
-                {MEDALS[index] ?? index + 1}
-              </span>
-              <span className="min-w-0 flex-1 truncate">
-                {row.name}
-                {isMe ? ' (you)' : ''}
-              </span>
-              <span className="shrink-0 font-bold tabular-nums text-[var(--wn-12)]">
-                {row.score.toLocaleString()}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      <>
+        <ol className="space-y-1">
+          {board.rows.map((row, index) => {
+            const isMe = row.uid === user.uid;
+            return (
+              <li
+                key={row.uid}
+                className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                  isMe ? 'bg-[var(--wa-3)] font-semibold text-[var(--wn-12)]' : 'text-[var(--wn-10)]'
+                }`}
+              >
+                <span className="w-5 shrink-0 text-center font-bold text-[var(--wa-10)]">
+                  {MEDALS[index] ?? index + 1}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {row.name}
+                  {isMe ? ' (you)' : ''}
+                </span>
+                <span className="shrink-0 font-bold tabular-nums text-[var(--wn-12)]">
+                  {row.score.toLocaleString()}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        {board.rank !== null && board.rank > board.rows.length && (
+          <p className="mt-2 text-center text-xs font-semibold text-[var(--wa-10)]">
+            You’re #{board.rank} of {board.total} this {isDaily ? 'day' : 'week'}.
+          </p>
+        )}
+      </>
     );
   };
 
@@ -157,7 +170,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
               Solo leaderboard
             </h2>
             <p className="mt-1 text-xs text-[var(--wn-9)]">
-              Every track keeps its own board, so the run is judged against the same word set.
+              Every board keeps its own scores, so a run is judged against the same word set.
             </p>
           </div>
           <button
@@ -170,15 +183,15 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
           </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-1.5" role="group" aria-label="Choose a track">
-          {SOLO_TRACKS.map((item) => {
-            const isActive = item.id === trackId;
-            const locked = !isUnlocked && item.id !== SOLO_FREE_TRACK_ID;
+        <div className="mt-4 flex flex-wrap gap-1.5" role="group" aria-label="Choose a board">
+          {BOARDS.map((item) => {
+            const isActive = item.id === boardId;
+            const locked = !isUnlocked && item.id !== DAILY_TRACK.id && item.id !== SOLO_FREE_TRACK_ID;
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setTrackId(item.id)}
+                onClick={() => setBoardId(item.id)}
                 aria-pressed={isActive}
                 className={`wc-btn wc-btn-sm ${isActive ? 'wc-btn-primary' : 'wc-btn-ghost'}`}
               >
@@ -192,6 +205,9 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
 
         <p className="mt-2 text-xs text-[var(--wn-9)]">
           {track.tagline} · {track.levels.map(shortLevel).join(' → ')}
+        </p>
+        <p className="mt-1 text-xs font-semibold text-[var(--wa-10)]">
+          {isDaily ? 'Today only — resets at midnight.' : 'This week — resets every Monday.'}
         </p>
 
         {localBest && (
