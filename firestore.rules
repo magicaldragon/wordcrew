@@ -1,95 +1,69 @@
 rules_version = '2';
 
-// WordCrew — Firestore security rules.
+// WordCrew — Firestore security rules (bản ghi trong repo).
 //
-// These live here so they are versioned with the code; the running ruleset is the copy
-// pasted into the Firebase console (Firestore Database → Rules), because this project
-// deploys through Wrangler and has no Firebase CLI config.
+// File này phản chiếu ĐÚNG ruleset đang chạy trên Firebase console
+// (Firestore Database → Rules). Dự án deploy bằng Wrangler nên không có
+// firebase.json / Firebase CLI: console mới là nguồn thật, còn file này để
+// versioned và để lần sau biết đang có gì mà chỉnh cho khớp.
 //
-// The client touches exactly two things in Firestore, and nothing else:
-//
+// Client chỉ chạm đúng hai collection:
 //   users/{uid}
-//     The signed-in player's own document: a profile mirror plus the lifetime progress
-//     counters the portal's "My progress" tab reads (rounds, best score, words, streak).
+//     Hồ sơ người chơi + các counter tiến độ (roundsPlayed, bestScore,
+//     wordsGuessed, bestStreak) mà tab "My progress" đọc. Client ghi bằng
+//     merge: AuthContext.tsx (hồ sơ) và services/progress.ts (counter).
 //
 //   soloLeaderboards/{trackId}/scores/{uid}
-//     One row per player per track. Everyone signed in may read a board; a player may
-//     only ever write the single row that carries their own uid.
+//     Một dòng mỗi người chơi mỗi track. services/soloLeaderboard.ts đọc cả
+//     bảng và chỉ ghi dòng mang uid của chính mình.
 //
-// Orders, licences and entitlements are not here — they live in the Cloudflare Worker
-// backed by D1, and the client never reaches Firestore for them.
+// Orders / licences / entitlements KHÔNG nằm ở đây — chúng ở Cloudflare Worker
+// (D1) và client không bao giờ đi qua Firestore để lấy.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── The player's own document ─────────────────────────────────────────────
-    // Two callers write this with `merge: true`:
-    //   contexts/AuthContext.tsx  → profile mirror on sign-in (uid, email, name, …)
-    //   services/progress.ts      → progress counters, one merge per finished round
-    // Because both merge, the rules only enforce ownership, and validate each field
-    // loosely and only when present — so neither caller can break the other, and
-    // profile fields that are legitimately null (email on some providers) still pass.
+    // Hồ sơ người dùng (giữ nguyên như rule hiện tại của bạn)
     match /users/{userId} {
-      allow read: if isSelf(userId);
-
-      allow create, update: if isSelf(userId)
-        && validProfileFields()
-        && validProgressFields();
-
-      // A player account is never deleted from the client.
-      allow delete: if false;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // ── Solo leaderboard ──────────────────────────────────────────────────────
-    // One board per track, so a beginner and a B2 student compete like-for-like. The
-    // document id is the player's uid, which is what the ownership check keys off.
-    // score / wordsGuessed / bestStreak / updatedAt are numbers the client guarantees
-    // and the board's ordering depends on.
+    // WordCrew — bảng xếp hạng Solo.
+    // Mỗi người chơi 1 doc mỗi track: soloLeaderboards/{trackId}/scores/{uid}
     match /soloLeaderboards/{trackId}/scores/{uid} {
-      allow read: if request.auth != null;
+      // Bảng công khai: cả người đã đăng nhập lẫn offline đều xem được.
+      allow read: if true;
 
-      allow create, update: if isSelf(uid)
-        && request.resource.data.uid == uid
-        && request.resource.data.name is string
-        && request.resource.data.score is number
-        && request.resource.data.score >= 0
-        && request.resource.data.wordsGuessed is number
-        && request.resource.data.bestStreak is number
-        && request.resource.data.updatedAt is number;
+      // Chỉ được tạo doc của chính mình, với dữ liệu hợp lệ.
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && isValidSoloEntry(request.resource.data);
 
+      // ...và chỉ được cập nhật khi điểm MỚI CAO HƠN (kỷ lục không bao giờ giảm).
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && isValidSoloEntry(request.resource.data)
+        && request.resource.data.score >= resource.data.score;
+
+      // Điểm là kỷ lục cá nhân — không cho xoá.
       allow delete: if false;
     }
 
-    // ── Everything else is closed ─────────────────────────────────────────────
-    // Firestore already denies unmatched paths; stating it keeps any future collection
-    // from being exposed by accident.
+    // Entry Solo hợp lệ: đúng các field, giá trị hợp lý.
+    function isValidSoloEntry(data) {
+      return data.keys().hasAll(['uid', 'name', 'score', 'wordsGuessed', 'bestStreak', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'score', 'wordsGuessed', 'bestStreak', 'updatedAt'])
+        && data.uid == request.auth.uid
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 40
+        && data.score is number && data.score >= 0 && data.score <= 1000000
+        && data.wordsGuessed is number && data.wordsGuessed >= 0 && data.wordsGuessed <= 1000000
+        && data.bestStreak is number && data.bestStreak >= 0 && data.bestStreak <= 100000
+        && data.updatedAt is number;
+    }
+
+    // Mặc định chặn tất cả những thứ còn lại.
     match /{document=**} {
       allow read, write: if false;
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    function isSelf(uid) {
-      return request.auth != null && request.auth.uid == uid;
-    }
-
-    // Profile mirror fields, checked only where present (the write merges).
-    function validProfileFields() {
-      let data = request.resource.data;
-      return (!('uid' in data) || data.uid == request.auth.uid)
-        && (!('email' in data) || data.email == null || data.email is string)
-        && (!('displayName' in data) || data.displayName == null || data.displayName is string)
-        && (!('photoURL' in data) || data.photoURL == null || data.photoURL is string);
-    }
-
-    // Progress counters, checked only where present. The values are non-negative whole
-    // numbers, so the rules bound them without coupling to exact field sets.
-    function validProgressFields() {
-      let data = request.resource.data;
-      return (!('roundsPlayed' in data) || (data.roundsPlayed is number && data.roundsPlayed >= 0))
-        && (!('wordsGuessed' in data) || (data.wordsGuessed is number && data.wordsGuessed >= 0))
-        && (!('bestScore' in data) || (data.bestScore is number && data.bestScore >= 0))
-        && (!('bestStreak' in data) || (data.bestStreak is number && data.bestStreak >= 0));
     }
   }
 }
