@@ -46,6 +46,17 @@ interface GameEndDetails {
   teamBScore?: number;
 }
 
+/**
+ * The name shown on the public solo board. A Google display name is used as-is; an
+ * account without one falls back to the email's local part, never the address itself,
+ * because anyone can read the board. Capped at 40 characters to match the Firestore
+ * rule — a longer name would be rejected there and the score would be silently dropped.
+ */
+const leaderboardName = (displayName: string | null, email: string | null): string | null => {
+  const raw = (displayName || email?.split('@')[0] || '').trim();
+  return raw.slice(0, 40) || null;
+};
+
 // Custom hook to get the previous value of a prop or state
 function usePrevious<T>(value: T): T | undefined {
   const ref = useRef<T | undefined>(undefined); // Changed: Explicitly pass undefined
@@ -821,7 +832,7 @@ const App: React.FC = () => {
           track={soloTrack}
           result={soloResult}
           userId={user?.uid ?? null}
-          userName={user?.displayName || user?.email || null}
+          userName={leaderboardName(user?.displayName ?? null, user?.email ?? null)}
           onPlayAgain={handleSoloPlayAgain}
           onHome={handleSoloExit}
         />
