@@ -88,6 +88,55 @@ export const fetchOrder = (code: string, idToken?: string | null): Promise<Order
     ...(idToken ? { headers: { Authorization: `Bearer ${idToken}` } } : {}),
   });
 
+/** One order the signed-in account placed, as the Account tab lists it. */
+export interface MyOrder {
+  code: string;
+  productId: string;
+  productName: string;
+  amount: number;
+  status: OrderStatus;
+  licenseKey: string | null;
+  createdAt: number;
+  expiresAt: number;
+  paidAt: number | null;
+}
+
+/**
+ * The signed-in account's own orders, newest first, so a buyer who closed the QR can
+ * find the transfer code again and check whether it has been matched. Fails soft (empty
+ * list) like the entitlement lookup — the Account tab must render while offline.
+ */
+export const fetchMyOrders = async (idToken: string | null): Promise<MyOrder[]> => {
+  if (!idToken) return [];
+  try {
+    const response = await fetch('/api/orders', {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { orders?: unknown };
+    if (!Array.isArray(payload.orders)) return [];
+    return payload.orders
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => ({
+        code: String(item.code ?? ''),
+        productId: String(item.productId ?? ''),
+        productName:
+          typeof item.productName === 'string' ? item.productName : String(item.productId ?? ''),
+        amount: typeof item.amount === 'number' ? item.amount : 0,
+        status: (
+          item.status === 'paid' ? 'paid' : item.status === 'expired' ? 'expired' : 'pending'
+        ) as OrderStatus,
+        licenseKey: typeof item.licenseKey === 'string' ? item.licenseKey : null,
+        createdAt: typeof item.createdAt === 'number' ? item.createdAt : 0,
+        expiresAt: typeof item.expiresAt === 'number' ? item.expiresAt : 0,
+        paidAt: typeof item.paidAt === 'number' ? item.paidAt : null,
+      }))
+      .filter((item) => item.code);
+  } catch {
+    return [];
+  }
+};
+
 /** One product the signed-in account has paid for. */
 export interface EntitlementItem {
   productId: string;
@@ -239,6 +288,20 @@ export const revokeAccess = (idToken: string, licenseKey: string): Promise<{ ok:
   request('/admin/revoke', {
     method: 'POST',
     body: JSON.stringify({ licenseKey }),
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+
+/**
+ * Marks a verified bank transfer as paid by hand, issuing its licence — the safety net for
+ * a transfer Sepay's webhook never delivered. Only an admin can call this.
+ */
+export const reconcileOrder = (
+  idToken: string,
+  code: string,
+): Promise<{ ok: boolean; code: string; status: string; licenseKey: string | null; alreadyPaid?: boolean }> =>
+  request('/admin/reconcile', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
     headers: { Authorization: `Bearer ${idToken}` },
   });
 

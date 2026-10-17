@@ -8,11 +8,14 @@ import { Icon, type IconName } from './Icon';
 import { db } from '../services/firebase';
 import {
   fetchAdminOverview,
+  fetchMyOrders,
   formatPrice,
   grantAccess,
+  reconcileOrder,
   revokeAccess,
   type AdminOverview,
   type EntitlementItem,
+  type MyOrder,
 } from '../services/payments';
 import { cefrWordLists } from '../cefrWordLists';
 
@@ -30,6 +33,8 @@ interface DashboardProps {
   onPlayGame: () => void;
   /** Start the paid path — the app gates this behind sign-in. */
   onUnlock: () => void;
+  /** Re-checks what the account owns — lets a freshly reconciled purchase unlock live. */
+  onRefreshAccount: () => void;
 }
 
 interface GameEntry {
@@ -189,7 +194,7 @@ const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) 
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onUnlock }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onUnlock, onRefreshAccount }) => {
   const { user, loading, getIdToken } = useAuth();
   const [section, setSection] = useState<SectionId>('games');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -198,7 +203,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const [adminNotice, setAdminNotice] = useState('');
   const [grantEmail, setGrantEmail] = useState('');
   const [showSoloBoard, setShowSoloBoard] = useState(false);
+  const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const progress = useProgressDoc();
+
+  // The account's own orders — pending ones carry the transfer code a buyer needs to keep.
+  const loadOrders = useCallback(async () => {
+    if (!user) {
+      setMyOrders([]);
+      return;
+    }
+    setMyOrders(await fetchMyOrders(await getIdToken()));
+  }, [user, getIdToken]);
+
+  useEffect(() => {
+    void loadOrders();
+  }, [loadOrders]);
 
   // Probing the owner-only endpoint is how the portal learns whether the Admin section
   // belongs in the nav at all: everyone else gets a 404, which reads as null here.
@@ -269,8 +288,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     }
   };
 
+  // The safety net for a transfer Sepay's webhook never delivered: check the bank first,
+  // then mark the order paid here and its licence is issued on the spot.
+  const handleReconcile = async (code: string) => {
+    if (adminBusy) return;
+    if (
+      !(await confirmDialog(
+        `Mark ${code} as paid and issue its licence? Only do this once the money is in the bank.`,
+        { confirmLabel: 'Mark as paid' },
+      ))
+    )
+      return;
+    const token = await getIdToken();
+    if (!token) return;
+    setAdminBusy(true);
+    setAdminNotice('');
+    try {
+      const result = await reconcileOrder(token, code);
+      setAdminNotice(
+        result.alreadyPaid
+          ? `${code} was already paid.`
+          : `Marked ${code} as paid · ${result.licenseKey}`,
+      );
+      await loadAdmin();
+    } catch (err) {
+      setAdminNotice(err instanceof Error ? err.message : 'Could not update that order.');
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
   const greetingName =
     user?.displayName?.trim().split(/\s+/)[0] || user?.email?.split('@')[0] || '';
+
+  // Orders the account placed that are not paid yet — surfaced so the transfer code is
+  // never lost once the QR dialog closes.
+  const pendingOrders = myOrders.filter(
+    (order) => order.status === 'pending' || order.status === 'expired',
+  );
 
   const renderGames = () => (
     <div className="flex flex-col gap-5 lg:h-full">
@@ -548,6 +603,62 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </>
       )}
 
+      {pendingOrders.length > 0 && (
+        <>
+          <div className="my-5 h-px bg-[var(--wn-4)]" />
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-[var(--wn-12)]">Pending transfers</p>
+            <button
+              type="button"
+              onClick={() => {
+                void loadOrders();
+                onRefreshAccount();
+              }}
+              className="wc-btn wc-btn-secondary wc-btn-sm"
+            >
+              Refresh
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-[var(--wn-9)]">
+            Transfers we have not matched to an order yet. Keep the code below for support.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {pendingOrders.map((order) => (
+              <li key={order.code} className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
+                      {order.productName}
+                    </p>
+                    <p className="text-xs text-[var(--wn-9)]">
+                      {order.status === 'expired' ? 'Expired' : 'Awaiting transfer'} ·{' '}
+                      {formatPrice(order.amount)} · {new Date(order.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[var(--wn-3)] px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-[var(--wn-9)]">
+                    {order.status}
+                  </span>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-lg bg-[var(--wn-3)] px-2.5 py-1.5 text-xs tracking-wider text-[var(--wa-11)]">
+                    {order.code}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void copyKey(order.code)}
+                    className="wc-btn wc-btn-secondary wc-btn-sm shrink-0"
+                  >
+                    {copiedKey === order.code ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <div className="mt-5">
         <LoginButton variant="block" />
       </div>
@@ -659,6 +770,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                       className="wc-btn wc-btn-secondary wc-btn-sm mt-3"
                     >
                       Revoke
+                    </button>
+                  )}
+
+                  {(order.status === 'pending' || order.status === 'expired') && (
+                    <button
+                      type="button"
+                      onClick={() => void handleReconcile(order.code)}
+                      disabled={adminBusy}
+                      className="wc-btn wc-btn-secondary wc-btn-sm mt-3"
+                    >
+                      Mark as paid
                     </button>
                   )}
                 </li>

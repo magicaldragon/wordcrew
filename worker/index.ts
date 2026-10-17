@@ -241,6 +241,73 @@ const getOrder = async (request: Request, code: string, env: Env): Promise<Respo
 };
 
 /**
+ * The signed-in account's own orders, newest first.
+ *
+ * This is what lets a buyer recover a transfer code they closed the QR on, and see
+ * whether a payment has been matched yet. Scoped to the verified ID token exactly like
+ * the entitlement lookup, so one account can never read another's orders.
+ */
+const listOrders = async (request: Request, env: Env): Promise<Response> => {
+  const token = extractBearerToken(request);
+  if (!token) return json({ error: 'Please sign in.' }, 401);
+
+  const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
+  if (!projectId) return json({ orders: [] });
+
+  const user = await verifyFirebaseIdToken(token, projectId);
+  if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+
+  const email = user.emailVerified && user.email ? user.email.trim().toLowerCase() : '';
+  const statement = email
+    ? env.DB.prepare(
+        `SELECT code, product_id, amount, status, license_key, created_at, expires_at, paid_at
+           FROM orders
+          WHERE user_id = ? OR LOWER(user_email) = ?
+          ORDER BY created_at DESC
+          LIMIT 20`,
+      ).bind(user.uid, email)
+    : env.DB.prepare(
+        `SELECT code, product_id, amount, status, license_key, created_at, expires_at, paid_at
+           FROM orders
+          WHERE user_id = ?
+          ORDER BY created_at DESC
+          LIMIT 20`,
+      ).bind(user.uid);
+
+  const { results } = await statement.all<{
+    code: string;
+    product_id: string;
+    amount: number;
+    status: string;
+    license_key: string | null;
+    created_at: number;
+    expires_at: number;
+    paid_at: number | null;
+  }>();
+
+  const now = Date.now();
+  return json({
+    orders: (results ?? []).map((row) => {
+      // The stored status only flips to `expired` when someone polls the order, so the
+      // list derives it here for a truthful read without writing on every request.
+      const status =
+        row.status === 'pending' && now > row.expires_at ? 'expired' : row.status;
+      return {
+        code: row.code,
+        productId: row.product_id,
+        productName: productLabel(row.product_id),
+        amount: row.amount,
+        status,
+        licenseKey: status === 'paid' ? row.license_key : null,
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+        paidAt: row.paid_at,
+      };
+    }),
+  });
+};
+
+/**
  * What a signed-in account already owns. The Full Version belongs to the *account*,
  * not the browser, so a customer who switches device just signs in and gets it back.
  * The account is resolved from the verified ID token — never from anything the client
@@ -458,6 +525,54 @@ const revokeAccess = async (request: Request, env: Env): Promise<Response> => {
 };
 
 /**
+ * The manual safety net for a transfer the Sepay webhook never delivered: the admin
+ * checks the bank statement, then marks the order paid here and its licence is issued on
+ * the spot. It writes exactly what the webhook would, so the buyer's next entitlement
+ * lookup (and any device they sign in on) picks the purchase up normally.
+ */
+const reconcileOrder = async (request: Request, env: Env): Promise<Response> => {
+  const denied = await requireAdmin(request, env);
+  if (denied instanceof Response) return denied;
+
+  const body = await readJson(request);
+  const code = String(body.code || '').trim().toUpperCase();
+  if (!/^WC[A-Z0-9]{7}$/.test(code)) return json({ error: 'Unknown order code.' }, 400);
+
+  const order = await env.DB.prepare(
+    'SELECT code, product_id, status, license_key FROM orders WHERE code = ?',
+  )
+    .bind(code)
+    .first<{ code: string; product_id: string; status: string; license_key: string | null }>();
+
+  if (!order) return json({ error: 'Order not found.' }, 404);
+  // Idempotent: re-running on an already paid order hands the same key back, so the admin
+  // cannot mint a second licence by clicking twice.
+  if (order.status === 'paid') {
+    return json({ ok: true, code, status: 'paid', licenseKey: order.license_key, alreadyPaid: true });
+  }
+  if (order.status === 'revoked') return json({ error: 'That order was revoked.' }, 409);
+
+  const licenseKey = generateLicenseKey();
+  const now = Date.now();
+  const updated = await env.DB.prepare(
+    `UPDATE orders
+        SET status = 'paid', license_key = ?, paid_at = ?, webhook_received = 1
+      WHERE code = ? AND status IN ('pending', 'expired')`,
+  )
+    .bind(licenseKey, now, code)
+    .run();
+  if (!updated.meta.changes) return json({ error: 'Could not update that order.' }, 409);
+
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO licenses (key, product_id, order_code, created_at) VALUES (?, ?, ?, ?)',
+  )
+    .bind(licenseKey, order.product_id, code, now)
+    .run();
+
+  return json({ ok: true, code, status: 'paid', licenseKey });
+};
+
+/**
  * Sepay's "money in" bank webhook. Matches the transfer memo back to an order,
  * then fulfils it exactly once: a second delivery finds the order already paid.
  */
@@ -514,12 +629,15 @@ const handleSepayWebhook = async (request: Request, env: Env): Promise<Response>
   const sepayTxId = payload.id == null ? null : String(payload.id);
   const now = Date.now();
 
-  // The `status = 'pending'` guard makes fulfilment idempotent: whichever delivery
-  // wins the UPDATE owns the licence key, everyone else reports it as done.
+  // Accepts `pending` as well as `expired`: the order TTL is only a UI hint, and a
+  // transfer that lands after it must still be fulfilled — otherwise the money arrives
+  // and the licence never does. `revoked` is deliberately left out, and the guard makes
+  // fulfilment idempotent: whichever delivery wins the UPDATE owns the licence key,
+  // everyone else reports it as done.
   const updated = await env.DB.prepare(
     `UPDATE orders
         SET status = 'paid', license_key = ?, sepay_tx_id = ?, paid_at = ?, webhook_received = 1
-      WHERE code = ? AND status = 'pending'`,
+      WHERE code = ? AND status IN ('pending', 'expired')`,
   )
     .bind(licenseKey, sepayTxId, now, code)
     .run();
@@ -598,6 +716,7 @@ const handleApi = async (request: Request, env: Env, url: URL): Promise<Response
   if (pathname === '/api/pricing' && method === 'GET') return getPricing(env);
   if (pathname === '/api/asr' && method === 'POST') return transcribeClip(request, env);
   if (pathname === '/api/orders' && method === 'POST') return createOrder(request, env);
+  if (pathname === '/api/orders' && method === 'GET') return listOrders(request, env);
   if (pathname === '/api/licenses/verify' && method === 'POST') return verifyLicense(request, env);
   if (pathname === '/api/entitlements' && method === 'GET') return getEntitlement(request, env);
   if (pathname === '/api/access-code/verify' && method === 'POST') return verifyAccessCode(request, env);
@@ -605,6 +724,7 @@ const handleApi = async (request: Request, env: Env, url: URL): Promise<Response
   if (pathname === '/api/admin/overview' && method === 'GET') return getAdminOverview(request, env);
   if (pathname === '/api/admin/grant' && method === 'POST') return grantAccess(request, env);
   if (pathname === '/api/admin/revoke' && method === 'POST') return revokeAccess(request, env);
+  if (pathname === '/api/admin/reconcile' && method === 'POST') return reconcileOrder(request, env);
 
   const orderMatch = pathname.match(/^\/api\/orders\/([A-Za-z0-9]+)$/);
   if (orderMatch && method === 'GET') return getOrder(request, orderMatch[1].toUpperCase(), env);

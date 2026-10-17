@@ -148,24 +148,26 @@ const App: React.FC = () => {
   // The Full Version is owned by the account, not the browser: as soon as a signed-in
   // customer is seen, ask the worker what they own and restore it on this device too.
   // This is what lets a buyer switch device or sign back in and keep the unlock.
+  // Also called from the Account tab's refresh, so a purchase reconciled while the buyer
+  // waits unlocks without a full reload.
+  const refreshEntitlements = useCallback(async () => {
+    const token = await getIdToken();
+    if (!token) {
+      setEntitlements([]);
+      return;
+    }
+    const entitlement = await fetchEntitlement(token);
+    setEntitlements(entitlement.entitlements);
+    if (entitlement.entitled) grantFullVersion();
+  }, [getIdToken, grantFullVersion]);
+
   useEffect(() => {
     if (!user) {
       setEntitlements([]);
       return;
     }
-    let cancelled = false;
-    void (async () => {
-      const token = await getIdToken();
-      if (!token) return;
-      const entitlement = await fetchEntitlement(token);
-      if (cancelled) return;
-      setEntitlements(entitlement.entitlements);
-      if (entitlement.entitled) grantFullVersion();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user, getIdToken, grantFullVersion]);
+    void refreshEntitlements();
+  }, [user, refreshEntitlements]);
 
   // Unlock paths: both the purchased licence key and the teacher access code are checked
   // against the API worker — the access code lives only as a server secret now.
@@ -961,6 +963,7 @@ const App: React.FC = () => {
           entitlements={entitlements}
           onPlayGame={handlePlayGame}
           onUnlock={requestPurchase}
+          onRefreshAccount={refreshEntitlements}
         />
       ) : showLanding ? (
         <Suspense fallback={<ScreenFallback />}>
