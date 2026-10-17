@@ -7,14 +7,41 @@
 //
 // Only browsers missing the Web Speech API take this route, so the free Workers AI
 // allocation normally covers every call: a Chrome or Safari player never sends audio
-// anywhere. The clip is capped at a fixed few seconds — one word takes about a second,
-// so the window is heard-plus-margin, and the payload stays around 20 kB.
+// anywhere. A clip stops as soon as the player has spoken and gone quiet, which for a
+// one-word answer is about a second, so most uploads are a few kB. The hard cap below
+// is the ceiling, not the usual length.
 
-/** Fixed capture window. Long enough for a word, short enough to keep the bill tiny. */
-const CLIP_MS = 3200;
+/**
+ * Hard cap on a single capture. One word takes about a second; six seconds is a
+ * generous ceiling for a hesitant speaker and the most audio this client can ever
+ * put on the account's bill.
+ */
+const MAX_CLIP_MS = 6000;
+
+/**
+ * Silence that ends a clip early. Long enough that a pause between the words of a
+ * two-word answer ("ice cream") is not mistaken for the end of it.
+ */
+const SILENCE_MS = 1000;
+
+/** How often the level meter is read while recording. */
+const VAD_POLL_MS = 100;
+
+/**
+ * RMS below this counts as room tone. Deliberately low: cutting a quiet speaker off
+ * costs an answer, while a few hundred milliseconds of silence costs a fraction of
+ * a neuron.
+ */
+const SPEECH_RMS = 0.015;
 
 /** Opus in WebM first: the smallest payload, and the widest browser support. */
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+
+/**
+ * Mono speech at 32 kbit/s is transparent to Whisper and keeps a full six-second clip
+ * under 24 kB — a fraction of the bitrate the browser would pick on its own.
+ */
+const AUDIO_BITS_PER_SECOND = 32_000;
 
 let cachedMime: string | undefined;
 
@@ -54,6 +81,8 @@ export type ListenOutcome =
   | { kind: 'mic-blocked' }
   /** The clip could not be transcribed — offline, or the worker refused it. */
   | { kind: 'network' }
+  /** The worker is out of voice allowance: too many answers from this device, or the daily cap. */
+  | { kind: 'limited' }
   /** The caller stopped listening before the clip was sent. */
   | { kind: 'cancelled' };
 
@@ -66,14 +95,67 @@ export interface CloudListen {
 
 type Clip = { status: 'ok'; buffer: ArrayBuffer } | { status: 'mic' } | { status: 'empty' };
 
-/** Opens the mic, records for `CLIP_MS`, and hands back the encoded clip. */
+interface LevelMeter {
+  /** Current loudness of the stream, as an RMS amplitude. */
+  level: () => number;
+  close: () => void;
+}
+
+/**
+ * Live level meter on the recording stream, for silence detection. Returns null when
+ * the browser gives us no AudioContext; the clip then simply runs to its hard cap,
+ * which is the behaviour every device had before.
+ */
+const openMeter = (stream: MediaStream): LevelMeter | null => {
+  const AudioContextCtor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextCtor) return null;
+
+  try {
+    const context = new AudioContextCtor();
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    // A context created outside a user gesture can start suspended; the mic grant is
+    // the gesture here, but resuming is cheap and makes the meter reliable.
+    void context.resume().catch(() => undefined);
+
+    return {
+      level: () => {
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) sum += samples[i] * samples[i];
+        return Math.sqrt(sum / samples.length);
+      },
+      close: () => {
+        source.disconnect();
+        void context.close().catch(() => undefined);
+      },
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Opens the mic, records until the answer is over or `MAX_CLIP_MS` passes, and hands
+ * back the encoded clip. A capture that never rises above room tone is reported as
+ * empty without being uploaded — there is nothing to transcribe and no reason to pay.
+ */
 const recordClip = (signal: AbortSignal): Promise<Clip> =>
   new Promise<Clip>((resolve) => {
     let recorder: MediaRecorder | null = null;
     let stream: MediaStream | null = null;
-    let timer: number | null = null;
+    let meter: LevelMeter | null = null;
+    let capTimer: number | null = null;
+    let vadTimer: number | null = null;
     const chunks: Blob[] = [];
     let settled = false;
+    /** False only when the meter is running and has never heard the player. */
+    let heardSpeech = false;
 
     const stopTracks = () => {
       stream?.getTracks().forEach((track) => track.stop());
@@ -83,8 +165,12 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
     const settle = (value: Clip) => {
       if (settled) return;
       settled = true;
-      if (timer !== null) window.clearTimeout(timer);
-      timer = null;
+      if (capTimer !== null) window.clearTimeout(capTimer);
+      capTimer = null;
+      if (vadTimer !== null) window.clearInterval(vadTimer);
+      vadTimer = null;
+      meter?.close();
+      meter = null;
       signal.removeEventListener('abort', onAbort);
       stopTracks();
       resolve(value);
@@ -122,7 +208,10 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
 
       const mime = audioMime();
       try {
-        recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+        recorder = new MediaRecorder(stream, {
+          ...(mime ? { mimeType: mime } : {}),
+          audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+        });
       } catch {
         settle({ status: 'mic' });
         return;
@@ -133,7 +222,8 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
       };
       recorder.onerror = () => settle({ status: 'mic' });
       recorder.onstop = () => {
-        if (!chunks.length) {
+        // No speech ever crossed the threshold: the upload would buy silence.
+        if (!heardSpeech || !chunks.length) {
           settle({ status: 'empty' });
           return;
         }
@@ -151,14 +241,33 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
         return;
       }
 
-      timer = window.setTimeout(stopRecorder, CLIP_MS);
+      meter = openMeter(stream);
+      // Without a meter we cannot tell speech from silence, so the clip is always kept.
+      if (!meter) {
+        heardSpeech = true;
+      } else {
+        let quietFor = 0;
+        vadTimer = window.setInterval(() => {
+          if (meter && meter.level() >= SPEECH_RMS) {
+            heardSpeech = true;
+            quietFor = 0;
+            return;
+          }
+          // Waiting for the first word is not silence — the player may still be thinking.
+          if (!heardSpeech) return;
+          quietFor += VAD_POLL_MS;
+          if (quietFor >= SILENCE_MS) stopRecorder();
+        }, VAD_POLL_MS);
+      }
+
+      capTimer = window.setTimeout(stopRecorder, MAX_CLIP_MS);
     })();
   });
 
 /**
- * One voice answer over the network. A fixed window is used rather than silence
- * detection: it behaves the same on every device and keeps the audio — and therefore
- * the Whisper cost — small and predictable.
+ * One voice answer over the network. The clip ends on silence once the player has
+ * spoken, and never runs past `MAX_CLIP_MS`, so the audio sent to Whisper — and the
+ * number of neurons it costs — tracks the length of the answer rather than a timer.
  *
  * `onRecorded` fires when the mic closes and the upload begins, so the UI can stop
  * saying "listening" while it waits.
@@ -182,6 +291,7 @@ export const listenOnce = (onRecorded?: () => void): CloudListen => {
         body: clip.buffer,
         signal: controller.signal,
       });
+      if (response.status === 429 || response.status === 503) return { kind: 'limited' };
       if (!response.ok) return { kind: 'network' };
       const payload = (await response.json()) as { transcript?: unknown };
       const transcript = typeof payload.transcript === 'string' ? payload.transcript.trim() : '';

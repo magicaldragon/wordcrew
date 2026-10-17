@@ -4,7 +4,7 @@ import { Dashboard } from './components/Dashboard';
 import { AuthDialog } from './components/AuthDialog';
 import { PurchaseDialog } from './components/PurchaseDialog';
 import { useAuth } from './contexts/AuthContext';
-import { DAILY_TRACK, markDailyDone, type SoloTrack, type SoloRunResult } from './services/solo';
+import { DAILY_TRACK, markDailyDone, type SoloTrack, type SoloRunResult, type SoloStyle } from './services/solo';
 import { localDateId } from './services/periods';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
@@ -129,6 +129,8 @@ const App: React.FC = () => {
   // its own phase machine rather than borrowing the pass-and-play GamePhase/GameMode.
   const [soloPhase, setSoloPhase] = useState<'playing' | 'results' | null>(null);
   const [soloTrack, setSoloTrack] = useState<SoloTrack | null>(null);
+  // Chosen on the Mode step and frozen for the run, so "Play again" replays the same skill.
+  const [soloStyle, setSoloStyle] = useState<SoloStyle>('meaning');
   const [soloResult, setSoloResult] = useState<SoloRunResult | null>(null);
   // Bumped on each new run so the endless game screen remounts with a fresh word source.
   const [soloRunId, setSoloRunId] = useState(0);
@@ -478,8 +480,9 @@ const App: React.FC = () => {
   // == Solo mode handlers ==
   // The run is fully configured inside the game setup wizard (mode → track → settings),
   // so starting one is a single call carrying the chosen track.
-  const handleStartSolo = useCallback((track: SoloTrack) => {
+  const handleStartSolo = useCallback((track: SoloTrack, style: SoloStyle) => {
     setSoloTrack(track);
+    setSoloStyle(style);
     setSoloDailyDateId(null);
     setSoloResult(null);
     setSoloRunId((id) => id + 1);
@@ -488,8 +491,11 @@ const App: React.FC = () => {
   }, []);
 
   // Today's Challenge: the same seeded ladder for everyone, one board per day.
+  // The daily board is shared, so the style is fixed to the one every existing score was
+  // set in; letting the player pick here would put two different games on one board.
   const handleStartDaily = useCallback(() => {
     setSoloTrack(DAILY_TRACK);
+    setSoloStyle('meaning');
     setSoloDailyDateId(localDateId());
     setSoloResult(null);
     setSoloRunId((id) => id + 1);
@@ -841,6 +847,7 @@ const App: React.FC = () => {
         <SoloGameScreen
           key={soloRunId}
           track={soloTrack}
+          style={soloStyle}
           effectsVolume={effectsVolume}
           customCorrectSounds={customCorrectSounds}
           dailyDateId={soloDailyDateId ?? undefined}

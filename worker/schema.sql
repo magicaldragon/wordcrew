@@ -44,3 +44,15 @@ CREATE TABLE IF NOT EXISTS licenses (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_order ON licenses (order_code);
+
+-- Speech fallback quota. One row per accepted /api/asr call; the route counts rows for
+-- the last minute and the current UTC day, so a device cannot use the account as a free
+-- Whisper proxy. Rows older than two days are pruned as calls arrive.
+CREATE TABLE IF NOT EXISTS asr_calls (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_ip  TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_asr_calls_ip_created ON asr_calls (client_ip, created_at);
+CREATE INDEX IF NOT EXISTS idx_asr_calls_created ON asr_calls (created_at);

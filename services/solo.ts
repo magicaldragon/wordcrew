@@ -154,9 +154,9 @@ export const SOLO_START_HEARTS = 10;
 export const SOLO_FREE_SKIPS = 3;
 /** Points for a correct guess. */
 export const SOLO_CORRECT_POINTS = 10;
-/** Points lost (and one heart, alongside) on a wrong guess or a timeout. */
+/** Points lost, alongside one heart, when the clock runs out on a word. */
 export const SOLO_WRONG_PENALTY = 10;
-/** Points lost for a wrong guess are floored here so a score never goes negative. */
+/** The timeout penalty is floored here so a score never goes negative. */
 export const SOLO_MIN_SCORE = 0;
 /** A streak bonus lands on every Nth consecutive correct guess. */
 export const SOLO_STREAK_STEP = 5;
@@ -170,6 +170,59 @@ export const SOLO_WORDS_PER_BAND = 8;
  * third around word 35 — reachable for a strong run, out of reach for a sloppy one.
  */
 export const SOLO_HEART_MILESTONES = [100, 250, 500] as const;
+
+// ── Play styles ────────────────────────────────────────────────────────────
+/**
+ * Two ways to play the same word, and two different skills — which is why they are two
+ * modes rather than one flow with a fallback.
+ *
+ *   'describe' — the clue is an English description. The player reads meaning from
+ *                English and has to produce the word; the Vietnamese gloss is the last
+ *                rung of a help ladder, never the opening move.
+ *   'meaning'  — the Vietnamese gloss is on screen from the start, so the round is a
+ *                spelling exercise, exactly what Solo shipped as.
+ *
+ * One flow cannot serve both: a player practising spelling would sit through a
+ * description they do not need, and a player training comprehension would meet the
+ * answer in Vietnamese before hearing it in English.
+ */
+export type SoloStyle = 'describe' | 'meaning';
+
+export interface SoloStyleOption {
+  id: SoloStyle;
+  emoji: string;
+  name: string;
+  tagline: string;
+  /** The help ladder in one line, shown under the card so the difference is visible. */
+  ladder: string;
+}
+
+export const SOLO_STYLES: SoloStyleOption[] = [
+  {
+    id: 'describe',
+    emoji: '🎧',
+    name: 'Listen & guess',
+    tagline: 'An English description first — no Vietnamese until you ask.',
+    ladder: 'clue → hint → meaning',
+  },
+  {
+    id: 'meaning',
+    emoji: '🇻🇳',
+    name: 'Meaning & spell',
+    tagline: 'The Vietnamese meaning from the start. Pure spelling practice.',
+    ladder: 'meaning → spell',
+  },
+];
+
+/**
+ * Seconds per word. A description is two sentences to read before the first key, so it
+ * gets twice the room of a five-word gloss. `timePerWord` travels in the run result, so
+ * a board can tell two runs with different clocks apart.
+ */
+export const SOLO_STYLE_TIME: Record<SoloStyle, number> = {
+  describe: 30,
+  meaning: SOLO_TIME_PER_WORD,
+};
 
 /** Bonus points awarded when a streak reaches `streak` (0 when it is not a milestone). */
 export const soloStreakBonus = (streak: number): number =>
@@ -186,9 +239,13 @@ export interface SoloRunResult {
   boardId: string;
   /** Period the score belongs to (`YYYY-Www` for a track, `YYYY-MM-DD` for the daily). */
   period: string;
+  /** Which of the two play styles produced this score. */
+  style: SoloStyle;
   score: number;
   wordsGuessed: number;
   bestStreak: number;
+  /** Help rungs taken: a synonym hint or the Vietnamese gloss, counted per run. */
+  hintsUsed: number;
   /** Words the player actually resolved (guessed, skipped or timed out). */
   wordsPlayed: number;
   /** Hardest band the player reached before the run ended. */
@@ -338,10 +395,70 @@ export const checkSoloAnswer = (input: string, target: string): boolean => {
 };
 
 /**
+ * Typed answers are a spelling drill: a near miss is a miss. Only case, spacing and
+ * punctuation are forgiven — every letter has to land, which is what lets the hint
+ * below point at real mistakes instead of guessing what the player meant.
+ */
+export const isExactSoloAnswer = (input: string, target: string): boolean =>
+  normalizeAnswer(input) === normalizeAnswer(target);
+
+/** Share of the target's letters that must match in order for a near miss to earn a hint. */
+const SPELLING_HINT_THRESHOLD = 0.6;
+
+/**
+ * Positional feedback for a near miss: letters the guess got right stay visible, the
+ * rest become blanks — "television" + "televition" → "Televi _ ion".
+ *
+ * Alignment is a longest-common-subsequence walk rather than a character-by-character
+ * comparison, so one missing or extra letter does not shift everything after it into
+ * blanks ("tilevition" → "t _ levi _ ion"). Returns null when too little matched: a
+ * wild guess should not be handed most of the word.
+ */
+export const buildSpellingHint = (target: string, guess: string): string | null => {
+  const answer = target.toLowerCase();
+  const typed = guess.toLowerCase();
+  if (!answer || !typed) return null;
+
+  const dp: number[][] = Array.from({ length: answer.length + 1 }, () =>
+    new Array<number>(typed.length + 1).fill(0),
+  );
+  for (let i = answer.length - 1; i >= 0; i -= 1) {
+    for (let j = typed.length - 1; j >= 0; j -= 1) {
+      dp[i][j] = answer[i] === typed[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const matched = new Array<boolean>(answer.length).fill(false);
+  let i = 0;
+  let j = 0;
+  while (i < answer.length && j < typed.length) {
+    if (answer[i] === typed[j]) {
+      matched[i] = true;
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+
+  const hits = matched.reduce((total, hit) => total + (hit ? 1 : 0), 0);
+  if (hits / answer.length < SPELLING_HINT_THRESHOLD) return null;
+
+  return target
+    .split('')
+    .map((char, index) => (matched[index] || char === ' ' || char === '-' || char === "'" ? char : '_'))
+    .join('');
+};
+
+/**
  * Voice answers are judged by *sound*, not spelling. The transcript is first put
- * through the same tolerant spelling match used for typing, and if that fails it is
- * compared phoneme-by-phoneme so homophones ("wear"/"where") and small accent slips
- * are accepted — the reason voice answers used to feel "too strict".
+ * through the same tolerant spelling match used by the voice path, and if that fails
+ * it is compared phoneme-by-phoneme so homophones ("wear"/"where") and small accent
+ * slips are accepted — the reason voice answers used to feel "too strict".
  */
 export const checkSpokenAnswer = async (transcript: string, target: string): Promise<boolean> => {
   if (checkSoloAnswer(transcript, target)) return true;

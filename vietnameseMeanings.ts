@@ -161,62 +161,10 @@ export const VIETNAMESE_MEANINGS: Record<string, string> = {
 const normalize = (word: string): string => word.trim().toLowerCase();
 
 // Returns the Vietnamese gloss for a word: the hand-curated entry first, then the
-// generated map, or undefined when the word is in neither.
+// generated map, or undefined when the word is in neither. Both maps ship with the app,
+// so this is synchronous and offline — there is no runtime translation to fall back on.
 export const getVietnameseMeaning = (word: string | undefined | null): string | undefined => {
   if (!word) return undefined;
   const key = normalize(word);
   return VIETNAMESE_MEANINGS[key] ?? GENERATED_VIETNAMESE_MEANINGS[key];
-};
-
-// ── Machine-translation fallback (WiseSpeak pattern) ────────────────────────
-// The bundled maps cover the CEFR packs, so anything the player types by hand falls
-// through to a key-less client-side translation (see services/translate.ts). Results
-// are memoised in memory and persisted to localStorage so a word is only ever
-// translated once per device.
-
-import { translateText } from './services/translate';
-
-const CACHE_PREFIX = 'wordcrew_vi_';
-const MEMO = new Map<string, string | undefined>();
-
-const readCached = (key: string): string | undefined => {
-  try {
-    return localStorage.getItem(CACHE_PREFIX + key) || undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const writeCached = (key: string, value: string | undefined): void => {
-  try {
-    if (value) localStorage.setItem(CACHE_PREFIX + key, value);
-  } catch {
-    // Quota exceeded / private mode — the hint just won't persist.
-  }
-};
-
-/**
- * Resolves the Vietnamese hint for a word: the curated gloss when we have one,
- * otherwise a cached client-side translation. Resolves to undefined when no hint
- * can be produced (unknown word + translation unavailable/offline).
- */
-export const resolveVietnameseHint = async (word: string | undefined | null): Promise<string | undefined> => {
-  const curated = getVietnameseMeaning(word);
-  if (curated) return curated;
-  if (!word) return undefined;
-
-  const key = normalize(word);
-  if (MEMO.has(key)) return MEMO.get(key);
-
-  const cached = readCached(key);
-  if (cached) {
-    MEMO.set(key, cached);
-    return cached;
-  }
-
-  const translated = await translateText(word);
-  const result = translated?.trim() || undefined;
-  MEMO.set(key, result);
-  writeCached(key, result);
-  return result;
 };

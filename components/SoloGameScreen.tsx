@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CircularTimer from './CircularTimer';
 import { CustomSoundFile } from '../types';
 import { playSound, CORRECT_SOUNDS, ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES } from '../constants';
-import { resolveVietnameseHint } from '../vietnameseMeanings';
+import { getVietnameseMeaning } from '../vietnameseMeanings';
 import {
   buildLetterBoxes,
-  checkSoloAnswer,
+  buildSpellingHint,
   checkSpokenAnswer,
   createSoloSequence,
   dailySeed,
+  isExactSoloAnswer,
   letterCount,
   seededRng,
   shortLevel,
@@ -18,13 +19,15 @@ import {
   SOLO_HEART_MILESTONES,
   SOLO_MIN_SCORE,
   SOLO_START_HEARTS,
-  SOLO_TIME_PER_WORD,
+  SOLO_STYLE_TIME,
   SOLO_WRONG_PENALTY,
   type SoloRunResult,
   type SoloSequence,
+  type SoloStyle,
   type SoloTrack,
   type SoloWord,
 } from '../services/solo';
+import type { HintClue } from '../hintClues.generated';
 import { isoWeekId } from '../services/periods';
 import { addMissedWords, markReviewCorrect, readDueReviews, REVIEW_PER_RUN } from '../services/review';
 import { Icon } from './Icon';
@@ -34,6 +37,8 @@ import { cloudSpeechSupported, listenOnce, type CloudListen } from '../services/
 
 interface SoloGameScreenProps {
   track: SoloTrack;
+  /** Which skill this run trains: an English clue first, or the Vietnamese gloss first. */
+  style: SoloStyle;
   effectsVolume: number;
   customCorrectSounds: CustomSoundFile[];
   /** Set for Today's Challenge: the run is seeded from this day id and posts to the daily board. */
@@ -55,6 +60,8 @@ interface SoloStats {
   freeSkips: number;
   /** How many heart milestones have already paid out. */
   milestones: number;
+  /** Help rungs opened this run: hints and Vietnamese glosses. */
+  hints: number;
 }
 
 const pick = <T,>(items: T[]): T | undefined =>
@@ -212,6 +219,11 @@ const useSpeechInput = (
       }
       if (result.kind === 'network') {
         setError('Couldn’t reach the recogniser — try again, or type your answer.');
+        return;
+      }
+      if (result.kind === 'limited') {
+        manualStopRef.current = true;
+        setError('Voice answers are resting for now — type your answer instead.');
         return;
       }
       // Nothing was recognised in the clip. Hands-free simply listens again, exactly as a
@@ -420,10 +432,27 @@ const initialStats = (): SoloStats => ({
   played: 0,
   freeSkips: SOLO_FREE_SKIPS,
   milestones: 0,
+  hints: 0,
 });
+
+// The rendered clues are about a megabyte of generated text, so they live in their own
+// chunk: a meaning-mode run never downloads them, and the browser keeps the module once
+// a describe run has fetched it. A failed fetch clears the memo so one bad chunk load
+// cannot blank every later word.
+let hintBank: Promise<Record<string, HintClue>> | null = null;
+const loadHintClue = async (word: string): Promise<HintClue | null> => {
+  hintBank ??= import('../hintClues.generated').then((module) => module.HINT_CLUES);
+  try {
+    return (await hintBank)[word] ?? null;
+  } catch {
+    hintBank = null;
+    return null;
+  }
+};
 
 export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   track,
+  style,
   effectsVolume,
   customCorrectSounds,
   dailyDateId,
@@ -448,17 +477,31 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   // The board the run posts to is simply the track, and the period is frozen at mount —
   // a run that straddles midnight still scores inside one week (or one day).
   const periodRef = useRef(dailyDateId ?? isoWeekId());
-  // Words missed during this run (wrong guess or timeout), collected for review.
+  // Words missed during this run (a timeout, a skip, or the last ladder rung), collected
+  // for review. A wrong attempt is recoverable and deliberately not recorded here.
   const missedRef = useRef<SoloWord[]>([]);
+  // A described word is two sentences to read before the first key, so the clock is the
+  // style's clock, frozen for the run.
+  const timePerWord = SOLO_STYLE_TIME[style];
 
   const [current, setCurrent] = useState<SoloWord>(() => seqRef.current!.next());
   const [wordNo, setWordNo] = useState(1);
   const [phase, setPhase] = useState<Phase>('guessing');
   const [stats, setStats] = useState<SoloStats>(initialStats);
-  const [timeLeft, setTimeLeft] = useState(SOLO_TIME_PER_WORD);
+  const [timeLeft, setTimeLeft] = useState(timePerWord);
   const [input, setInput] = useState('');
   const [points, setPoints] = useState<{ value: number; bonus: number; key: number } | null>(null);
-  const [clue, setClue] = useState<{ vi?: string; loading: boolean }>({ loading: true });
+  // The gloss ships with the app, so it is ready the moment the word changes — there is
+  // nothing to load and no request to race.
+  const vietnamese = getVietnameseMeaning(current.word);
+  // Describe mode only: the rendered clue, and how far up the help ladder the player is
+  // (0 = the description alone, 1 = the contrast hint, 2 = the Vietnamese meaning).
+  const [hint, setHint] = useState<HintClue | null>(null);
+  const [hintLoading, setHintLoading] = useState(false);
+  const [rung, setRung] = useState(0);
+  // Typed near miss: the masked target after the last wrong attempt. An empty string
+  // means the guess was wrong but too far off to reveal which letters landed.
+  const [spellingHint, setSpellingHint] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [heartToast, setHeartToast] = useState<number | null>(null);
   // A run is worth a confirmation before it is thrown away: tapping Quit opens an
@@ -558,15 +601,17 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       trackId: track.id,
       boardId: track.id,
       period: periodRef.current,
+      style,
       score: s.score,
       wordsGuessed: s.guessed,
       bestStreak: s.bestStreak,
+      hintsUsed: s.hints,
       wordsPlayed: s.played,
       levelReached: levelRef.current,
-      timePerWord: SOLO_TIME_PER_WORD,
+      timePerWord,
       missedWords: missedRef.current,
     });
-  }, [onEnd, track.id]);
+  }, [onEnd, track.id, style, timePerWord]);
 
   const scheduleAdvance = useCallback(
     (delay: number) => {
@@ -591,15 +636,20 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         setWordNo((n) => n + 1);
         setPhase('guessing');
         setInput('');
-        setTimeLeft(SOLO_TIME_PER_WORD);
+        setTimeLeft(timePerWord);
         setPoints(null);
+        // The help ladder starts over with the word: the old clue and the old rung must
+        // never appear over the new word, even for a frame.
+        setHint(null);
+        setRung(0);
+        setSpellingHint(null);
       }, delay);
     },
-    [endGame, showBanner, track.levels],
+    [endGame, showBanner, track.levels, timePerWord],
   );
 
   const handleCorrect = useCallback(
-    (value?: string) => {
+    () => {
       if (resolvedRef.current || phaseRef.current !== 'guessing') return;
       resolvedRef.current = true;
 
@@ -633,7 +683,10 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       if (heartGained) showHeartToast();
 
       setPhase('correct');
-      setInput(value ?? '');
+      // Echo the target, never the raw answer: both typed near-misses and accepted
+      // homophones are marked correct, and the field must then read the word the
+      // player was actually guessing.
+      setInput(currentRef.current.word);
       setPoints({ value: gained, bonus, key: Date.now() });
       speechStopRef.current();
       // Getting it right pushes an anchored word one rung up the review ladder.
@@ -655,27 +708,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     [applyStats, customCorrectSounds, effectsVolume, scheduleAdvance, showHeartToast],
   );
 
-  const handleWrong = useCallback(
-    () => {
-      if (resolvedRef.current || phaseRef.current !== 'guessing') return;
-      setInput('');
-      noteMiss();
-      const hearts = statsRef.current.hearts - 1;
-      applyStats((prev) => ({
-        ...prev,
-        hearts,
-        score: Math.max(SOLO_MIN_SCORE, prev.score - SOLO_WRONG_PENALTY),
-        streak: 0,
-        played: prev.played + 1,
-      }));
-      if (hearts <= 0) {
-        resolvedRef.current = true;
-        setPhase('revealed');
-        scheduleAdvance(2000);
-      }
-    },
-    [applyStats, noteMiss, scheduleAdvance],
-  );
+  // A wrong guess is not a failure state for either input: the word stays open, nothing
+  // is deducted, and the clock is the only cost. A typed near miss keeps its text so the
+  // masked hint can be acted on; a voice transcript is cleared because it is not editable.
+  const handleWrong = useCallback(() => {
+    if (resolvedRef.current || phaseRef.current !== 'guessing') return;
+    setInput('');
+  }, []);
 
   const handleTimeout = useCallback(() => {
     if (resolvedRef.current || phaseRef.current !== 'guessing') return;
@@ -692,8 +731,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     scheduleAdvance(2200);
   }, [applyStats, noteMiss, scheduleAdvance]);
 
-  // A skip is free while free skips last, and costs a heart afterwards (still
-  // gentler than a wrong guess, which also forfeits points).
+  // A skip ends the word immediately; free skips cover the first few, later ones cost
+  // a heart. Either way it is the only tap that forfeits the round without a timeout.
   const handleSkip = useCallback(() => {
     if (resolvedRef.current || phaseRef.current !== 'guessing') return;
     resolvedRef.current = true;
@@ -724,7 +763,11 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       // Loading the pronunciation dictionary is async — the round may have moved on.
       if (phaseRef.current !== 'guessing' || resolvedRef.current) return;
       if (matched) {
-        handleCorrect(matched);
+        // The screen shows the word being guessed, not the transcript: phoneme
+        // matching accepts homophones ("where" for "wear"), and echoing the
+        // transcript would leave the input reading "where" while the letter boxes
+        // spell "wear" — the screen must agree with the answer it just marked correct.
+        handleCorrect();
       } else {
         handleWrong();
         // Hands-free: re-arm the mic so the player can simply try again.
@@ -753,13 +796,17 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   }, [autoListen, phase, wordNo, listenTick, overlayOpen, speech.supported]);
 
   // Per-word clock: runs only while the player is guessing and no overlay is up.
+  // The clock freezes while a spoken clip is being transcribed on the worker: that
+  // wait is server latency the player cannot influence, so charging for it would
+  // make voice answers cost a second or two more than typing. The open-mic phase
+  // still ticks — holding the mic is a choice, and thinking time must stay urgent.
   useEffect(() => {
-    if (phase !== 'guessing' || overlayOpen) return;
+    if (phase !== 'guessing' || overlayOpen || speech.transcribing) return;
     const id = window.setInterval(() => {
       setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => window.clearInterval(id);
-  }, [phase, current, overlayOpen]);
+  }, [phase, current, overlayOpen, speech.transcribing]);
 
   // Auto-pause when the page is hidden; the player taps Resume when they return.
   useEffect(() => {
@@ -776,26 +823,51 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (phase === 'guessing' && timeLeft === 0) timeoutRef.current();
   }, [phase, timeLeft]);
 
-  // Clue resolution: the Vietnamese gloss only — the English synonym tier used to
-  // leak the answer (e.g. "pyjama" for "pajama"), so it is gone from Solo.
+  // Describe mode: fetch the rendered clue for this word. A word the bank has no clue
+  // for yet (still rendering, or one the gate could not pass) falls back to the
+  // Vietnamese gloss above — a shorter ladder, not a dead round.
   useEffect(() => {
+    if (style !== 'describe') return;
     let cancelled = false;
-    setClue({ loading: true });
-    void (async () => {
-      const vi = await resolveVietnameseHint(current.word);
+    setHintLoading(true);
+    void loadHintClue(current.word).then((loaded) => {
       if (cancelled) return;
-      setClue({ vi: vi || undefined, loading: false });
-    })();
+      setHint(loaded);
+      setHintLoading(false);
+    });
     return () => {
       cancelled = true;
     };
-  }, [current]);
+  }, [current, style]);
+
+  // The help ladder. Rung 1 (the contrast sentence) is free: it narrows the field without
+  // ending the learning. Rung 2 (the Vietnamese gloss) is the last resort — the player
+  // could not get there from English, so the streak ends and the word is filed for review,
+  // but no heart is lost and the round can still be won.
+  const revealHint = useCallback(() => {
+    if (rung >= 1) return;
+    setRung(1);
+    applyStats((prev) => ({ ...prev, hints: prev.hints + 1 }));
+  }, [applyStats, rung]);
+
+  const revealMeaning = useCallback(() => {
+    if (rung >= 2) return;
+    setRung(2);
+    applyStats((prev) => ({ ...prev, streak: 0, hints: prev.hints + 1 }));
+    noteMiss();
+  }, [applyStats, noteMiss, rung]);
 
   const onCheck = () => {
     const value = input.trim();
     if (!value || phase !== 'guessing') return;
-    if (checkSoloAnswer(value, answer)) handleCorrect(value);
-    else handleWrong();
+    // Typing is judged on the exact spelling; voice keeps its sound-based tolerance.
+    if (isExactSoloAnswer(value, answer)) {
+      setSpellingHint(null);
+      handleCorrect();
+      return;
+    }
+    // Stay on the word: the clock, not the attempt, is what costs a heart.
+    setSpellingHint(buildSpellingHint(answer, value) ?? '');
   };
 
   const lastHeartIndex = stats.hearts - 1;
@@ -816,13 +888,15 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           <p className="truncate text-xs font-semibold text-muted-text">
             {track.emoji} {track.name} · {shortLevel(current.level)} · Word {wordNo}
           </p>
-          <p className="mt-0.5 text-[0.7rem] text-muted-text/70">Endless — survive as long as you can</p>
+          <p className="mt-0.5 text-[0.7rem] text-muted-text/70">
+            {style === 'describe' ? '🎧 Listen & guess' : '🇻🇳 Meaning & spell'} · Endless
+          </p>
         </div>
         <div className="flex min-w-[4.5rem] justify-end">
           <CircularTimer
             timeLeft={timeLeft}
-            totalTime={SOLO_TIME_PER_WORD}
-            isFrozen={false}
+            totalTime={timePerWord}
+            isFrozen={speech.transcribing}
             isRushHour={false}
             size={56}
             strokeWidth={6}
@@ -875,12 +949,70 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           {totalLetters} letters
         </p>
 
-        {/* The clue itself — Vietnamese meaning only, centred under the boxes */}
-        {clue.loading ? (
-          <p className="animate-subtlePulse text-lg text-muted-text">Loading clue…</p>
+        {/* The clue itself. Describe mode opens with the English situation only; the
+            contrast sentence and then the Vietnamese gloss are opened by the player, so
+            the help they need is never paid for in advance. */}
+        {style === 'describe' ? (
+          hint || vietnamese ? (
+            <div className="flex w-full flex-col items-center gap-2">
+              <div className="flex w-full items-start justify-center gap-2">
+                {hint && (
+                  <SpeakButton
+                    word={rung >= 1 ? `${hint.defs[0]}. ${hint.defs[1]}` : hint.defs[0]}
+                    label="Hear the clue"
+                    className="mt-1"
+                  />
+                )}
+                <p className="min-w-0 px-1 font-heading text-xl font-bold leading-snug text-neon-green sm:text-2xl">
+                  {hint ? hint.defs[0] : `🇻🇳 ${vietnamese}`}
+                </p>
+              </div>
+
+              {rung >= 1 && hint && (
+                <p className="max-w-xl animate-fadeInScaleUp px-2 text-sm leading-snug text-electric-blue sm:text-base">
+                  💡 {hint.defs[1]}
+                </p>
+              )}
+
+              {rung >= 2 && vietnamese && (
+                <p className="animate-fadeInScaleUp font-heading text-xl font-bold text-warning-yellow sm:text-2xl">
+                  🇻🇳 {vietnamese}
+                </p>
+              )}
+
+              {(rung < 1 && hint) || (rung < 2 && vietnamese) ? (
+                <div className="mt-0.5 flex flex-wrap items-center justify-center gap-2">
+                  {rung < 1 && hint && (
+                    <button
+                      type="button"
+                      onClick={revealHint}
+                      disabled={phase !== 'guessing'}
+                      className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-electric-blue/50 bg-electric-blue/10 px-4 py-2 text-xs font-semibold text-electric-blue hover:bg-electric-blue/20 disabled:opacity-40"
+                    >
+                      💡 Hint
+                    </button>
+                  )}
+                  {rung < 2 && vietnamese && (
+                    <button
+                      type="button"
+                      onClick={revealMeaning}
+                      disabled={phase !== 'guessing'}
+                      className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-xs font-semibold text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
+                    >
+                      🇻🇳 Meaning
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : hintLoading ? (
+            <p className="animate-subtlePulse text-lg text-muted-text">Loading clue…</p>
+          ) : (
+            <p className="px-2 font-heading text-lg font-bold text-muted-text">🤔 No clue yet — trust the letters</p>
+          )
         ) : (
           <p className="px-2 font-heading text-2xl font-bold leading-tight text-neon-green sm:text-3xl">
-            {clue.vi ? `🇻🇳 ${clue.vi}` : '🤔 No translation yet — trust the letters'}
+            {vietnamese ? `🇻🇳 ${vietnamese}` : '🤔 No translation yet — trust the letters'}
           </p>
         )}
 
@@ -928,7 +1060,11 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           <input
             type="text"
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => {
+              setInput(event.target.value);
+              // The mask describes the previous attempt; editing makes it stale.
+              setSpellingHint(null);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !overlayOpen) onCheck();
             }}
@@ -992,7 +1128,22 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
 
         {/* Live transcript + mic hint */}
         <div className="flex items-center gap-2 text-[0.7rem]">
-          {!speech.supported ? (
+          {spellingHint !== null ? (
+            <span role="status" className="truncate font-semibold text-warning-yellow">
+              {spellingHint ? (
+                <>
+                  Try again:{' '}
+                  <span className="font-mono tracking-[0.18em] text-light-text">
+                    {/* Blanks are spaced out so the kept letters read as chunks:
+                        "televi_ion" → "televi _ ion". */}
+                    {spellingHint.replace(/_+/g, (run) => ` ${run.split('').join(' ')} `).trim()}
+                  </span>
+                </>
+              ) : (
+                'Not quite — check the spelling.'
+              )}
+            </span>
+          ) : !speech.supported ? (
             <span className="text-muted-text/70">
               {typeof window !== 'undefined' && !window.isSecureContext
                 ? '🎤 Voice needs a secure page (https://) — type the word instead.'

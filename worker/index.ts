@@ -57,10 +57,22 @@ const ORDERS_PER_IP_PER_HOUR = 5;
 /** Speech fallback: `whisper-large-v3-turbo` at $0.00051 per audio minute. */
 const ASR_MODEL = '@cf/openai/whisper-large-v3-turbo';
 /**
- * Cap on an uploaded clip. A three-second Opus answer lands around 20 kB, so anything
- * near this is a hand-crafted request rather than a player talking.
+ * Cap on an uploaded clip. The recorder sends mono Opus at 32 kbit/s and stops on
+ * silence, so an honest answer is a few kB and even a full six-second clip is about
+ * 24 kB; anything near this is a hand-crafted request rather than a player talking.
  */
-const MAX_CLIP_BYTES = 1_000_000;
+const MAX_CLIP_BYTES = 128_000;
+/**
+ * Speech quota, so the account cannot be used as a free Whisper proxy. The route needs
+ * no account (Solo has none), so the meter is per IP and per UTC day: a player talks
+ * for a few seconds per word and never approaches these, while a script running the
+ * fallback in a loop is stopped long before it can spend real money.
+ */
+const ASR_PER_IP_PER_MINUTE = 30;
+const ASR_PER_IP_PER_DAY = 1_000;
+/** Whole-app ceiling: roughly 130 audio minutes a day, about $2 a month if it is ever hit. */
+const ASR_PER_DAY = 4_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const PRODUCT = {
   id: 'pro',
   name: 'WordCrew Full Version',
@@ -680,14 +692,64 @@ const toBase64 = (bytes: Uint8Array): string => {
 };
 
 /**
+ * Books one speech call against the per-IP and whole-app quotas. Returns the refusal
+ * response when a ceiling is reached, or null once the call has been counted.
+ *
+ * The counters are rows in `asr_calls` rather than an in-memory counter: isolates are
+ * short-lived and spread across colos, so only the database sees the whole picture.
+ * The insert also prunes rows older than two days, which is longer than either window.
+ */
+const reserveAsrCall = async (request: Request, env: Env): Promise<Response | null> => {
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const now = Date.now();
+  const today = new Date(now);
+  const dayStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+
+  try {
+    const counts = await env.DB.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN client_ip = ? AND created_at > ? THEN 1 ELSE 0 END), 0) AS ip_minute,
+         COALESCE(SUM(CASE WHEN client_ip = ? AND created_at > ? THEN 1 ELSE 0 END), 0) AS ip_day,
+         COUNT(*) AS day
+       FROM asr_calls
+       WHERE created_at > ?`,
+    )
+      .bind(ip, now - 60_000, ip, dayStart, dayStart)
+      .first<{ ip_minute: number; ip_day: number; day: number }>();
+
+    if ((counts?.ip_minute ?? 0) >= ASR_PER_IP_PER_MINUTE) {
+      return json({ error: 'Too many voice answers in a row. Wait a minute or type the word.' }, 429);
+    }
+    if ((counts?.ip_day ?? 0) >= ASR_PER_IP_PER_DAY) {
+      return json({ error: 'Voice answers from this device are finished for today. Type the word instead.' }, 429);
+    }
+    if ((counts?.day ?? 0) >= ASR_PER_DAY) {
+      return json({ error: 'Voice answers are at capacity today. Type the word instead.' }, 503);
+    }
+
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO asr_calls (client_ip, created_at) VALUES (?, ?)').bind(ip, now),
+      env.DB.prepare('DELETE FROM asr_calls WHERE created_at < ?').bind(dayStart - DAY_MS),
+    ]);
+    return null;
+  } catch (error) {
+    // A database that has not had schema.sql applied yet must not take the mic away
+    // from the browsers that have no other way to answer: let the call through and
+    // leave the byte cap as the only guard until the migration runs.
+    console.error('asr quota check failed', error);
+    return null;
+  }
+};
+
+/**
  * Speech-to-text for devices with no Web Speech API — Firefox and older Android
  * WebViews, where the mic used to be dead. Chrome, Edge and Safari answer inside the
  * browser and never call this, so the free Workers AI daily allocation (10,000 Neurons,
  * roughly 215 audio minutes) normally covers every request.
  *
- * Solo needs no account, so this route is open. What stops it being a free Whisper
- * proxy is the size cap plus that allocation, which is a hard ceiling on the free plan
- * rather than a bill.
+ * Solo needs no account, so this route is open. Three things keep it from becoming a
+ * free Whisper proxy: the client sends a short, silence-trimmed clip; the clip is
+ * capped by size here; and every accepted call is metered per IP and per day.
  */
 const transcribeClip = async (request: Request, env: Env): Promise<Response> => {
   const declared = Number(request.headers.get('content-length') || '0');
@@ -696,6 +758,9 @@ const transcribeClip = async (request: Request, env: Env): Promise<Response> => 
   const buffer = await request.arrayBuffer();
   if (!buffer.byteLength) return json({ error: 'No audio received' }, 400);
   if (buffer.byteLength > MAX_CLIP_BYTES) return json({ error: 'Clip too long' }, 413);
+
+  const refused = await reserveAsrCall(request, env);
+  if (refused) return refused;
 
   try {
     const result = await env.AI.run(ASR_MODEL, {

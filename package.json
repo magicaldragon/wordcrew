@@ -15,6 +15,9 @@
     "deploy": "npm run build && wrangler deploy",
     "d1:local": "wrangler d1 execute wordcrew-db --local --file=./worker/schema.sql",
     "d1:remote": "wrangler d1 execute wordcrew-db --remote --file=./worker/schema.sql",
+    "hints:check": "node scripts/hint-validators.mjs",
+    "hints:probe": "node scripts/hint-probe.mjs",
+    "hints:generate": "node scripts/generate-hints.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

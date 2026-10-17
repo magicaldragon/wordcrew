@@ -13,7 +13,7 @@ import {
     HELL_MODE_INITIAL_SKIPS, HELL_MODE_SKIP_PENALTY, HELL_MODE_LUCKY_SKIP_PENALTY,
     ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES
 } from '../constants';
-import { resolveVietnameseHint } from '../vietnameseMeanings';
+import { getVietnameseMeaning } from '../vietnameseMeanings';
 import { resolveEnglishSynonym } from '../services/synonyms';
 
 type WordDisplayStatus = 'default' | 'correct' | 'skipped'; 
@@ -1185,16 +1185,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     };
   }, [wordKey, showGameUI]);
 
-  // Warm the current and upcoming hints in the background as soon as a word appears, so
-  // the tiers surface instantly when they unlock instead of stalling on the network.
+  // Warm the upcoming synonym in the background as soon as a word appears, so tier 1
+  // surfaces instantly when it unlocks. The Vietnamese gloss is bundled, so it needs
+  // no warm-up.
   useEffect(() => {
     if (!showGameUI) return;
     const current = shuffledWords[currentWordIndex];
     const next = shuffledWords[currentWordIndex + 1];
-    resolveVietnameseHint(current);
     resolveEnglishSynonym(current);
     if (next) {
-      resolveVietnameseHint(next);
       resolveEnglishSynonym(next);
     }
   }, [showGameUI, currentWordIndex, shuffledWords]);
@@ -1214,15 +1213,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   // Resolve tier 2: the bundled Vietnamese gloss (instant and offline-capable).
   useEffect(() => {
-    if (!showGameUI || hintStage < 2) {
-      setHintMeaning(undefined);
-      return;
-    }
-    let cancelled = false;
-    resolveVietnameseHint(shuffledWords[currentWordIndex]).then(meaning => {
-      if (!cancelled) setHintMeaning(meaning);
-    });
-    return () => { cancelled = true; };
+    setHintMeaning(
+      showGameUI && hintStage >= 2
+        ? getVietnameseMeaning(shuffledWords[currentWordIndex])
+        : undefined,
+    );
   }, [showGameUI, hintStage, currentWordIndex, shuffledWords]);
 
   // Tier 2 wins when available; tier 1 fills the gap until the gloss unlocks (or when the

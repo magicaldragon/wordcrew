@@ -15,6 +15,9 @@ dist-ssr
 # Cloudflare Worker local secrets for `wrangler dev` (never commit these)
 .dev.vars*
 
+# Resumable progress for the offline content generators (rebuilt on demand)
+scripts/.cache
+
 # Local planning notes (not part of the shipped app)
 DEMO_PLAN.md
 

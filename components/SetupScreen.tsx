@@ -8,7 +8,7 @@ import type { UnlockOutcome } from '../services/payments';
 import { VolumeControls } from './VolumeControls';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 import { addWordSet, readWordSets, removeWordSet, type SavedWordSet } from '../services/wordSets';
-import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_TIME_PER_WORD, SOLO_TRACKS, DAILY_TRACK, isDailyDoneToday, shortLevel, type SoloTrack } from '../services/solo';
+import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_STYLES, SOLO_STYLE_TIME, SOLO_TRACKS, DAILY_TRACK, isDailyDoneToday, shortLevel, type SoloTrack, type SoloStyle } from '../services/solo';
 import { readLocalSoloBest } from '../services/soloLeaderboard';
 import { readDueReviews, reviewCount } from '../services/review';
 import { confirmDialog, toast } from './Feedback';
@@ -20,7 +20,7 @@ interface SetupScreenProps {
   onUnlock: (code: string) => Promise<UnlockOutcome>;
   onGameStart: (settings: GameSettings) => void;
   /** Solo is offered as a fourth mode; this container collects its track before launch. */
-  onStartSolo: (track: SoloTrack) => void;
+  onStartSolo: (track: SoloTrack, style: SoloStyle) => void;
   /** Today's Challenge launches straight from its card — no track, no settings. */
   onStartDaily: () => void;
   /** Whether the player is signed in — used for the Solo leaderboard footnote. */
@@ -144,6 +144,10 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const [gameMode, setGameMode] = useState<SetupMode>(initialGameMode);
   // Solo's track picker is a step of this same wizard, so the choice is held here.
   const [selectedSoloTrackId, setSelectedSoloTrackId] = useState<string>(SOLO_FREE_TRACK_ID);
+  // The two Solo play styles train different skills, so the choice is made on the Mode
+  // step rather than hidden in settings. 'meaning' is the shape Solo shipped as, so a
+  // player who never touches the picker gets the mode they already know.
+  const [soloStyle, setSoloStyle] = useState<SoloStyle>('meaning');
   // Two explicit word-entry flows: let the app suggest words to curate, or type your own.
   const [entryMode, setEntryMode] = useState<'suggest' | 'manual'>('suggest');
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
@@ -596,7 +600,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
   const handlePrimaryAction = () => {
     if (isLastStep) {
-      if (isSoloMode) onStartSolo(selectedSoloTrack);
+      if (isSoloMode) onStartSolo(selectedSoloTrack, soloStyle);
       else handleStartGame();
     } else {
       goToStep(step + 1);
@@ -725,11 +729,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 Solo Rundown:
               </p>
               <p className="text-sm leading-snug text-muted-text setup-screen-small-text">
-                Start with {SOLO_START_HEARTS} hearts · {SOLO_FREE_SKIPS} free skips · {SOLO_TIME_PER_WORD}s per
+                Start with {SOLO_START_HEARTS} hearts · {SOLO_FREE_SKIPS} free skips · {SOLO_STYLE_TIME[soloStyle]}s per
                 word.
               </p>
               <p className="mt-1 text-sm leading-snug text-muted-text setup-screen-small-text">
-                Right: +10 points. Wrong: −10 points and −1 heart (never below 0). Losing every heart ends the run.
+                Right: +10 points. Wrong? Try again — only running out of time costs −10 points and −1 heart. Losing every heart ends the run.
               </p>
             </>
           ) : gameMode === GameMode.TEAM ? (
@@ -780,6 +784,52 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         </div>
       </div>
 
+      {/* Solo play style — the one choice this mode actually needs. Two skills, two
+          cards: comprehension (English clue first) and spelling (Vietnamese gloss first).
+          The help ladder is printed on each card so the difference is visible before the
+          first word, not discovered halfway through a run. */}
+      {isSoloMode && (
+        <div className="w-full" role="radiogroup" aria-labelledby="soloStyleLabel">
+          <div className="mb-1 flex items-baseline justify-between gap-2">
+            <span id="soloStyleLabel" className="text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
+              Play style:
+            </span>
+            <span className="text-sm text-muted-text setup-screen-small-text">pick the skill you want to train</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {SOLO_STYLES.map((option) => {
+              const selected = soloStyle === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setSoloStyle(option.id)}
+                  className={`futuristic-button flex min-h-[6rem] flex-col items-start rounded-xl border-2 p-2.5 text-left transition sm:p-3 ${
+                    selected
+                      ? 'border-neon-green bg-neon-green/10'
+                      : 'border-cyber-purple/40 bg-dark-metal/60 hover:border-electric-blue'
+                  }`}
+                >
+                  <span className="flex w-full items-center gap-1.5 text-sm font-bold text-light-text sm:text-base">
+                    <span aria-hidden="true">{option.emoji}</span>
+                    <span className="min-w-0 flex-1">{option.name}</span>
+                    {selected && <Icon name="check" size={12} />}
+                  </span>
+                  <span className="mt-1 block text-[0.7rem] leading-snug text-muted-text sm:text-xs">
+                    {option.tagline}
+                  </span>
+                  <span className={`mt-1.5 block text-[0.6rem] font-semibold uppercase tracking-wider ${selected ? 'text-neon-green' : 'text-electric-blue/80'}`}>
+                    {option.ladder}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {gameMode === GameMode.TEAM && (
         <p className="w-full text-left text-sm text-electric-blue setup-screen-small-text">Two teams take turns guessing words. Rack up points and sabotage your rivals!</p>
       )}
@@ -788,7 +838,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       )}
 
       {isSoloMode && (
-        <p className="w-full text-left text-sm text-cyber-purple setup-screen-small-text">Play alone against the clock — pick a track in the next step, then type or say each word from its clue.</p>
+        <p className="w-full text-left text-sm text-cyber-purple setup-screen-small-text">
+          {soloStyle === 'describe'
+            ? 'Hear an English description, then type or say the word. Stuck? Open the hint, then the Vietnamese meaning — that last rung ends your streak.'
+            : 'Play alone against the clock — pick a track in the next step, then type or say each word from its Vietnamese meaning.'}
+        </p>
       )}
 
       {/* Word Pack — multi-select chips so several bands can feed one list */}
