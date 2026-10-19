@@ -137,6 +137,43 @@ export const fetchMyOrders = async (idToken: string | null): Promise<MyOrder[]> 
   }
 };
 
+/** One account that owns a paid product, as the admin's account tab needs it. */
+export interface AdminAccountAccess {
+  uid: string | null;
+  email: string | null;
+  productId: string;
+  productName: string;
+  paidAt: number | null;
+}
+
+/**
+ * Who owns a paid product, straight from D1. The account directory (names, presence)
+ * is read from Firestore in the dashboard and joined with this on uid/email.
+ */
+export const fetchAdminAccountAccess = async (
+  idToken: string | null,
+): Promise<AdminAccountAccess[]> => {
+  if (!idToken) return [];
+  try {
+    const payload = await request<{ accounts?: unknown }>('/admin/accounts', {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    if (!Array.isArray(payload.accounts)) return [];
+    return payload.accounts
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => ({
+        uid: typeof item.uid === 'string' ? item.uid : null,
+        email: typeof item.email === 'string' ? item.email.toLowerCase() : null,
+        productId: String(item.productId ?? ''),
+        productName: typeof item.productName === 'string' ? item.productName : '',
+        paidAt: typeof item.paidAt === 'number' ? item.paidAt : null,
+      }))
+      .filter((item) => item.uid || item.email);
+  } catch {
+    return [];
+  }
+};
+
 /** One product the signed-in account has paid for. */
 export interface EntitlementItem {
   productId: string;

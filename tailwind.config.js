@@ -64,6 +64,10 @@ export default {
         'word-correct-effect': 'wordCorrectEffect 0.7s ease-out forwards',
         'word-skip-effect': 'wordSkipEffect 0.7s ease-out forwards',
         'stamp-effect': 'stampEffect 1.0s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+        // Wrong-answer sign: a full-screen red pulse plus a short shake on the letter
+        // boxes, so a miss is visible even when the player is not reading the status line.
+        wrongFlash: 'wrongFlash 0.55s ease-out forwards',
+        wrongShake: 'wrongShake 0.45s ease-in-out',
         rushHourGlow: 'rushHourGlowKeyframes 0.7s infinite ease-in-out', // For the glow during Rush Hour
         rushHourBounce: 'rushHourBounce 0.8s ease-in-out infinite', // New bounce animation
         fastRushTextGlow: 'fastRushTextGlow 0.25s infinite ease-in-out', // For Rush Hour text notification
@@ -189,6 +193,19 @@ export default {
           '60%': { opacity: '1', transform: 'scale(1.1) rotate(5deg) translateY(-5px)' },
           '80%': { opacity: '1', transform: 'scale(1) rotate(0deg) translateY(0px)' },
           '100%': { opacity: '1', transform: 'scale(1) rotate(0deg) translateY(0px)' },
+        },
+        wrongFlash: {
+          '0%': { opacity: '0' },
+          '15%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+        wrongShake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '15%': { transform: 'translateX(-8px)' },
+          '30%': { transform: 'translateX(7px)' },
+          '45%': { transform: 'translateX(-5px)' },
+          '60%': { transform: 'translateX(4px)' },
+          '80%': { transform: 'translateX(-2px)' },
         },
         rushHourGlowKeyframes: {
           '0%, 100%': {

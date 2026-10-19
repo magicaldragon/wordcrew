@@ -473,6 +473,40 @@ const getAdminOverview = async (request: Request, env: Env): Promise<Response> =
 };
 
 /**
+ * Who owns a paid product, for the admin's account management tab. The directory of
+ * accounts (names, presence) lives in Firestore; this route only answers the money
+ * question from D1's paid orders, and the dashboard joins the two.
+ */
+const getAdminAccounts = async (request: Request, env: Env): Promise<Response> => {
+  const denied = await requireAdmin(request, env);
+  if (denied instanceof Response) return denied;
+
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, LOWER(user_email) AS email, product_id,
+            MAX(COALESCE(paid_at, created_at)) AS paid_at
+       FROM orders
+      WHERE status = 'paid' AND license_key IS NOT NULL
+      GROUP BY user_id, LOWER(user_email), product_id
+      ORDER BY paid_at DESC`,
+  ).all<{
+    user_id: string | null;
+    email: string | null;
+    product_id: string;
+    paid_at: number | null;
+  }>();
+
+  return json({
+    accounts: (results ?? []).map((row) => ({
+      uid: row.user_id,
+      email: row.email,
+      productId: row.product_id,
+      productName: productLabel(row.product_id),
+      paidAt: row.paid_at,
+    })),
+  });
+};
+
+/**
  * Hands a product to an account without a bank transfer — the mechanism behind gift
  * licences and support fixes. The order is written already paid, so it flows through
  * the exact same entitlement lookup as a real purchase.
@@ -787,6 +821,7 @@ const handleApi = async (request: Request, env: Env, url: URL): Promise<Response
   if (pathname === '/api/access-code/verify' && method === 'POST') return verifyAccessCode(request, env);
   if (pathname === '/api/sepay/webhook' && method === 'POST') return handleSepayWebhook(request, env);
   if (pathname === '/api/admin/overview' && method === 'GET') return getAdminOverview(request, env);
+  if (pathname === '/api/admin/accounts' && method === 'GET') return getAdminAccounts(request, env);
   if (pathname === '/api/admin/grant' && method === 'POST') return grantAccess(request, env);
   if (pathname === '/api/admin/revoke' && method === 'POST') return revokeAccess(request, env);
   if (pathname === '/api/admin/reconcile' && method === 'POST') return reconcileOrder(request, env);

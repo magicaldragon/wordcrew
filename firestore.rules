@@ -2,30 +2,46 @@ rules_version = '2';
 
 // WordCrew — Firestore security rules (bản ghi trong repo).
 //
-// File này phản chiếu ĐÚNG ruleset đang chạy trên Firebase console
+// File này phản chiếu ĐÚNG ruleset cần dán lên Firebase console
 // (Firestore Database → Rules). Dự án deploy bằng Wrangler nên không có
 // firebase.json / Firebase CLI: console mới là nguồn thật, còn file này để
 // versioned và để lần sau biết đang có gì mà chỉnh cho khớp.
 //
-// Client chỉ chạm đúng hai collection:
+// Client chỉ chạm đúng hai nhánh:
 //
 //   users/{uid}
 //     Hồ sơ người chơi + các counter tiến độ mà tab "My progress" đọc:
 //       roundsPlayed, bestScore, wordsGuessed, bestStreak   (services/progress.ts)
 //       playStreak, lastPlayedDate                          (chuỗi ngày chơi liên tiếp)
-//     Client ghi bằng merge: AuthContext.tsx (hồ sơ) và services/progress.ts.
-//     Rule không chặn theo tên field — trang này là của riêng chủ tài khoản, nên
-//     thêm counter mới KHÔNG cần sửa rules.
+//     Client ghi bằng merge: AuthContext.tsx (hồ sơ + presence) và
+//     services/progress.ts (counter).
 //
-//   soloLeaderboards/{boardId}/scores/{uid}
-//     Một dòng mỗi người chơi mỗi board. boardId là id track ('rookie',
+//     Tên hiển thị:
+//       - Chủ tài khoản được tự đổi displayName, nhưng chỉ khi đã qua 30 ngày kể
+//         từ displayNameUpdatedAt của lần đổi trước. Rule kiểm tra lại điều này,
+//         nên sửa client cũng không lách được cooldown.
+//       - Admin được đổi tên bất kỳ ai, bất kỳ lúc nào (không bị cooldown chặn).
+//
+//     Presence: online + lastSeenAt do client heartbeat mỗi 60 giây; lastLoginAt
+//     được ghi mỗi lần đăng nhập. Admin dashboard đọc hai field này.
+//
+//   soloLeaderboards/{boardId}/periods/{period}/scores/{uid}
+//     Một dòng mỗi người chơi mỗi board mỗi kỳ. boardId là id track ('rookie',
 //     'explorer', 'challenger', 'master') hoặc 'daily' cho Today's Challenge.
-//     services/soloLeaderboard.ts đọc cả bảng và chỉ ghi dòng mang uid của chính mình.
+//     Track reset hằng THÁNG (period = "2026-10"), Today's Challenge reset hằng
+//     ngày (period = "2026-10-16").
 //
-//     Mỗi board reset theo kỳ: track reset hằng tuần (period = "2026-W42"),
-//     Today's Challenge reset hằng ngày (period = "2026-10-16"). Không có cron
-//     và không có collection thứ hai — chỉ cần lọc theo `period`, nên update
-//     được phép khi điểm cao hơn HOẶC khi sang kỳ mới (kỳ mới = cuộc đua mới).
+//     Scores nằm *dưới* kỳ của nó, nên sang kỳ mới là một cuộc đua mới và mọi
+//     tháng đã qua vẫn còn nguyên trên Firestore — admin dashboard đọc lại làm
+//     "monthly records". Không cần cron, không cần collection thứ hai.
+//
+//     Doc periods/{period} chỉ là dấu "kỳ này có người chơi" để dashboard liệt
+//     kê các tháng; nó được ghi kèm mỗi lần submit điểm.
+//
+// ⚠️ ADMIN: sửa danh sách trong adminEmails() bên dưới cho khớp ĐÚNG giá trị
+//    secret ADMIN_EMAILS của Cloudflare Worker. Firestore rules không đọc được
+//    biến môi trường của Worker, nên danh sách này phải được chép tay. Email
+//    phải là email tài khoản Firebase đã đăng nhập (Google hoặc email/mật khẩu).
 //
 // Orders / licences / entitlements KHÔNG nằm ở đây — chúng ở Cloudflare Worker
 // (D1) và client không bao giờ đi qua Firestore để lấy.
@@ -33,34 +49,123 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Hồ sơ người dùng + counter tiến độ.
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // WordCrew — bảng xếp hạng Solo.
-    match /soloLeaderboards/{boardId}/scores/{uid} {
-      // Bảng công khai: cả người đã đăng nhập lẫn offline đều xem được.
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Chép tay từ ADMIN_EMAILS (Cloudflare secret), viết thường, cách nhau dấu phẩy.
+    function adminEmails() {
+      return [
+        'admin@example.com'
+      ];
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() in adminEmails();
+    }
+
+    // ── Hồ sơ người dùng + counter tiến độ ───────────────────────────────
+
+    match /users/{userId} {
+      // Chủ tài khoản đọc hồ sơ của mình; admin đọc toàn bộ directory.
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Tạo hồ sơ: chỉ chủ tài khoản, với field cơ bản hợp lệ.
+      allow create: if isOwner(userId) && isValidProfileCreate(request.resource.data);
+
+      // Cập nhật: admin được làm mọi thứ; chủ tài khoản chỉ được đổi displayName
+      // khi đã hết cooldown 30 ngày (các field khác như counter/presence thì tự do).
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && isValidProfileUpdate()
+            && renameAllowed());
+
+      // Không cho client xoá tài khoản.
+      allow delete: if false;
+    }
+
+    // Field hồ sơ hợp lệ. Chỉ chặn những gì thực sự cần: tên hiển thị phải là
+    // chuỗi 2–24 ký tự và online phải là bool. Các counter tiến độ được để tự do
+    // để thêm counter mới không phải sửa rules.
+    function isValidProfileCreate(data) {
+      return (!data.keys().hasAny(['displayName'])
+          || (data.displayName is string
+              && data.displayName.size() >= 2
+              && data.displayName.size() <= 24))
+        && (!data.keys().hasAny(['online']) || data.online is bool);
+    }
+
+    // Khi update, chỉ kiểm tra displayName nếu request thực sự đổi nó — nhờ vậy
+    // hồ sơ cũ (tên Google dài hơn 24 ký tự) vẫn ghi được presence/counter.
+    function isValidProfileUpdate() {
+      return (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['displayName'])
+          || (request.resource.data.displayName is string
+              && request.resource.data.displayName.size() >= 2
+              && request.resource.data.displayName.size() <= 24))
+        && (!request.resource.data.keys().hasAny(['online']) || request.resource.data.online is bool);
+    }
+
+    // Cooldown đổi tên. Chỉ áp dụng khi request thực sự chạm vào displayName —
+    // heartbeat, counter tiến độ và lastLoginAt không bị chặn.
+    //
+    // Lần đổi hợp lệ phải:
+    //   1. ghi displayNameUpdatedAt = request.time (client dùng serverTimestamp),
+    //   2. và hoặc hồ sơ chưa từng đổi tên, hoặc đã qua 30 ngày.
+    function renameAllowed() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['displayName'])
+        || (
+          request.resource.data.displayNameUpdatedAt == request.time
+          && (
+            !resource.data.keys().hasAny(['displayNameUpdatedAt'])
+            || request.time >= resource.data.displayNameUpdatedAt + duration.value(30, 'd')
+          )
+        );
+    }
+
+    // ── Bảng xếp hạng Solo (theo tháng / theo ngày) ──────────────────────
+
+    match /soloLeaderboards/{boardId}/periods/{period} {
+      // Danh sách kỳ (tháng) công khai — admin dashboard dựng "monthly records".
       allow read: if true;
 
-      // Chỉ được tạo doc của chính mình, với dữ liệu hợp lệ.
-      allow create: if request.auth != null
-        && request.auth.uid == uid
-        && isValidSoloEntry(request.resource.data);
+      // Chỉ được tạo/cập nhật dấu kỳ khi đang đăng nhập và payload đúng tối thiểu.
+      allow create, update: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['period', 'updatedAt'])
+        && request.resource.data.period == period
+        && request.resource.data.updatedAt is number;
 
-      // ...và chỉ được cập nhật khi điểm MỚI CAO HƠN (kỷ lục không bao giờ giảm),
-      // hoặc khi sang kỳ mới — lúc đó bảng đã reset nên điểm thấp hơn vẫn hợp lệ.
-      // `get('period', '')` để doc cũ (ghi trước khi có field này) vẫn update được.
-      allow update: if request.auth != null
-        && request.auth.uid == uid
-        && isValidSoloEntry(request.resource.data)
-        && (
-          request.resource.data.score >= resource.data.score
-          || request.resource.data.period != resource.data.get('period', '')
-        );
-
-      // Điểm là kỷ lục cá nhân — không cho xoá.
       allow delete: if false;
+
+      match /scores/{uid} {
+        // Bảng công khai: cả người chưa đăng nhập vẫn xem được.
+        allow read: if true;
+
+        // Chỉ được tạo doc của chính mình, đúng kỳ đang ghi, dữ liệu hợp lệ.
+        allow create: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.period == period
+          && isValidSoloEntry(request.resource.data);
+
+        // Cập nhật khi điểm MỚI CAO HƠN (kỷ lục không bao giờ giảm) — hoặc khi
+        // chỉ đổi tên hiển thị (điểm giữ nguyên nên vẫn thoả >=). Sang kỳ mới
+        // là doc mới dưới period mới, nên không cần nới điều kiện này.
+        allow update: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.period == period
+          && isValidSoloEntry(request.resource.data)
+          && request.resource.data.score >= resource.data.score;
+
+        // Điểm là kỷ lục cá nhân — không cho xoá.
+        allow delete: if false;
+      }
     }
 
     // Entry Solo hợp lệ: đúng các field, giá trị hợp lý.
@@ -73,7 +178,8 @@ service cloud.firestore {
         && data.wordsGuessed is number && data.wordsGuessed >= 0 && data.wordsGuessed <= 1000000
         && data.bestStreak is number && data.bestStreak >= 0 && data.bestStreak <= 100000
         && data.updatedAt is number
-        && data.period is string && data.period.size() >= 8 && data.period.size() <= 16;
+        && data.period is string
+        && (data.period.size() == 7 || data.period.size() == 10);
     }
 
     // Mặc định chặn tất cả những thứ còn lại.

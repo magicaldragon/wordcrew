@@ -38,6 +38,7 @@ import {
 import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
 import { verifyLicenseKey, verifyAccessCode, fetchPricing, fetchEntitlement, formatPrice, type EntitlementItem, type UnlockOutcome } from './services/payments';
 import { recordRound } from './services/progress';
+import { recordDailyCompletion, type DailyCompletionOutcome } from './services/dailyHabit';
 
 interface GameEndDetails {
   baseScore?: number; 
@@ -137,8 +138,11 @@ const App: React.FC = () => {
   // Set while the current run is Today's Challenge: the day id seeds the word order and
   // is the period the score is posted under. Null for an ordinary track run.
   const [soloDailyDateId, setSoloDailyDateId] = useState<string | null>(null);
+  // What the daily run just did to the streak (freezes spent, badge reached). Kept beside
+  // the result so the screen can explain a freeze instead of silently consuming it.
+  const [dailyOutcome, setDailyOutcome] = useState<DailyCompletionOutcome | null>(null);
 
-  const { user, getIdToken } = useAuth();
+  const { user, profile, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
 
@@ -507,7 +511,13 @@ const App: React.FC = () => {
     setSoloResult(result);
     setSoloPhase('results');
     // The challenge is "done" the moment it ends, so the setup card can say so.
-    if (result.boardId === DAILY_TRACK.id) markDailyDone(result.period);
+    if (result.boardId === DAILY_TRACK.id) {
+      markDailyDone(result.period);
+      // The daily habit has its own counter: showing up is the metric, not the score.
+      // Resolved onto state so the results screen can name the freeze it spent.
+      setDailyOutcome(null);
+      void recordDailyCompletion(user?.uid, result.period).then(setDailyOutcome);
+    }
     // A solo run counts towards the same lifetime counters as a pass-and-play round.
     void recordRound(user?.uid, {
       score: result.score,
@@ -862,7 +872,13 @@ const App: React.FC = () => {
           track={soloTrack}
           result={soloResult}
           userId={user?.uid ?? null}
-          userName={leaderboardName(user?.displayName ?? null, user?.email ?? null)}
+          userName={leaderboardName(
+            profile?.displayName ?? user?.displayName ?? null,
+            user?.email ?? null,
+          )}
+          dailyStreak={profile?.dailyStreak ?? 0}
+          dailyBestStreak={profile?.dailyBestStreak ?? 0}
+          dailyOutcome={dailyOutcome}
           onPlayAgain={handleSoloPlayAgain}
           onHome={handleSoloExit}
         />
@@ -969,6 +985,7 @@ const App: React.FC = () => {
           isUnlocked={isUnlocked}
           entitlements={entitlements}
           onPlayGame={handlePlayGame}
+          onStartDaily={handleStartDaily}
           onUnlock={requestPurchase}
           onRefreshAccount={refreshEntitlements}
         />

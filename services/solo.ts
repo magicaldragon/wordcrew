@@ -237,7 +237,7 @@ export interface SoloRunResult {
   trackId: string;
   /** Board the run posts to: a track id, or `DAILY_BOARD_ID` for Today's Challenge. */
   boardId: string;
-  /** Period the score belongs to (`YYYY-Www` for a track, `YYYY-MM-DD` for the daily). */
+  /** Period the score belongs to (`YYYY-MM` for a track, `YYYY-MM-DD` for the daily). */
   period: string;
   /** Which of the two play styles produced this score. */
   style: SoloStyle;

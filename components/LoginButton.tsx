@@ -22,7 +22,7 @@ const initialsOf = (label: string): string =>
  * anywhere without extra wiring.
  */
 export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) => {
-  const { user, loading, signOutUser } = useAuth();
+  const { user, profile, loading, signOutUser } = useAuth();
   const [showDialog, setShowDialog] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -36,7 +36,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [showMenu]);
 
-  const label = user?.displayName || user?.email || 'Account';
+  const label = profile?.displayName?.trim() || user?.displayName || user?.email || 'Account';
   const block = variant === 'block';
   const baseClass = block ? 'wc-nav-item' : 'rounded-full border border-[var(--wn-4)] bg-[var(--wn-2)] px-3 py-1.5';
   const interactionClass = block ? '' : 'transition hover:border-[var(--wn-5)] hover:bg-[var(--wn-3)]';
@@ -87,7 +87,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
         >
           <div className="px-3 py-2">
             <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-              {user.displayName || 'Signed in'}
+              {profile?.displayName || user.displayName || 'Signed in'}
             </p>
             <p className="truncate text-xs text-[var(--wn-9)]">{user.email}</p>
           </div>

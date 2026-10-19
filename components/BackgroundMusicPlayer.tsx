@@ -1,5 +1,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { AUDIO_DUCK_EVENT } from '../constants';
 // BACKGROUND_MUSIC_URL is no longer used as a fallback here, App.tsx decides the URL.
 
 interface BackgroundMusicPlayerProps {
@@ -7,12 +8,20 @@ interface BackgroundMusicPlayerProps {
   musicUrl?: string | null; // Changed from customMusicUrl, can be null to stop.
 }
 
+/** How far the loop drops while an announcer line is speaking. */
+const DUCK_LEVEL = 0.25;
+
 export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ volume, musicUrl }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentAudioSrcRef = useRef<string | null>(null); // Stores the src of the currently loaded audio
   const wasPlayingBeforeHiddenRef = useRef(false); // Track playback so it can resume after the tab becomes visible again
   const [userInteracted, setUserInteracted] = useState(false);
   const userInteractedRef = useRef(false); // Mirror of userInteracted, readable from stable lifecycle handlers
+  // Announcer callouts duck the loop so the voice sits on top of the music instead
+  // of competing with it — the same trick the Candy Crush narrator uses.
+  const volumeRef = useRef(volume);
+  const duckedRef = useRef(false);
+  const duckTimerRef = useRef<number | null>(null);
 
   const playAudio = useCallback(async () => {
     if (audioRef.current && audioRef.current.paused && currentAudioSrcRef.current /* Ensure a valid source is loaded */) {
@@ -62,9 +71,10 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       audioJustInitializedOrSrcChanged = true;
     }
 
-    // Apply volume (on initial load, src change, or a plain volume change)
+    // Apply volume (on initial load, src change, or a plain volume change). A ducked
+    // loop stays ducked until its timer restores it.
     if (audioRef.current) {
-      audioRef.current.volume = volume;
+      audioRef.current.volume = duckedRef.current ? volume * DUCK_LEVEL : volume;
     }
 
     // Attempt to play if user has interacted
@@ -75,6 +85,37 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       }
     }
   }, [volume, musicUrl, userInteracted, playAudio]);
+
+  // Keep the loop volume readable from the duck handler, and listen for announcer
+  // callouts. Each callout re-arms the timer; when it expires the loop ramps back.
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    const handleDuck = (event: Event) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const ms = (event as CustomEvent<{ ms?: number }>).detail?.ms ?? 1500;
+      duckedRef.current = true;
+      audio.volume = volumeRef.current * DUCK_LEVEL;
+      if (duckTimerRef.current !== null) window.clearTimeout(duckTimerRef.current);
+      duckTimerRef.current = window.setTimeout(() => {
+        duckedRef.current = false;
+        duckTimerRef.current = null;
+        if (audioRef.current) audioRef.current.volume = volumeRef.current;
+      }, ms);
+    };
+
+    window.addEventListener(AUDIO_DUCK_EVENT, handleDuck);
+    return () => {
+      window.removeEventListener(AUDIO_DUCK_EVENT, handleDuck);
+      if (duckTimerRef.current !== null) {
+        window.clearTimeout(duckTimerRef.current);
+        duckTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Effect for handling the first user interaction to enable audio playback
   useEffect(() => {

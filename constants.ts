@@ -164,14 +164,14 @@ export const SINGLE_SOUND_EFFECTS = {
 // ** 6. ANNOUNCER CALLOUTS **
 // Pre-rendered voice lines shipped in /public/audio (same self-hosted, offline-first
 // approach as the music tracks). They fire the instant a milestone lands — no network
-// round-trip, no AI fetch at runtime. The voice is an open-source Kokoro model, so no
-// copyrighted talent is reproduced. Milestones are deliberately sparse so a callout
-// stays a reward rather than constant chatter.
+// round-trip, no AI fetch at runtime. The lines are Deepgram Aura renders, produced
+// offline by scripts/generate-announcer.mjs. Milestones are deliberately sparse so a
+// callout stays a reward rather than constant chatter.
 export const ANNOUNCER_CALLOUTS = {
-  COMBO: AUDIO_BASE + 'announcer-combo.mp3',
-  ON_FIRE: AUDIO_BASE + 'announcer-on-fire.mp3',
-  UNSTOPPABLE: AUDIO_BASE + 'announcer-unstoppable.mp3',
-  HURRY_UP: AUDIO_BASE + 'announcer-hurry-up.mp3',
+  COMBO: AUDIO_BASE + 'announcer-combo.wav',
+  ON_FIRE: AUDIO_BASE + 'announcer-on-fire.wav',
+  UNSTOPPABLE: AUDIO_BASE + 'announcer-unstoppable.wav',
+  HURRY_UP: AUDIO_BASE + 'announcer-hurry-up.wav',
 };
 
 // Streak counts that trigger a callout. Kept here so gameplay and any future mode
@@ -273,3 +273,150 @@ export const playSound = (
     }
   }
 };
+
+// ── Announcer callouts ──────────────────────────────────────────────────────
+// The milestone lines ("COMBO!", "ON FIRE!", "UNSTOPPABLE!") are the emotional
+// peak of a streak, so they get their own signal chain instead of the shared SFX
+// path: a low shelf for chest weight, a compressor so the whole line sits forward,
+// and extra gain so it cuts through the music. The music is ducked for the length
+// of the line (BackgroundMusicPlayer listens for this event), which is what makes
+// the voice read as an announcer rather than just another sound effect.
+export const AUDIO_DUCK_EVENT = 'wordcrew:duck-audio';
+
+const ANNOUNCER_GAIN = 1.9;      // effects volume 0.7 → a full-scale line
+const ANNOUNCER_DUCK_MS = 1700;  // roughly the length of a one-word callout
+
+let announcerContext: AudioContext | null = null;
+const announcerBuffers = new Map<string, AudioBuffer>();
+const announcerLoads = new Map<string, Promise<AudioBuffer | null>>();
+let liveAnnouncer: AudioBufferSourceNode | null = null;
+
+const getAnnouncerContext = (): AudioContext | null => {
+  if (typeof window === 'undefined') return null;
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+  try {
+    announcerContext ??= new Ctor();
+    if (announcerContext.state === 'suspended') void announcerContext.resume().catch(() => undefined);
+    return announcerContext;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Decoded once per URL and kept for the session. Decoding avoids the HTMLAudioElement
+ * path, which is what lets the callout run through the compressor/EQ chain below.
+ */
+const loadAnnouncerBuffer = (ctx: AudioContext, url: string): Promise<AudioBuffer | null> => {
+  const cached = announcerBuffers.get(url);
+  if (cached) return Promise.resolve(cached);
+  let pending = announcerLoads.get(url);
+  if (!pending) {
+    pending = fetch(url)
+      .then((response) => (response.ok ? response.arrayBuffer() : null))
+      .then((data) => (data ? ctx.decodeAudioData(data) : null))
+      .catch(() => null)
+      .then((decoded) => {
+        if (decoded) announcerBuffers.set(url, decoded);
+        announcerLoads.delete(url);
+        return decoded;
+      });
+    announcerLoads.set(url, pending);
+  }
+  return pending;
+};
+
+/** Ducks the looping music under the voice line. */
+const duckMusic = () => {
+  try {
+    window.dispatchEvent(new CustomEvent(AUDIO_DUCK_EVENT, { detail: { ms: ANNOUNCER_DUCK_MS } }));
+  } catch {
+    /* CustomEvent unsupported — the line simply plays over the music. */
+  }
+};
+
+/**
+ * Plays a pre-rendered announcer callout at full presence. Falls back to a boosted
+ * `playSound` when the Web Audio API or the fetch is unavailable (file:// APKs,
+ * very old WebViews), so a callout is never silently lost.
+ */
+export const playAnnouncer = (
+  soundSource: string | CustomSoundFile | null | undefined,
+  volume?: number,
+) => {
+  const url = typeof soundSource === 'string' ? soundSource : soundSource?.data;
+  if (!url) return;
+  const base = clampVolume(volume);
+  if (base <= 0) return;
+  const gainValue = Math.min(1, base * ANNOUNCER_GAIN);
+
+  duckMusic();
+
+  const ctx = getAnnouncerContext();
+  if (!ctx) {
+    playSound(url, gainValue);
+    return;
+  }
+
+  void loadAnnouncerBuffer(ctx, url).then((buffer) => {
+    if (!buffer || ctx.state !== 'running') {
+      playSound(url, gainValue);
+      return;
+    }
+    try {
+      // A new milestone should replace the previous line, not layer two voices.
+      if (liveAnnouncer) {
+        try {
+          liveAnnouncer.stop();
+        } catch {
+          /* already ended */
+        }
+        liveAnnouncer = null;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      // A hair of pitch lift adds urgency without changing the voice's character.
+      source.playbackRate.value = 1.03;
+
+      const weight = ctx.createBiquadFilter();
+      weight.type = 'lowshelf';
+      weight.frequency.value = 170;
+      weight.gain.value = 5;
+
+      const presence = ctx.createBiquadFilter();
+      presence.type = 'highshelf';
+      presence.frequency.value = 2600;
+      presence.gain.value = 2;
+
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -24;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 4;
+      compressor.attack.value = 0.004;
+      compressor.release.value = 0.22;
+
+      const gain = ctx.createGain();
+      gain.gain.value = gainValue;
+
+      source
+        .connect(weight)
+        .connect(presence)
+        .connect(compressor)
+        .connect(gain)
+        .connect(ctx.destination);
+
+      liveAnnouncer = source;
+      source.onended = () => {
+        if (liveAnnouncer === source) liveAnnouncer = null;
+      };
+      source.start();
+    } catch {
+      playSound(url, gainValue);
+    }
+  });
+};
+

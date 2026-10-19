@@ -3,6 +3,7 @@ import { AuthDialog } from './AuthDialog';
 import { Icon } from './Icon';
 import { useAuth } from '../contexts/AuthContext';
 import { DAILY_TRACK, SOLO_FREE_TRACK_ID, SOLO_TRACKS, shortLevel, type SoloTrack } from '../services/solo';
+import { addDays, localDateId } from '../services/periods';
 import {
   currentPeriod,
   fetchSoloBoard,
@@ -19,6 +20,22 @@ interface SoloLeaderboardPanelProps {
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
+/** How many days of the daily board stay one tap away in the archive. */
+const DAILY_ARCHIVE_DAYS = 7;
+
+const dailyDateLabel = (dateId: string, index: number): string => {
+  if (index === 0) return 'Today';
+  if (index === 1) return 'Yest.';
+  return new Date(`${dateId}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
+};
+
+const longDate = (dateId: string): string =>
+  new Date(`${dateId}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  });
+
 /** Every board the panel can show: the four CEFR tracks, then the challenge of the day. */
 const BOARDS: SoloTrack[] = [...SOLO_TRACKS, DAILY_TRACK];
 
@@ -27,8 +44,10 @@ const BOARDS: SoloTrack[] = [...SOLO_TRACKS, DAILY_TRACK];
  *
  * One board per track (not one global board), so a beginner and a B2 student
  * compete like-for-like — plus Today's Challenge, which is the same seeded run for
- * everyone. Boards reset on a period (weekly for the tracks, daily for the challenge);
- * only the current period is shown, so the board is always a fresh race.
+ * everyone. Boards reset on a period (monthly for the tracks, daily for the challenge);
+ * the tracks show the current month, while the daily board keeps the last week
+ * selectable so a missed day can still be looked up — the score itself is archived
+ * under its own day id in Firestore.
  *
  * The device best is shown straight from localStorage, so the panel is useful signed
  * out and offline; the shared Firestore board only loads once there is a signed-in
@@ -44,9 +63,22 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
   const [board, setBoard] = useState<SoloBoard | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  // Which day of the daily archive is open; reset to today every time the panel opens.
+  const [dailyDate, setDailyDate] = useState(() => localDateId());
 
   const track = useMemo(() => BOARDS.find((item) => item.id === boardId) ?? BOARDS[0], [boardId]);
   const isDaily = track.id === DAILY_TRACK.id;
+  const period = isDaily ? dailyDate : currentPeriod(boardId);
+  const isToday = dailyDate === localDateId();
+  const dailyDates = useMemo(
+    () =>
+      isOpen
+        ? Array.from({ length: DAILY_ARCHIVE_DAYS }, (_, index) =>
+            localDateId(addDays(new Date(), -index)),
+          )
+        : [],
+    [isOpen],
+  );
   const localBest = useMemo(() => (isOpen ? readLocalSoloBest(boardId) : null), [isOpen, boardId]);
   const isTrackLocked = !isUnlocked && !isDaily && track.id !== SOLO_FREE_TRACK_ID;
 
@@ -60,6 +92,11 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
   }, [isOpen, onClose]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    setDailyDate(localDateId());
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !user) {
       setBoard(null);
       setLoading(false);
@@ -68,7 +105,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const rows = await fetchSoloBoard(boardId, currentPeriod(boardId), user.uid, 10);
+      const rows = await fetchSoloBoard(boardId, period, user.uid, 10);
       if (cancelled) return;
       setBoard(rows);
       setLoading(false);
@@ -76,7 +113,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, user, boardId]);
+  }, [isOpen, user, boardId, period]);
 
   if (!isOpen) return null;
 
@@ -110,7 +147,9 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
     }
     if (board.rows.length === 0) {
       return (
-        <p className="text-center text-xs text-[var(--wn-9)]">No scores yet — you’re first!</p>
+        <p className="text-center text-xs text-[var(--wn-9)]">
+          {isDaily && !isToday ? 'No scores on that day.' : 'No scores yet — you’re first!'}
+        </p>
       );
     }
     return (
@@ -141,7 +180,8 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
         </ol>
         {board.rank !== null && board.rank > board.rows.length && (
           <p className="mt-2 text-center text-xs font-semibold text-[var(--wa-10)]">
-            You’re #{board.rank} of {board.total} this {isDaily ? 'day' : 'week'}.
+            You’re #{board.rank} of {board.total}{' '}
+            {isDaily ? (isToday ? 'today' : 'that day') : 'this month'}.
           </p>
         )}
       </>
@@ -203,11 +243,43 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
           })}
         </div>
 
+        {isDaily && (
+          <div className="mt-3">
+            <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-[var(--wn-9)]">
+              Daily archive
+            </p>
+            <div
+              className="wc-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+              role="group"
+              aria-label="Choose a day"
+            >
+              {dailyDates.map((date, index) => {
+                const isActive = date === dailyDate;
+                return (
+                  <button
+                    key={date}
+                    type="button"
+                    onClick={() => setDailyDate(date)}
+                    aria-pressed={isActive}
+                    className={`wc-btn wc-btn-sm shrink-0 ${isActive ? 'wc-btn-primary' : 'wc-btn-ghost'}`}
+                  >
+                    {dailyDateLabel(date, index)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <p className="mt-2 text-xs text-[var(--wn-9)]">
           {track.tagline} · {track.levels.map(shortLevel).join(' → ')}
         </p>
         <p className="mt-1 text-xs font-semibold text-[var(--wa-10)]">
-          {isDaily ? 'Today only — resets at midnight.' : 'This week — resets every Monday.'}
+          {isDaily
+            ? isToday
+              ? 'Today only — resets at midnight. Past days stay in the archive.'
+              : `Archived board · ${longDate(dailyDate)}`
+            : 'This month — resets on the 1st.'}
         </p>
 
         {localBest && (

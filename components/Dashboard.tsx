@@ -1,10 +1,16 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { useAuth } from '../contexts/AuthContext';
+import {
+  DISPLAY_NAME_MAX,
+  DISPLAY_NAME_MIN,
+  displayNameCooldownEndsAt,
+  useAuth,
+} from '../contexts/AuthContext';
 import { LoginButton } from './LoginButton';
 import { ThemeToggle } from './ThemeToggle';
-import { confirmDialog } from './Feedback';
+import { confirmDialog, toast } from './Feedback';
 import { Icon, type IconName } from './Icon';
+import { AdminAccountsPanel, AdminMonthlyRecords } from './AdminAccountsPanel';
 import { db } from '../services/firebase';
 import {
   fetchAdminOverview,
@@ -18,11 +24,15 @@ import {
   type MyOrder,
 } from '../services/payments';
 import { cefrWordLists } from '../cefrWordLists';
+import { isDailyDoneToday } from '../services/solo';
+import { localDateId } from '../services/periods';
+import { DAILY_FREEZES_PER_MONTH, dailyMilestone } from '../services/dailyHabit';
+import { fetchMyDailyHistory, type DailyHistoryRow } from '../services/soloLeaderboard';
 
 /** Loaded on demand — the leaderboard is opt-in, so it stays out of the entry chunk. */
 const SoloLeaderboardPanel = lazy(() => import('./SoloLeaderboardPanel'));
 
-type SectionId = 'games' | 'progress' | 'account' | 'admin';
+type SectionId = 'games' | 'progress' | 'account' | 'admin' | 'accounts';
 
 interface DashboardProps {
   /** True once a licence has been activated on this device. */
@@ -31,6 +41,8 @@ interface DashboardProps {
   entitlements: EntitlementItem[];
   /** Enter the WordCrew game (demo or full, decided by the game itself). */
   onPlayGame: () => void;
+  /** Jump straight into Today's Challenge — the one run that is the same for everyone. */
+  onStartDaily: () => void;
   /** Start the paid path — the app gates this behind sign-in. */
   onUnlock: () => void;
   /** Re-checks what the account owns — lets a freshly reconciled purchase unlock live. */
@@ -120,7 +132,16 @@ const ADMIN_SECTION: { id: SectionId; label: string; icon: IconName; title: stri
   label: 'Admin',
   icon: 'wrench',
   title: 'Admin',
-  subtitle: 'Orders, revenue and access grants.',
+  subtitle: 'Orders, revenue, access grants and Solo records.',
+};
+
+/** Owner-only account directory: FREE/PRO, presence and renames. */
+const ADMIN_ACCOUNTS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
+  id: 'accounts',
+  label: 'Account management',
+  icon: 'user',
+  title: 'Account management',
+  subtitle: 'Every account, FREE vs PRO, who is online and last sign-in.',
 };
 
 const INPUT_CLASS =
@@ -135,6 +156,12 @@ interface ProgressDoc {
   /** Consecutive days with at least one finished round, and the last such day. */
   playStreak?: number;
   lastPlayedDate?: string;
+  /** Today's Challenge habit — written by services/dailyHabit.ts. */
+  dailyStreak?: number;
+  dailyBestStreak?: number;
+  lastDailyDate?: string;
+  dailyFreezeMonth?: string;
+  dailyFreezesUsed?: number;
 }
 
 const useProgressDoc = (): ProgressDoc | null => {
@@ -194,8 +221,8 @@ const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) 
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onUnlock, onRefreshAccount }) => {
-  const { user, loading, getIdToken } = useAuth();
+export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onStartDaily, onUnlock, onRefreshAccount }) => {
+  const { user, profile, loading, getIdToken, updateDisplayName } = useAuth();
   const [section, setSection] = useState<SectionId>('games');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [admin, setAdmin] = useState<AdminOverview | null>(null);
@@ -204,7 +231,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const [grantEmail, setGrantEmail] = useState('');
   const [showSoloBoard, setShowSoloBoard] = useState(false);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameBusy, setNameBusy] = useState(false);
+  const [dailyHistory, setDailyHistory] = useState<DailyHistoryRow[] | null>(null);
   const progress = useProgressDoc();
+
+  // The rename form starts from the stored profile name and follows live updates.
+  useEffect(() => {
+    setNameDraft(profile?.displayName ?? '');
+  }, [profile?.displayName]);
 
   // The account's own orders — pending ones carry the transfer code a buyer needs to keep.
   const loadOrders = useCallback(async () => {
@@ -233,13 +268,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     void loadAdmin();
   }, [loadAdmin]);
 
-  const navSections = useMemo(() => (admin ? [...SECTIONS, ADMIN_SECTION] : SECTIONS), [admin]);
+  const navSections = useMemo(
+    () => (admin ? [...SECTIONS, ADMIN_SECTION, ADMIN_ACCOUNTS_SECTION] : SECTIONS),
+    [admin],
+  );
   // A section can disappear while it is open (sign-out, revoked admin); fall back to Games.
-  const current = section === 'admin' && !admin ? 'games' : section;
+  const current = (section === 'admin' || section === 'accounts') && !admin ? 'games' : section;
   const active = useMemo(
     () => navSections.find((item) => item.id === current) ?? navSections[0],
     [navSections, current],
   );
+
+  const today = localDateId();
+  const dailyDoneToday = profile?.lastDailyDate === today || isDailyDoneToday();
+  const freezesUsed =
+    progress?.dailyFreezeMonth === today.slice(0, 7) ? progress?.dailyFreezesUsed ?? 0 : 0;
+  const freezesLeft = Math.max(0, DAILY_FREEZES_PER_MONTH - freezesUsed);
+  const dailyBest = progress?.dailyBestStreak ?? 0;
+  const dailyBadge = dailyMilestone(dailyBest);
+
+  // The seven-day strip is only needed while My progress is open, and it is re-read each
+  // time the tab is visited so a run finished a minute ago shows up.
+  useEffect(() => {
+    if (current !== 'progress' || !user) {
+      setDailyHistory(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchMyDailyHistory(user.uid, 7).then((rows) => {
+      if (!cancelled) setDailyHistory(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [current, user]);
 
   const copyKey = async (value: string) => {
     try {
@@ -318,8 +380,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     }
   };
 
+  // Self-service rename: the context re-checks the cooldown against a fresh read, so the
+  // date shown here is only there to save the player a doomed round-trip.
+  const cooldownEndsAt = displayNameCooldownEndsAt(profile);
+  const renameLockedUntil = cooldownEndsAt && cooldownEndsAt > Date.now() ? cooldownEndsAt : null;
+
+  const handleRename = async () => {
+    if (nameBusy || !user) return;
+    setNameBusy(true);
+    try {
+      await updateDisplayName(nameDraft);
+      toast('Display name updated.', 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not update your name.', 'error');
+    } finally {
+      setNameBusy(false);
+    }
+  };
+
   const greetingName =
-    user?.displayName?.trim().split(/\s+/)[0] || user?.email?.split('@')[0] || '';
+    profile?.displayName?.trim().split(/\s+/)[0] || user?.displayName?.trim().split(/\s+/)[0] || user?.email?.split('@')[0] || '';
 
   // Orders the account placed that are not paid yet — surfaced so the transfer code is
   // never lost once the QR dialog closes.
@@ -329,6 +409,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
   const renderGames = () => (
     <div className="flex flex-col gap-5 lg:h-full">
+      {/* The one nudge on this screen: the daily is the only run everybody shares, so it
+          is worth a banner until it has been played today. */}
+      {!dailyDoneToday && (
+        <section
+          className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--wa-5)] bg-[var(--wa-2)] p-4 sm:flex-row sm:items-center sm:justify-between"
+          aria-label="Today's Challenge"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl" aria-hidden="true">
+              🌅
+            </span>
+            <div>
+              <p className="text-sm font-bold text-[var(--wn-12)]">Today’s Challenge is waiting</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-[var(--wn-10)]">
+                {(progress?.dailyStreak ?? 0) > 0
+                  ? `🔥 ${progress?.dailyStreak}-day streak — keep it alive. Same ladder for everyone, about 90 seconds.`
+                  : 'Same ladder for everyone. One run a day, about 90 seconds.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onStartDaily}
+            className="wc-btn wc-btn-primary shrink-0"
+          >
+            <Icon name="play" size={16} />
+            Play today’s
+          </button>
+        </section>
+      )}
+
       {/* Hero — the sample round is the focal point; the copy stays quiet around it. */}
       <section className="wc-hero p-5 sm:p-6 lg:shrink-0">
         <div className="grid gap-6 md:grid-cols-[1.05fr_0.95fr] md:items-center">
@@ -513,13 +624,123 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       );
     }
     return (
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        {/* The streak leads: it is the one counter that measures coming back, not playing. */}
-        <StatCard label="Day streak" value={progress?.playStreak ?? 0} />
-        <StatCard label="Rounds played" value={progress?.roundsPlayed ?? 0} />
-        <StatCard label="Best score" value={progress?.bestScore ?? 0} />
-        <StatCard label="Words guessed" value={progress?.wordsGuessed ?? 0} />
-        <StatCard label="Best streak" value={progress?.bestStreak ?? 0} />
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+          {/* The streak leads: it is the one counter that measures coming back, not playing. */}
+          <StatCard label="Day streak" value={progress?.playStreak ?? 0} />
+          <StatCard label="Rounds played" value={progress?.roundsPlayed ?? 0} />
+          <StatCard label="Best score" value={progress?.bestScore ?? 0} />
+          <StatCard label="Words guessed" value={progress?.wordsGuessed ?? 0} />
+          <StatCard label="Best streak" value={progress?.bestStreak ?? 0} />
+        </div>
+
+        {/* The daily habit: streak, freezes and the week at a glance. This is the screen
+            that answers "is it worth coming back tomorrow?". */}
+        <div className="wc-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-[var(--wn-12)]">🌅 Daily challenge</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--wn-9)]">
+                One seeded ladder a day — the same words for every player. A missed day is
+                covered by a freeze, up to {DAILY_FREEZES_PER_MONTH} a month.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onStartDaily}
+              className="wc-btn wc-btn-secondary wc-btn-sm shrink-0"
+            >
+              <Icon name="play" size={14} />
+              {dailyDoneToday ? 'Play again' : 'Play today'}
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-2">
+              <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">
+                {progress?.dailyStreak ?? 0}
+              </p>
+              <p className="text-[0.65rem] text-[var(--wn-9)]">Day streak</p>
+            </div>
+            <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-2">
+              <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">
+                {dailyBest}
+              </p>
+              <p className="text-[0.65rem] text-[var(--wn-9)]">Best streak</p>
+            </div>
+            <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-2">
+              <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">{freezesLeft}</p>
+              <p className="text-[0.65rem] text-[var(--wn-9)]">Freezes left</p>
+            </div>
+          </div>
+
+          {/* Badges are derived from the best streak — no inventory, just a milestone. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {dailyBadge.current && (
+              <span className="rounded-full border border-[var(--wa-7)] bg-[var(--wa-3)] px-2.5 py-1 text-[0.7rem] font-bold text-[var(--wa-11)]">
+                {dailyBadge.current.emoji} {dailyBadge.current.label}
+              </span>
+            )}
+            <p className="text-[0.7rem] text-[var(--wn-9)]">
+              {dailyBadge.next
+                ? `${dailyBadge.next.at - dailyBest} more day${
+                    dailyBadge.next.at - dailyBest === 1 ? '' : 's'
+                  } to ${dailyBadge.next.emoji} ${dailyBadge.next.label}`
+                : 'Every badge unlocked — legendary.'}
+            </p>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-[var(--wn-9)]">
+              Last 7 days
+            </p>
+            {dailyHistory === null ? (
+              <p className="mt-2 animate-subtlePulse text-xs text-[var(--wn-9)]">Loading…</p>
+            ) : dailyHistory.every((row) => row.score === null) ? (
+              <p className="mt-2 text-xs text-[var(--wn-9)]">
+                No daily runs in the last 7 days. Today is a good day to start.
+              </p>
+            ) : (
+              <div className="mt-2 flex items-end gap-1.5">
+                {[...dailyHistory].reverse().map((row, index, week) => {
+                  const isTodayBar = index === week.length - 1;
+                  const peak = Math.max(1, ...week.map((item) => item.score ?? 0));
+                  const height =
+                    row.score === null ? 4 : Math.max(8, Math.round((row.score / peak) * 56));
+                  const label = new Date(`${row.period}T00:00:00`).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                  });
+                  return (
+                    <div
+                      key={row.period}
+                      className="flex min-w-0 flex-1 flex-col items-center gap-1"
+                      title={`${label}: ${row.score === null ? 'no run' : row.score.toLocaleString()}`}
+                    >
+                      <span
+                        className={`w-full rounded-t ${
+                          row.score === null
+                            ? 'bg-[var(--wn-4)]'
+                            : isTodayBar
+                              ? 'bg-[var(--wa-8)]'
+                              : 'bg-[var(--wa-5)]'
+                        }`}
+                        style={{ height }}
+                        aria-hidden="true"
+                      />
+                      <span
+                        className={`text-[0.6rem] ${
+                          isTodayBar ? 'font-bold text-[var(--wa-11)]' : 'text-[var(--wn-8)]'
+                        }`}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -535,13 +756,61 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-            {user ? user.displayName || 'Signed in' : 'Not signed in'}
+            {user ? profile?.displayName || user.displayName || 'Signed in' : 'Not signed in'}
           </p>
           <p className="truncate text-xs text-[var(--wn-9)]">
             {user ? user.email : 'Playing as a guest on this device.'}
           </p>
         </div>
       </div>
+
+      {user && (
+        <>
+          <div className="my-5 h-px bg-[var(--wn-4)]" />
+
+          <p className="text-sm font-semibold text-[var(--wn-12)]">Display name</p>
+          <p className="mt-1 text-xs text-[var(--wn-9)]">
+            This is the name shown on the Solo leaderboards. You can change it once every 30 days;
+            contact the admin if you need it sooner.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <label htmlFor="accountDisplayName" className="sr-only">
+              Display name
+            </label>
+            <input
+              id="accountDisplayName"
+              type="text"
+              autoComplete="nickname"
+              maxLength={DISPLAY_NAME_MAX}
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              disabled={Boolean(renameLockedUntil) || nameBusy}
+              className={INPUT_CLASS}
+              placeholder="Your name"
+            />
+            <button
+              type="button"
+              onClick={() => void handleRename()}
+              disabled={
+                Boolean(renameLockedUntil) ||
+                nameBusy ||
+                nameDraft.trim().length < DISPLAY_NAME_MIN ||
+                nameDraft.trim() === (profile?.displayName ?? '')
+              }
+              className="wc-btn wc-btn-primary shrink-0"
+            >
+              {nameBusy ? 'Saving…' : 'Save name'}
+            </button>
+          </div>
+          {renameLockedUntil && (
+            <p className="mt-2 text-xs text-[var(--wn-10)]">
+              You can change your name again on{' '}
+              {new Date(renameLockedUntil).toLocaleDateString()}. Contact the admin if you need it
+              sooner.
+            </p>
+          )}
+        </>
+      )}
 
       <div className="my-5 h-px bg-[var(--wn-4)]" />
 
@@ -788,6 +1057,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             </ul>
           )}
         </div>
+
+        <AdminMonthlyRecords />
       </div>
     );
   };
@@ -851,6 +1122,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           {current === 'progress' && renderProgress()}
           {current === 'account' && renderAccount()}
           {current === 'admin' && renderAdmin()}
+          {current === 'accounts' && <AdminAccountsPanel />}
         </div>
       </main>
     </div>

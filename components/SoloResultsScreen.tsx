@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 import { SpeakButton } from './SpeakButton';
 import { DAILY_BOARD_ID, shortLevel } from '../services/solo';
 import type { SoloRunResult, SoloTrack } from '../services/solo';
+import { dailyMilestone, type DailyCompletionOutcome } from '../services/dailyHabit';
 import {
   fetchSoloBoard,
   saveLocalSoloBest,
@@ -17,6 +18,12 @@ interface SoloResultsScreenProps {
   result: SoloRunResult;
   userId: string | null;
   userName: string | null;
+  /** Consecutive daily runs, shown on the challenge result to make tomorrow matter. */
+  dailyStreak?: number;
+  /** Longest streak ever — the source of the milestone badge. */
+  dailyBestStreak?: number;
+  /** What this run did to the habit; null for a replay or an offline run. */
+  dailyOutcome?: DailyCompletionOutcome | null;
   onPlayAgain: () => void;
   onHome: () => void;
 }
@@ -42,6 +49,9 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   result,
   userId,
   userName,
+  dailyStreak = 0,
+  dailyBestStreak = 0,
+  dailyOutcome = null,
   onPlayAgain,
   onHome,
 }) => {
@@ -54,6 +64,12 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   const accuracy = result.wordsPlayed > 0 ? Math.round((result.wordsGuessed / result.wordsPlayed) * 100) : 0;
   const isDaily = result.boardId === DAILY_BOARD_ID;
   const missed = result.missedWords;
+  // The fresh outcome beats the profile snapshot, which may still be one write behind.
+  const streak = dailyOutcome?.streak ?? dailyStreak;
+  const bestStreak = dailyOutcome?.bestStreak ?? dailyBestStreak;
+  const { current: badge } = dailyMilestone(bestStreak);
+  // Best only ever grows by one, so equality means the badge was earned by this run.
+  const badgeUnlockedNow = Boolean(dailyOutcome && badge && dailyOutcome.bestStreak === badge.at);
 
   // Persist the run and, when signed in, publish it to the board for this period.
   useEffect(() => {
@@ -111,6 +127,29 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
           ⭐ New personal best!
         </span>
       )}
+      {isDaily && userId && streak > 0 && (
+        <span className="rounded-full border border-danger-red/40 bg-danger-red/10 px-3 py-1 text-xs font-bold text-danger-red">
+          🔥 {streak}-day streak — play tomorrow to keep it
+        </span>
+      )}
+      {isDaily && userId && badge && (
+        <span
+          className={`rounded-full border px-3 py-1 text-xs font-bold ${
+            badgeUnlockedNow
+              ? 'border-warning-yellow/60 bg-warning-yellow/15 text-warning-yellow'
+              : 'border-cyber-purple/50 bg-cyber-purple/20 text-light-text/90'
+          }`}
+        >
+          {badgeUnlockedNow
+            ? `🎉 ${badge.emoji} ${badge.label} badge unlocked`
+            : `${badge.emoji} ${badge.label} · best ${bestStreak} days`}
+        </span>
+      )}
+      {isDaily && userId && dailyOutcome && dailyOutcome.freezesSpent > 0 && (
+        <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-3 py-1 text-xs font-bold text-electric-blue">
+          ❄️ Streak freeze used — {dailyOutcome.freezesLeft} left this month
+        </span>
+      )}
 
       <div className="grid w-full shrink-0 grid-cols-3 gap-2 text-center">
         <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
@@ -161,7 +200,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
           🏆 {track.name} leaderboard
         </p>
         <p className="-mt-1 mb-2 text-center text-[0.65rem] text-muted-text">
-          {isDaily ? 'Today only — a fresh board tomorrow.' : 'This week — a fresh board every Monday.'}
+          {isDaily ? 'Today only — a fresh board tomorrow.' : 'This month — a fresh board on the 1st.'}
         </p>
 
         {!userId ? (
@@ -209,7 +248,7 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
             </ol>
             {rankOutsideTop && (
               <p className="mt-2 text-center text-xs font-semibold text-warning-yellow">
-                You’re #{board.rank} of {board.total} this {isDaily ? 'day' : 'week'}.
+                You’re #{board.rank} of {board.total} this {isDaily ? 'day' : 'month'}.
               </p>
             )}
           </>

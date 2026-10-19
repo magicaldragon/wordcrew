@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CircularTimer from './CircularTimer';
 import { CustomSoundFile } from '../types';
-import { playSound, CORRECT_SOUNDS, ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES } from '../constants';
+import { playSound, playAnnouncer, CORRECT_SOUNDS, ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES } from '../constants';
 import { getVietnameseMeaning } from '../vietnameseMeanings';
 import {
   buildLetterBoxes,
@@ -28,7 +28,7 @@ import {
   type SoloWord,
 } from '../services/solo';
 import type { HintClue } from '../hintClues.generated';
-import { isoWeekId } from '../services/periods';
+import { monthId } from '../services/periods';
 import { addMissedWords, markReviewCorrect, readDueReviews, REVIEW_PER_RUN } from '../services/review';
 import { Icon } from './Icon';
 import { SpeakButton } from './SpeakButton';
@@ -92,14 +92,20 @@ interface SpeechInput {
   clearError: () => void;
 }
 
-/** No `onstart` within this long → the engine is dead on this device; stop pretending. */
-const SPEECH_START_WATCHDOG_MS = 1600;
+/** No `onstart` within this long → the engine is dead on this device; stop pretending.
+ *  Generous on purpose: a cold engine on a budget Android phone can take a couple of
+ *  seconds, and killing it there is one of the ways the mic used to feel unresponsive. */
+const SPEECH_START_WATCHDOG_MS = 3200;
 /** Safety stop, so a session that never ends cannot hang "Listening…" forever. */
-const SPEECH_MAX_LISTEN_MS = 12000;
-/** Gap before hands-free mode reopens the mic after a silent session ends. */
-const SPEECH_AUTO_RESTART_MS = 400;
-/** Cap on consecutive hands-free restarts, so a broken engine cannot spin forever. */
-const SPEECH_MAX_AUTO_RESTARTS = 4;
+const SPEECH_MAX_LISTEN_MS = 15000;
+/** First gap before hands-free mode reopens the mic after a session ends. */
+const SPEECH_AUTO_RESTART_MS = 300;
+/**
+ * Cap on consecutive hands-free restarts. High enough that a player who pauses to think
+ * is never cut off — Chrome ends a silent session after a few seconds — while a truly
+ * broken engine still cannot spin forever.
+ */
+const SPEECH_MAX_AUTO_RESTARTS = 60;
 
 /**
  * Mic permission state when the browser exposes it, 'unknown' otherwise. Needed because a
@@ -143,7 +149,6 @@ const useSpeechInput = (
   const restartRef = useRef<number | null>(null);
   const autoRestartsRef = useRef(0);
   const manualStopRef = useRef(false);
-  const gotFinalRef = useRef(false);
 
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -164,6 +169,12 @@ const useSpeechInput = (
       restartRef.current = null;
     }
   }, []);
+
+  /** Retry gaps grow gently, so a flaky engine backs off instead of hammering the mic. */
+  const restartDelay = useCallback(
+    (): number => Math.min(1200, SPEECH_AUTO_RESTART_MS + autoRestartsRef.current * 120),
+    [],
+  );
 
   const teardown = useCallback(() => {
     clearTimers();
@@ -186,7 +197,6 @@ const useSpeechInput = (
   // through the same `listenTick` path used after a wrong answer.
   const beginCloud = useCallback(() => {
     manualStopRef.current = false;
-    gotFinalRef.current = false;
     teardown();
     setError(null);
     setInterim('');
@@ -208,7 +218,6 @@ const useSpeechInput = (
 
       if (result.kind === 'cancelled') return;
       if (result.kind === 'heard') {
-        gotFinalRef.current = true;
         onFinalRef.current(result.transcript, []);
         return;
       }
@@ -236,10 +245,10 @@ const useSpeechInput = (
         autoRestartsRef.current += 1;
         restartRef.current = window.setTimeout(() => {
           if (autoListenRef.current && !manualStopRef.current) beginRef.current(false);
-        }, SPEECH_AUTO_RESTART_MS);
+        }, restartDelay());
       }
     });
-  }, [teardown, autoListenRef]);
+  }, [teardown, autoListenRef, restartDelay]);
 
   // `onend` needs to reopen the mic for hands-free mode, so the starter lives in a ref
   // to avoid a declaration cycle. `user` starts a fresh restart budget; hands-free
@@ -248,6 +257,10 @@ const useSpeechInput = (
 
   const begin = useCallback(
     (user: boolean) => {
+      // A hands-free re-arm can race the previous session's own `onend`: the first one
+      // already reopened the mic, and tearing it down here would clip the player's next
+      // word. If a session is alive, there is nothing to re-arm.
+      if (!user && (recRef.current || cloudRef.current)) return;
       if (cloudTier) {
         if (user) autoRestartsRef.current = 0;
         beginCloud();
@@ -255,7 +268,6 @@ const useSpeechInput = (
       }
       if (!Ctor) return;
       manualStopRef.current = false;
-      gotFinalRef.current = false;
       if (user) autoRestartsRef.current = 0;
       teardown();
       setError(null);
@@ -272,7 +284,11 @@ const useSpeechInput = (
       rec.lang = 'en-US';
       rec.interimResults = true;
       rec.maxAlternatives = 5;
-      rec.continuous = false;
+      // Continuous keeps one session open across a pause for thought and across several
+      // attempts on the same word. Previously every final result (or a silent timeout)
+      // ended the session and the player had to speak again into a fresh mic — which
+      // read as "the mic is not sensitive".
+      rec.continuous = true;
 
       rec.onstart = () => {
         if (recRef.current !== rec) return;
@@ -307,9 +323,8 @@ const useSpeechInput = (
             interimText += result[0].transcript;
           }
         }
-        setInterim((finalText || interimText).trim());
+        setInterim(finalText ? '' : interimText.trim());
         if (finalText) {
-          gotFinalRef.current = true;
           onFinalRef.current(finalText.trim(), alternatives);
         }
       };
@@ -339,13 +354,12 @@ const useSpeechInput = (
         if (
           autoListenRef.current &&
           !manualStopRef.current &&
-          !gotFinalRef.current &&
           autoRestartsRef.current < SPEECH_MAX_AUTO_RESTARTS
         ) {
           autoRestartsRef.current += 1;
           restartRef.current = window.setTimeout(() => {
             if (autoListenRef.current && !manualStopRef.current) beginRef.current(false);
-          }, SPEECH_AUTO_RESTART_MS);
+          }, restartDelay());
         }
       };
 
@@ -376,7 +390,7 @@ const useSpeechInput = (
 
       watchdogRef.current = window.setTimeout(checkStarted, SPEECH_START_WATCHDOG_MS);
     },
-    [Ctor, teardown, autoListenRef, cloudTier, beginCloud],
+    [Ctor, teardown, autoListenRef, cloudTier, beginCloud, restartDelay],
   );
 
   beginRef.current = begin;
@@ -395,7 +409,6 @@ const useSpeechInput = (
     manualStopRef.current = true;
     teardown();
     autoRestartsRef.current = 0;
-    gotFinalRef.current = false;
     setListening(false);
     setTranscribing(false);
     setInterim('');
@@ -475,8 +488,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     seqRef.current = createSoloSequence(track, rng, priority);
   }
   // The board the run posts to is simply the track, and the period is frozen at mount —
-  // a run that straddles midnight still scores inside one week (or one day).
-  const periodRef = useRef(dailyDateId ?? isoWeekId());
+  // a run that straddles midnight still scores inside one month (or one day).
+  const periodRef = useRef(dailyDateId ?? monthId());
   // Words missed during this run (a timeout, a skip, or the last ladder rung), collected
   // for review. A wrong attempt is recoverable and deliberately not recorded here.
   const missedRef = useRef<SoloWord[]>([]);
@@ -499,9 +512,10 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const [hint, setHint] = useState<HintClue | null>(null);
   const [hintLoading, setHintLoading] = useState(false);
   const [rung, setRung] = useState(0);
-  // Typed near miss: the masked target after the last wrong attempt. An empty string
-  // means the guess was wrong but too far off to reveal which letters landed.
-  const [spellingHint, setSpellingHint] = useState<string | null>(null);
+  // Wrong attempt: what the player thought they heard/said, and the masked target when
+  // the miss was close enough to show which letters landed. Drives both the red flash
+  // and the hint line, so a miss is never silent — typed or spoken.
+  const [wrong, setWrong] = useState<{ key: number; message: string; hint: string } | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [heartToast, setHeartToast] = useState<number | null>(null);
   // A run is worth a confirmation before it is thrown away: tapping Quit opens an
@@ -543,6 +557,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const advanceTimer = useRef<number | null>(null);
   const bannerTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const wrongTimer = useRef<number | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { currentRef.current = current; }, [current]);
@@ -551,6 +566,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    if (wrongTimer.current) window.clearTimeout(wrongTimer.current);
     // Leaving the run must not leave a pronunciation talking over the results screen.
     stopSpeaking();
   }, []);
@@ -583,6 +599,21 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setHeartToast(null), 1800);
   }, []);
+
+  /**
+   * The visible half of a miss: the screen pulses red, the letter boxes shake, and the
+   * hint line says what landed (the heard transcript, or the masked letters). A wrong
+   * guess stays recoverable — it never costs a heart — but it must never feel ignored.
+   */
+  const showWrong = useCallback((message: string, hint = '') => {
+    setWrong({ key: Date.now(), message, hint });
+    if (wrongTimer.current) window.clearTimeout(wrongTimer.current);
+    wrongTimer.current = window.setTimeout(() => setWrong(null), 2400);
+  }, []);
+
+  /** Blanks are spaced out so kept letters read as chunks: "televi_ion" → "televi _ ion". */
+  const prettifyMask = (mask: string) =>
+    mask.replace(/_+/g, (run) => ` ${run.split('').join(' ')} `).trim();
 
   // `handleCorrect` needs to stop the mic, but the mic hook is created below it —
   // the stop function is reached through a ref to avoid a declaration cycle.
@@ -642,7 +673,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         // never appear over the new word, even for a frame.
         setHint(null);
         setRung(0);
-        setSpellingHint(null);
+        setWrong(null);
       }, delay);
     },
     [endGame, showBanner, track.levels, timePerWord],
@@ -683,6 +714,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       if (heartGained) showHeartToast();
 
       setPhase('correct');
+      setWrong(null);
       // Echo the target, never the raw answer: both typed near-misses and accepted
       // homophones are marked correct, and the field must then read the word the
       // player was actually guessing.
@@ -702,19 +734,23 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             : nextStreak === ANNOUNCER_STREAK_MILESTONES.COMBO
               ? ANNOUNCER_CALLOUTS.COMBO
               : null;
-      if (callout) playSound(callout, effectsVolume);
+      if (callout) playAnnouncer(callout, effectsVolume);
       scheduleAdvance(1000);
     },
     [applyStats, customCorrectSounds, effectsVolume, scheduleAdvance, showHeartToast],
   );
 
   // A wrong guess is not a failure state for either input: the word stays open, nothing
-  // is deducted, and the clock is the only cost. A typed near miss keeps its text so the
-  // masked hint can be acted on; a voice transcript is cleared because it is not editable.
-  const handleWrong = useCallback(() => {
-    if (resolvedRef.current || phaseRef.current !== 'guessing') return;
-    setInput('');
-  }, []);
+  // is deducted, and the clock is the only cost. It still gets a visible sign though —
+  // a red pulse, a shake, and the part of the word that did land.
+  const handleWrong = useCallback(
+    (message = 'Not quite — try again.', hint = '') => {
+      if (resolvedRef.current || phaseRef.current !== 'guessing') return;
+      setInput('');
+      showWrong(message, hint);
+    },
+    [showWrong],
+  );
 
   const handleTimeout = useCallback(() => {
     if (resolvedRef.current || phaseRef.current !== 'guessing') return;
@@ -769,9 +805,20 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         // spell "wear" — the screen must agree with the answer it just marked correct.
         handleCorrect();
       } else {
-        handleWrong();
-        // Hands-free: re-arm the mic so the player can simply try again.
-        if (autoListenRef.current && statsRef.current.hearts > 0) setListenTick((tick) => tick + 1);
+        // Show what the recogniser heard and which letters of the target it got right.
+        // A miss with no explanation was the part that felt like nothing happened.
+        const heard = candidates[0] ?? '';
+        const mask = heard ? buildSpellingHint(target, heard) ?? '' : '';
+        handleWrong(
+          heard ? `Heard “${heard}” — try again.` : 'Didn’t catch that — try again.',
+          mask,
+        );
+        // Hands-free: re-arm the mic so the player can simply try again. With a
+        // continuous session the mic is already open — bumping the tick would abort it
+        // and clip the retry, which is exactly the "say it 2–3 times" bug.
+        if (autoListenRef.current && !speech.listening && statsRef.current.hearts > 0) {
+          setListenTick((tick) => tick + 1);
+        }
       }
     })();
   }, autoListenRef);
@@ -862,12 +909,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (!value || phase !== 'guessing') return;
     // Typing is judged on the exact spelling; voice keeps its sound-based tolerance.
     if (isExactSoloAnswer(value, answer)) {
-      setSpellingHint(null);
+      setWrong(null);
       handleCorrect();
       return;
     }
-    // Stay on the word: the clock, not the attempt, is what costs a heart.
-    setSpellingHint(buildSpellingHint(answer, value) ?? '');
+    // Stay on the word: the clock, not the attempt, is what costs a heart. The mask
+    // shows which letters landed, so a near miss points at its own fix.
+    handleWrong('Not quite — check the spelling.', buildSpellingHint(answer, value) ?? '');
   };
 
   const lastHeartIndex = stats.hearts - 1;
@@ -928,14 +976,22 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           {shortLevel(current.level)}
         </span>
 
-        {/* The letter boxes: first letter revealed, the rest blank, count spelled out */}
-        <div className="flex flex-wrap items-end justify-center gap-x-3 gap-y-2">
+        {/* The letter boxes: first letter revealed, the rest blank, count spelled out.
+            Exo 2 (the body face) is used here instead of Orbitron: Orbitron's geometric
+            D and O are near-identical at tile size, which made the single revealed
+            letter genuine guesswork. Exo 2 has a flat, unmistakable D stem. */}
+        <div
+          key={wrong ? `boxes-${wrong.key}` : 'boxes'}
+          className={`flex flex-wrap items-end justify-center gap-x-3 gap-y-2 ${
+            wrong ? 'animate-wrongShake' : ''
+          }`}
+        >
           {letterGroups.map((group, gi) => (
             <div key={gi} className="flex gap-1.5">
               {group.map((char, ci) => (
                 <span
                   key={ci}
-                  className={`flex ${boxClass} items-center justify-center rounded-md border-2 border-electric-blue/40 bg-dark-metal font-heading font-bold uppercase text-light-text ${
+                  className={`flex ${boxClass} items-center justify-center rounded-md border-2 border-electric-blue/40 bg-dark-metal font-sans font-bold uppercase leading-none tracking-[0.02em] text-light-text ${
                     phase === 'revealed' ? 'border-danger-red/50' : ''
                   }`}
                 >
@@ -1063,7 +1119,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             onChange={(event) => {
               setInput(event.target.value);
               // The mask describes the previous attempt; editing makes it stale.
-              setSpellingHint(null);
+              setWrong(null);
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !overlayOpen) onCheck();
@@ -1086,16 +1142,25 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             type="button"
             onClick={speech.listening ? speech.stop : speech.start}
             disabled={!speech.supported || phase !== 'guessing' || overlayOpen || speech.transcribing}
-            title={speech.supported ? 'Answer by voice' : 'Voice input needs Chrome, Edge or Safari'}
+            title={
+              speech.listening
+                ? 'Listening — tap to stop'
+                : speech.supported
+                  ? 'Answer by voice'
+                  : 'Voice input needs Chrome, Edge or Safari'
+            }
             aria-label={speech.listening ? 'Stop listening' : 'Answer by voice'}
+            aria-pressed={speech.listening}
             className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-xl transition disabled:opacity-40 ${
               speech.listening
-                ? 'animate-pulse border-danger-red bg-danger-red/20 text-danger-red'
-                : 'border-electric-blue/50 bg-electric-blue/10 text-electric-blue hover:bg-electric-blue/20'
+                ? 'border-danger-red bg-danger-red text-dark-metal shadow-lg shadow-danger-red/40 ring-4 ring-danger-red/25'
+                : speech.transcribing
+                  ? 'border-electric-blue bg-electric-blue text-dark-metal'
+                  : 'border-electric-blue/50 bg-transparent text-electric-blue hover:bg-electric-blue/10'
             }`}
           >
-              <Icon name="mic" size={20} />
-            </button>
+            <Icon name="mic" size={20} />
+          </button>
           {speech.supported && (
             <button
               type="button"
@@ -1109,8 +1174,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               }
               className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-[0.65rem] font-bold uppercase tracking-wider transition disabled:opacity-40 ${
                 autoListen
-                  ? 'border-neon-green bg-neon-green/20 text-neon-green'
-                  : 'border-cyber-purple/50 bg-cyber-purple/10 text-cyber-purple hover:bg-cyber-purple/20'
+                  ? 'border-neon-green bg-neon-green text-dark-metal shadow-lg shadow-neon-green/30'
+                  : 'border-cyber-purple/50 bg-transparent text-cyber-purple hover:bg-cyber-purple/10'
               }`}
             >
               Auto
@@ -1126,23 +1191,22 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           </button>
         </div>
 
-        {/* Live transcript + mic hint */}
+        {/* Live transcript + mic hint. A miss takes this line over — it says what was
+            heard and which letters landed, so the retry has something to aim at. */}
         <div className="flex items-center gap-2 text-[0.7rem]">
-          {spellingHint !== null ? (
-            <span role="status" className="truncate font-semibold text-warning-yellow">
-              {spellingHint ? (
-                <>
-                  Try again:{' '}
-                  <span className="font-mono tracking-[0.18em] text-light-text">
-                    {/* Blanks are spaced out so the kept letters read as chunks:
-                        "televi_ion" → "televi _ ion". */}
-                    {spellingHint.replace(/_+/g, (run) => ` ${run.split('').join(' ')} `).trim()}
-                  </span>
-                </>
-              ) : (
-                'Not quite — check the spelling.'
+          {wrong ? (
+            <div
+              key={wrong.key}
+              role="status"
+              className="flex w-full animate-fadeInScaleUp flex-col gap-0.5 rounded-lg border border-danger-red/50 bg-danger-red/10 px-2.5 py-1"
+            >
+              <span className="truncate font-bold text-danger-red">❌ {wrong.message}</span>
+              {wrong.hint && (
+                <span className="truncate font-mono text-[0.72rem] tracking-[0.16em] text-light-text">
+                  Try again: {prettifyMask(wrong.hint)}
+                </span>
               )}
-            </span>
+            </div>
           ) : !speech.supported ? (
             <span className="text-muted-text/70">
               {typeof window !== 'undefined' && !window.isSecureContext
@@ -1185,6 +1249,20 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           {skipCostsHeart ? 'Skip word → (−1 ❤️)' : `Skip word → (${stats.freeSkips} free)`}
         </button>
       </div>
+
+      {/* Wrong-answer sign: a red pulse across the whole screen. Pointer-transparent, so
+          it marks the miss without swallowing the next attempt. */}
+      {wrong && (
+        <div
+          key={`flash-${wrong.key}`}
+          className="pointer-events-none fixed inset-0 z-40 animate-wrongFlash"
+          style={{
+            background:
+              'radial-gradient(circle at center, rgba(248,113,113,0.10) 0%, rgba(248,113,113,0.45) 100%)',
+          }}
+          aria-hidden="true"
+        />
+      )}
 
       {autoPaused && !confirmQuit && (
         <div

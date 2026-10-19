@@ -22,17 +22,18 @@ const MAX_CLIP_MS = 6000;
  * Silence that ends a clip early. Long enough that a pause between the words of a
  * two-word answer ("ice cream") is not mistaken for the end of it.
  */
-const SILENCE_MS = 1000;
+const SILENCE_MS = 1100;
 
 /** How often the level meter is read while recording. */
 const VAD_POLL_MS = 100;
 
 /**
- * RMS below this counts as room tone. Deliberately low: cutting a quiet speaker off
- * costs an answer, while a few hundred milliseconds of silence costs a fraction of
- * a neuron.
+ * RMS below this counts as room tone. Deliberately low: a quiet speaker or a phone
+ * held at arm's length should still register. The cost of keeping a little room tone
+ * in the clip is a fraction of a neuron; the cost of cutting a real answer is the
+ * player having to say it again — which is exactly what felt broken.
  */
-const SPEECH_RMS = 0.015;
+const SPEECH_RMS = 0.008;
 
 /** Opus in WebM first: the smallest payload, and the widest browser support. */
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -195,7 +196,15 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
 
     void (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          // Let the browser fight room tone and lift a quiet speaker before the clip is
+          // encoded — the phone is often on a desk, not held to the mouth.
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
       } catch {
         settle({ status: 'mic' });
         return;

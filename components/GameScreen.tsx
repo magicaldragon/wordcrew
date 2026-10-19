@@ -6,7 +6,7 @@ import { VolumeControls } from './VolumeControls';
 import { Icon } from './Icon';
 import { SpeakButton } from './SpeakButton';
 import { 
-    playSound, CORRECT_SOUNDS, SKIP_SOUNDS, SINGLE_SOUND_EFFECTS,
+    playSound, playAnnouncer, CORRECT_SOUNDS, SKIP_SOUNDS, SINGLE_SOUND_EFFECTS,
     COMBO_ACTIVATION_THRESHOLD, COMBO_POINT_BONUS, 
     COMBO_TIME_BONUS_THRESHOLD, COMBO_TIME_BONUS_SECONDS, MAX_COMBO_TIME_BONUS_APPLICATIONS,
     POWERUP_TIME_FREEZE_SECONDS, RUSH_HOUR_DURATION_SECONDS, FINAL_COUNTDOWN_SECONDS,
@@ -802,7 +802,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             : newStreak === ANNOUNCER_STREAK_MILESTONES.ON_FIRE
               ? ANNOUNCER_CALLOUTS.ON_FIRE
               : ANNOUNCER_CALLOUTS.COMBO;
-        playSound(callout, effectsVolume);
+        playAnnouncer(callout, effectsVolume);
       }
       if (isRushHourActiveState) {
         awardedPointsThisTurn *= 2;
@@ -981,7 +981,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     }
     if (gameTimeLeft <= 0 || hurryUpCalledRef.current) return;
     hurryUpCalledRef.current = true;
-    playSound(ANNOUNCER_CALLOUTS.HURRY_UP, effectsVolumeRef.current);
+    playAnnouncer(ANNOUNCER_CALLOUTS.HURRY_UP, effectsVolumeRef.current);
   }, [gameTimeLeft, isTeamMode, showGameUI, isPaused]);
 
     // Team Mode Turn Timer — ticks only; the auto-skip on expiry is a separate effect so
