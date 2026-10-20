@@ -8,7 +8,7 @@ import type { UnlockOutcome } from '../services/payments';
 import { VolumeControls } from './VolumeControls';
 import { CEFRLevel, cefrWordLists, formatWordsForTextarea, WORD_COUNT_OPTIONS } from '../cefrWordLists';
 import { addWordSet, readWordSets, removeWordSet, type SavedWordSet } from '../services/wordSets';
-import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_STYLES, SOLO_STYLE_TIME, SOLO_TRACKS, DAILY_TRACK, isDailyDoneToday, shortLevel, type SoloTrack, type SoloStyle } from '../services/solo';
+import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_STYLES, SOLO_STYLE_TIME, SOLO_TIMER_FLOOR, SOLO_TRACKS, DAILY_TRACK, isDailyDoneToday, shortLevel, type SoloTrack, type SoloStyle } from '../services/solo';
 import { readLocalSoloBest } from '../services/soloLeaderboard';
 import { readDueReviews, reviewCount } from '../services/review';
 import { confirmDialog, toast } from './Feedback';
@@ -730,7 +730,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
               </p>
               <p className="text-sm leading-snug text-muted-text setup-screen-small-text">
                 Start with {SOLO_START_HEARTS} hearts · {SOLO_FREE_SKIPS} free skips · {SOLO_STYLE_TIME[soloStyle]}s per
-                word.
+                word, tightening to {SOLO_TIMER_FLOOR[soloStyle]}s as the run goes on.
               </p>
               <p className="mt-1 text-sm leading-snug text-muted-text setup-screen-small-text">
                 Right: +10 points. Wrong? Try again — only running out of time costs −10 points and −1 heart. Losing every heart ends the run.

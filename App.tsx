@@ -5,6 +5,16 @@ import { AuthDialog } from './components/AuthDialog';
 import { PurchaseDialog } from './components/PurchaseDialog';
 import { useAuth } from './contexts/AuthContext';
 import { DAILY_TRACK, markDailyDone, type SoloTrack, type SoloRunResult, type SoloStyle } from './services/solo';
+import {
+  buildDeckTest,
+  buildLevelSession,
+  buildRetrySession,
+  reshuffleSession,
+  type TeacherAnswer,
+  type TeacherDeck,
+  type TeacherLevelId,
+  type TeacherSession,
+} from './services/teacherDeck';
 import { localDateId } from './services/periods';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
@@ -20,6 +30,11 @@ const GameScreen = lazy(() => import('./components/GameScreen').then((m) => ({ d
 const ResultsScreen = lazy(() => import('./components/ResultsScreen').then((m) => ({ default: m.ResultsScreen })));
 const SoloGameScreen = lazy(() => import('./components/SoloGameScreen').then((m) => ({ default: m.SoloGameScreen })));
 const SoloResultsScreen = lazy(() => import('./components/SoloResultsScreen').then((m) => ({ default: m.SoloResultsScreen })));
+// Teacher Mode is its own flow — setup, test, report — and never posts to a board, so it
+// has no reason to sit in the initial bundle either.
+const TeacherSetupScreen = lazy(() => import('./components/TeacherSetupScreen').then((m) => ({ default: m.TeacherSetupScreen })));
+const TeacherTestScreen = lazy(() => import('./components/TeacherTestScreen').then((m) => ({ default: m.TeacherTestScreen })));
+const TeacherReportScreen = lazy(() => import('./components/TeacherReportScreen').then((m) => ({ default: m.TeacherReportScreen })));
 
 /** Neutral placeholder shown for the instant a split screen chunk is still loading. */
 const ScreenFallback: React.FC = () => (
@@ -110,7 +125,7 @@ const App: React.FC = () => {
   const storageWarningShown = useRef(false);
 
   // The portal dashboard is the app's home; the game is one destination inside it.
-  const [view, setView] = useState<'dashboard' | 'game' | 'solo'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'game' | 'solo' | 'teacher'>('dashboard');
   // Landing (marketing) screen shown when entering a game, before its setup shell.
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // Mode the player picked on the landing screen; pre-selected in SetupScreen.
@@ -141,6 +156,15 @@ const App: React.FC = () => {
   // What the daily run just did to the streak (freezes spent, badge reached). Kept beside
   // the result so the screen can explain a freeze instead of silently consuming it.
   const [dailyOutcome, setDailyOutcome] = useState<DailyCompletionOutcome | null>(null);
+
+  // == Teacher Mode state ==
+  // Teacher Mode is a classroom check, not a scored run: one session of level-locked (or
+  // deck) words, one set of answers, one report. Nothing is posted to a leaderboard and
+  // nothing is written to the player's Memory Anchors.
+  const [teacherSession, setTeacherSession] = useState<TeacherSession | null>(null);
+  const [teacherAnswers, setTeacherAnswers] = useState<TeacherAnswer[] | null>(null);
+  // Bumped per attempt so the test screen remounts with a clean index and input.
+  const [teacherRunId, setTeacherRunId] = useState(0);
 
   const { user, profile, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
@@ -341,7 +365,9 @@ const App: React.FC = () => {
   const musicPhase: GamePhase | 'SILENT' =
     view === 'solo'
       ? (soloPhase === 'playing' ? GamePhase.PLAYING : 'SILENT')
-      : gamePhase;
+      : view === 'teacher'
+        ? 'SILENT'
+        : gamePhase;
   const previousMusicPhase = usePrevious(musicPhase);
 
   useEffect(() => {
@@ -546,6 +572,62 @@ const App: React.FC = () => {
     setSoloDailyDateId(null);
     setActiveMusicOverride(null);
     setShowLanding(true);
+    setView('dashboard');
+  }, []);
+
+  // == Teacher Mode handlers ==
+  // Teacher Mode bypasses the landing/setup wizard entirely: a teacher opens it from the
+  // dashboard, picks a level or a deck, and runs the test from there.
+  const handleOpenTeacher = useCallback(() => {
+    setTeacherSession(null);
+    setTeacherAnswers(null);
+    setShowLanding(false);
+    setActiveMusicOverride(null);
+    setView('teacher');
+  }, []);
+
+  const startTeacherSession = useCallback((session: TeacherSession) => {
+    setTeacherSession(session);
+    setTeacherAnswers(null);
+    setTeacherRunId((id) => id + 1);
+  }, []);
+
+  const handleStartLevelTest = useCallback(
+    (levelId: TeacherLevelId, count: number) => startTeacherSession(buildLevelSession(levelId, count)),
+    [startTeacherSession],
+  );
+
+  const handleStartDeckTest = useCallback(
+    (deck: TeacherDeck) => startTeacherSession(buildDeckTest(deck)),
+    [startTeacherSession],
+  );
+
+  const handleTeacherFinish = useCallback((answers: TeacherAnswer[]) => {
+    setTeacherAnswers(answers);
+  }, []);
+
+  const handleTeacherRetryMissed = useCallback(() => {
+    if (!teacherSession || !teacherAnswers) return;
+    startTeacherSession(buildRetrySession(teacherSession, teacherAnswers));
+  }, [startTeacherSession, teacherAnswers, teacherSession]);
+
+  const handleTeacherRetryAll = useCallback(() => {
+    if (!teacherSession) return;
+    startTeacherSession(reshuffleSession(teacherSession));
+  }, [startTeacherSession, teacherSession]);
+
+  // Back to the setup screen rather than the dashboard, so a teacher can run a second
+  // test without walking through the portal again.
+  const handleTeacherBackToSetup = useCallback(() => {
+    setTeacherSession(null);
+    setTeacherAnswers(null);
+  }, []);
+
+  const handleTeacherExit = useCallback(() => {
+    setTeacherSession(null);
+    setTeacherAnswers(null);
+    setShowLanding(true);
+    setActiveMusicOverride(null);
     setView('dashboard');
   }, []);
 
@@ -886,9 +968,41 @@ const App: React.FC = () => {
     }
     return null;
   };
-  
+
+  const renderTeacherScreen = () => {
+    if (teacherSession && teacherAnswers) {
+      return (
+        <TeacherReportScreen
+          session={teacherSession}
+          answers={teacherAnswers}
+          onRetryMissed={handleTeacherRetryMissed}
+          onRetryAll={handleTeacherRetryAll}
+          onHome={handleTeacherExit}
+        />
+      );
+    }
+    if (teacherSession) {
+      return (
+        <TeacherTestScreen
+          key={teacherRunId}
+          session={teacherSession}
+          onFinish={handleTeacherFinish}
+          onExit={handleTeacherBackToSetup}
+        />
+      );
+    }
+    return (
+      <TeacherSetupScreen
+        onStartLevel={handleStartLevelTest}
+        onStartDeck={handleStartDeckTest}
+        onExit={handleTeacherExit}
+      />
+    );
+  };
+
   const rushHourBounceClass = isAppRushHourActive && gamePhase === GamePhase.PLAYING ? 'animate-rushHourBounce' : '';
   const isSolo = view === 'solo';
+  const isTeacher = view === 'teacher';
   // Solo now configures itself inside the shared setup wizard, so the header simply
   // frames that wizard as solo while the mode is pre-selected.
   const isSoloSetup = !isSolo && !showLanding && gamePhase === GamePhase.SETUP && initialGameMode === 'solo';
@@ -896,7 +1010,8 @@ const App: React.FC = () => {
   // player is back on a static screen.
   const isRoundInProgress =
     (view === 'game' && !showLanding && gamePhase === GamePhase.PLAYING) ||
-    (isSolo && soloPhase === 'playing');
+    (isSolo && soloPhase === 'playing') ||
+    (isTeacher && Boolean(teacherSession) && !teacherAnswers);
 
   // A live round is painful to lose to a stray refresh, Cmd+W or a mis-swiped tab, so ask
   // the browser to confirm before the page unloads. Browsers only honour the prompt once
@@ -912,13 +1027,15 @@ const App: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isRoundInProgress]);
   // Escape hatch back to the portal, offered on the setup wizard only so a live round
-  // (in either mode) can never be abandoned by a stray tap on the header.
-  const canExitToHome = !isSolo && !showLanding && gamePhase === GamePhase.SETUP;
+  // (in either mode) can never be abandoned by a stray tap on the header. Teacher Mode
+  // carries its own exit controls, and its test screen asks before dropping answers.
+  const canExitToHome = !isSolo && !isTeacher && !showLanding && gamePhase === GamePhase.SETUP;
   const showMajorUpdateNotice = Boolean(majorUpdateVersion && majorUpdateVersion !== dismissedUpdateVersion);
   // The minor/patch reload offer is surfaced on a static screen only — never while a
   // round is being played — and steps aside for the louder MAJOR notice when both are due.
   const isStaticScreen =
     view === 'dashboard' ||
+    isTeacher ||
     showLanding ||
     (!isSolo && gamePhase === GamePhase.SETUP);
   const showPwaUpdatePill = pwaUpdateReady && !dismissedPwaUpdate && isStaticScreen && !showMajorUpdateNotice;
@@ -986,6 +1103,7 @@ const App: React.FC = () => {
           entitlements={entitlements}
           onPlayGame={handlePlayGame}
           onStartDaily={handleStartDaily}
+          onOpenTeacher={handleOpenTeacher}
           onUnlock={requestPurchase}
           onRefreshAccount={refreshEntitlements}
         />
@@ -1003,7 +1121,7 @@ const App: React.FC = () => {
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
           <span className="block text-[0.65rem] sm:text-xs font-sans uppercase tracking-[0.35em] text-electric-blue/80 mb-1">
-            {isSolo || isSoloSetup ? 'Solo Challenge' : 'Only Talented Guessers'}
+            {isTeacher ? 'Teacher Mode' : isSolo || isSoloSetup ? 'Solo Challenge' : 'Only Talented Guessers'}
           </span>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold tracking-wider text-warning-yellow animate-goldPulseGlow">
             {canExitToHome ? (
@@ -1021,11 +1139,15 @@ const App: React.FC = () => {
             )}
           </h1>
           <p className="mt-1 sm:mt-2 text-base sm:text-lg text-muted-text font-sans">
-            {isSolo || isSoloSetup
-              ? soloPhase === 'playing' && soloTrack
-                ? `${soloTrack.emoji} ${soloTrack.name} — type or say your guess before time runs out!`
-                : 'Play solo, climb the CEFR ladder and top the leaderboard.'
-              : 'Describe the word on screen to your partner before time runs out!'}
+            {isTeacher
+              ? teacherSession
+                ? `${teacherSession.title} — type the English word for each prompt.`
+                : 'One level or one deck. A report at the end — no hearts, no score.'
+              : isSolo || isSoloSetup
+                ? soloPhase === 'playing' && soloTrack
+                  ? `${soloTrack.emoji} ${soloTrack.name} — type or say your guess before time runs out!`
+                  : 'Play solo, climb the CEFR ladder and top the leaderboard.'
+                : 'Describe the word on screen to your partner before time runs out!'}
           </p>
         </header>
         <div className="relative flex min-h-0 w-full flex-grow flex-col">
@@ -1033,7 +1155,7 @@ const App: React.FC = () => {
             className={`futuristic-card shadow-2xl rounded-xl w-full min-h-0 flex-grow overflow-y-auto ${getMainCardClass()}`}
           >
             <Suspense fallback={<ScreenFallback />}>
-              {isSolo ? renderSoloScreen() : renderScreen()}
+              {isSolo ? renderSoloScreen() : isTeacher ? renderTeacherScreen() : renderScreen()}
             </Suspense>
           </main>
           {canExitToHome && (

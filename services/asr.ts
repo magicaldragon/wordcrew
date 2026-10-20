@@ -1,4 +1,4 @@
-﻿// Server-side speech recognition — the fallback tier.
+﻿﻿// Server-side speech recognition — the fallback tier.
 //
 // The Web Speech API answers inside the browser and covers Chrome, Edge and Safari,
 // but Firefox and older Android WebViews ship no `SpeechRecognition` at all, and on

@@ -11,9 +11,12 @@ import {
   dailySeed,
   isExactSoloAnswer,
   letterCount,
+  readSeenWords,
+  recordSeenWords,
   seededRng,
   shortLevel,
   soloStreakBonus,
+  soloTimeForWord,
   SOLO_CORRECT_POINTS,
   SOLO_FREE_SKIPS,
   SOLO_HEART_MILESTONES,
@@ -472,11 +475,12 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   onEnd,
   onExit,
 }) => {
-  // Endless word source, drawn from the track's ladder and stepping up in difficulty.
-  // Two things bend the source: Today's Challenge seeds the shuffle from the day id, so
-  // every player meets the same words in the same order; a normal run opens with the
-  // Memory Anchors the player still has to relearn. A daily run deliberately skips the
-  // anchors — they are personal, and the race of the day has to be the same for everyone.
+  // Endless word source, drawn from the track's bands on a weighted schedule that drifts
+  // from easy to hard. Two things bend the source: Today's Challenge seeds the shuffle
+  // from the day id, so every player meets the same words in the same order; a normal run
+  // opens with the Memory Anchors the player still has to relearn and skips the words the
+  // previous run just served. A daily run deliberately uses neither — the anchors are
+  // personal and the cooldown would make the race of the day differ per device.
   const seqRef = useRef<SoloSequence | null>(null);
   if (!seqRef.current) {
     const priority = dailyDateId
@@ -485,7 +489,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           .slice(0, REVIEW_PER_RUN)
           .map((item) => ({ word: item.word, level: item.level }));
     const rng = dailyDateId ? seededRng(dailySeed(dailyDateId)) : Math.random;
-    seqRef.current = createSoloSequence(track, rng, priority);
+    const avoid = dailyDateId ? [] : readSeenWords(track.id);
+    seqRef.current = createSoloSequence(track, rng, priority, avoid);
   }
   // The board the run posts to is simply the track, and the period is frozen at mount —
   // a run that straddles midnight still scores inside one month (or one day).
@@ -493,15 +498,17 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   // Words missed during this run (a timeout, a skip, or the last ladder rung), collected
   // for review. A wrong attempt is recoverable and deliberately not recorded here.
   const missedRef = useRef<SoloWord[]>([]);
-  // A described word is two sentences to read before the first key, so the clock is the
-  // style's clock, frozen for the run.
+  // The opening clock, and the clock actually running on the current word. The run starts
+  // on the style's clock and tightens as it goes (see `soloTimeForWord`); the result still
+  // reports the opening clock, so two runs are compared like for like.
   const timePerWord = SOLO_STYLE_TIME[style];
 
   const [current, setCurrent] = useState<SoloWord>(() => seqRef.current!.next());
   const [wordNo, setWordNo] = useState(1);
   const [phase, setPhase] = useState<Phase>('guessing');
   const [stats, setStats] = useState<SoloStats>(initialStats);
-  const [timeLeft, setTimeLeft] = useState(timePerWord);
+  const [timeLimit, setTimeLimit] = useState(() => soloTimeForWord(style, 0));
+  const [timeLeft, setTimeLeft] = useState(timeLimit);
   const [input, setInput] = useState('');
   const [points, setPoints] = useState<{ value: number; bonus: number; key: number } | null>(null);
   // The gloss ships with the app, so it is ready the moment the word changes — there is
@@ -627,6 +634,9 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (endedRef.current) return;
     endedRef.current = true;
     speechStopRef.current();
+    // Remember what this run served so the next one opens on fresh words. Today's
+    // Challenge is skipped: its seed is the only thing that may shape its word list.
+    if (!dailyDateId) recordSeenWords(track.id, seqRef.current?.served ?? []);
     const s = statsRef.current;
     onEnd({
       trackId: track.id,
@@ -638,11 +648,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       bestStreak: s.bestStreak,
       hintsUsed: s.hints,
       wordsPlayed: s.played,
-      levelReached: levelRef.current,
+      // The hardest band the run reached — the mix drifts both ways, so the last word
+      // is not a fair label for it.
+      levelReached: track.levels[maxBandRef.current] ?? levelRef.current,
       timePerWord,
       missedWords: missedRef.current,
     });
-  }, [onEnd, track.id, style, timePerWord]);
+  }, [dailyDateId, onEnd, track.id, track.levels, style, timePerWord]);
 
   const scheduleAdvance = useCallback(
     (delay: number) => {
@@ -667,7 +679,11 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         setWordNo((n) => n + 1);
         setPhase('guessing');
         setInput('');
-        setTimeLeft(timePerWord);
+        // The clock tightens with progress: the opening band plays on the full clock,
+        // then one second comes off every dozen words, down to the style's floor.
+        const nextLimit = soloTimeForWord(style, statsRef.current.played);
+        setTimeLimit(nextLimit);
+        setTimeLeft(nextLimit);
         setPoints(null);
         // The help ladder starts over with the word: the old clue and the old rung must
         // never appear over the new word, even for a frame.
@@ -676,7 +692,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         setWrong(null);
       }, delay);
     },
-    [endGame, showBanner, track.levels, timePerWord],
+    [endGame, showBanner, track.levels, style],
   );
 
   const handleCorrect = useCallback(
@@ -937,13 +953,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             {track.emoji} {track.name} · {shortLevel(current.level)} · Word {wordNo}
           </p>
           <p className="mt-0.5 text-[0.7rem] text-muted-text/70">
-            {style === 'describe' ? '🎧 Listen & guess' : '🇻🇳 Meaning & spell'} · Endless
+            {style === 'describe' ? '🎧 Listen & guess' : '🇻🇳 Meaning & spell'} · {timeLimit}s
           </p>
         </div>
         <div className="flex min-w-[4.5rem] justify-end">
           <CircularTimer
             timeLeft={timeLeft}
-            totalTime={timePerWord}
+            totalTime={timeLimit}
             isFrozen={speech.transcribing}
             isRushHour={false}
             size={56}

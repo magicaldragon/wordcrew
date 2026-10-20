@@ -2,9 +2,8 @@
 //
 // Solo is the single-player counterpart of the pass-and-play game: here the *player*
 // is the guesser. The app shows a clue (the Vietnamese gloss) and the player answers
-// by typing or talking. Words are drawn from a ladder of CEFR packs and always played
-// in ascending difficulty, so every run ramps up from the easiest band the track
-// covers to its hardest.
+// by typing or talking. Words are drawn from the CEFR bands a track covers, weighted so
+// the mix drifts from easy to hard as the run goes on (see `soloBandWeights`).
 //
 // A run is endless: it only stops when the player runs out of hearts. The player
 // starts with a fixed set of hearts and a few free skips, earns points for correct
@@ -160,9 +159,9 @@ export const SOLO_WRONG_PENALTY = 10;
 export const SOLO_MIN_SCORE = 0;
 /** A streak bonus lands on every Nth consecutive correct guess. */
 export const SOLO_STREAK_STEP = 5;
-/** Seconds allowed to answer before the word counts as a miss. */
+/** Seconds allowed to answer before the word counts as a miss (the opening clock). */
 export const SOLO_TIME_PER_WORD = 15;
-/** Words played on one band before the ladder steps up to the next one. */
+/** The opening stretch of a run: this many words before the band mix starts to drift. */
 export const SOLO_WORDS_PER_BAND = 8;
 /**
  * Score marks that refund a heart, so a long clean run can absorb a few slips.
@@ -224,6 +223,23 @@ export const SOLO_STYLE_TIME: Record<SoloStyle, number> = {
   meaning: SOLO_TIME_PER_WORD,
 };
 
+// ── Timer ramp ─────────────────────────────────────────────────────────────
+/**
+ * The clock starts generous and tightens as the run goes on: one second comes off every
+ * `SOLO_TIMER_SHRINK_EVERY` words after the opening band, down to a floor that keeps a
+ * word winnable. A static clock only makes an endless run *long*, never *hard*; the ramp
+ * is what turns a good run into a finish rather than a standoff.
+ */
+export const SOLO_TIMER_GRACE_WORDS = SOLO_WORDS_PER_BAND;
+export const SOLO_TIMER_SHRINK_EVERY = 12;
+export const SOLO_TIMER_FLOOR: Record<SoloStyle, number> = { describe: 20, meaning: 9 };
+
+/** Seconds on the clock for word number `wordsPlayed` (0-based) in this style. */
+export const soloTimeForWord = (style: SoloStyle, wordsPlayed: number): number => {
+  const steps = Math.floor(Math.max(0, wordsPlayed - SOLO_TIMER_GRACE_WORDS) / SOLO_TIMER_SHRINK_EVERY);
+  return Math.max(SOLO_TIMER_FLOOR[style], SOLO_STYLE_TIME[style] - steps);
+};
+
 /** Bonus points awarded when a streak reaches `streak` (0 when it is not a milestone). */
 export const soloStreakBonus = (streak: number): number =>
   streak > 0 && streak % SOLO_STREAK_STEP === 0 ? streak : 0;
@@ -269,14 +285,115 @@ const wordsOfLevel = (level: CEFRLevel): string[] => {
   return [...bucket.nouns, ...bucket.verbs, ...bucket.adjectives, ...(bucket.phrasalVerbs ?? [])];
 };
 
+// ── Band schedule ──────────────────────────────────────────────────────────
+// A run used to be a hard staircase: eight words per band, then a permanent plateau on
+// the top band. That produced two bad runs — one that never leaves the easy words, and
+// one that hits the hardest band and stays there, so every later word is a pure tax on
+// the score. The schedule below spreads words across the whole ladder with a bell whose
+// centre drifts upward, so the mix gets harder without ever closing the easy bands.
+
+/** How many words it takes for the bell's centre to travel half the ladder. */
+const SOLO_RAMP_DRIFT = 30;
+/** Weight lost per band of distance from the bell's centre. */
+const SOLO_BAND_DECAY = 0.45;
+/** No band is ever at zero weight: easy words stay reachable at any point in a run. */
+const SOLO_BAND_MIN_WEIGHT = 0.08;
+/** Bands above this one are held back until the run has earned them. */
+export const SOLO_BAND_UNLOCK_EVERY = 10;
+
 /**
- * An endless word source for a track. It plays `SOLO_WORDS_PER_BAND` words on the
- * easiest band, then steps up one band, and plateaus on the hardest band so the run
- * keeps the track's ceiling. Each band draws from its own shuffled bag that is
- * reshuffled once exhausted, so words only repeat after the whole band is used.
+ * Weight for each band on the next word of a run that has already played `wordsPlayed`.
+ * The centre moves from the easiest band toward the hardest and never fully settles, so
+ * a long run keeps a real mix instead of drowning in the top band.
+ */
+export const soloBandWeights = (bandCount: number, wordsPlayed: number): number[] => {
+  if (bandCount <= 0) return [];
+  if (bandCount === 1) return [1];
+  const progress = wordsPlayed / (wordsPlayed + SOLO_RAMP_DRIFT);
+  const centre = progress * (bandCount - 1);
+  return Array.from({ length: bandCount }, (_, index) =>
+    Math.max(SOLO_BAND_MIN_WEIGHT, 1 - Math.abs(index - centre) * SOLO_BAND_DECAY),
+  );
+};
+
+/** Hardest band index a run of `wordsPlayed` words may draw from. */
+export const soloBandCeiling = (bandCount: number, wordsPlayed: number): number =>
+  Math.min(bandCount - 1, 1 + Math.floor(wordsPlayed / SOLO_BAND_UNLOCK_EVERY));
+
+const pickWeighted = (weights: number[], rng: () => number): number => {
+  const total = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  if (total <= 0) return 0;
+  let roll = rng() * total;
+  for (let index = 0; index < weights.length; index += 1) {
+    roll -= Math.max(0, weights[index]);
+    if (roll <= 0) return index;
+  }
+  return weights.length - 1;
+};
+
+// ── No-repeat cooldown ────────────────────────────────────────────────────
+// A band's bag already prevents repeats until it is exhausted, but the *next* run used
+// to start from a fresh shuffle and could serve the same words again. This store holds
+// the last 150 words served per band, per track, so a new run opens on fresh material.
+const SEEN_KEY = 'wordcrew_solo_seen_v1';
+const SEEN_PER_BAND = 150;
+
+type SeenByLevel = Record<string, string[]>;
+type SeenByTrack = Record<string, SeenByLevel>;
+
+const readSeenStore = (): SeenByTrack => {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as SeenByTrack;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+/** Words this track served recently — held back so a new run opens on fresh material. */
+export const readSeenWords = (trackId: string): SoloWord[] => {
+  const levels = readSeenStore()[trackId];
+  if (!levels) return [];
+  const out: SoloWord[] = [];
+  for (const [level, words] of Object.entries(levels)) {
+    const band = level as CEFRLevel;
+    if (!(band in cefrWordLists)) continue;
+    for (const word of words) out.push({ word, level: band });
+  }
+  return out;
+};
+
+/** Remembers a finished run's words so the next run does not repeat them. */
+export const recordSeenWords = (trackId: string, words: SoloWord[]): void => {
+  if (words.length === 0) return;
+  try {
+    const store = readSeenStore();
+    const levels = store[trackId] ?? {};
+    for (const item of words) {
+      const bucket = levels[item.level] ?? [];
+      if (!bucket.includes(item.word)) bucket.push(item.word);
+      if (bucket.length > SEEN_PER_BAND) bucket.splice(0, bucket.length - SEEN_PER_BAND);
+      levels[item.level] = bucket;
+    }
+    store[trackId] = levels;
+    localStorage.setItem(SEEN_KEY, JSON.stringify(store));
+  } catch {
+    /* Storage blocked — the cooldown is a comfort feature, not a rule. */
+  }
+};
+
+/**
+ * An endless word source for a track. Each word's band is drawn from the weighted
+ * schedule (easiest → hardest over the length of the run, never a hard wall), and each
+ * band draws from its own shuffled bag that is reshuffled once exhausted — minus the
+ * words served recently, so a run does not echo the one before it.
  */
 export interface SoloSequence {
   next: () => SoloWord;
+  /** Every word served this run, in order — persisted as the next run's cooldown. */
+  served: SoloWord[];
 }
 
 export const createSoloSequence = (
@@ -288,35 +405,73 @@ export const createSoloSequence = (
    * above the track's ceiling would never be reached and is dropped up front.
    */
   priority: SoloWord[] = [],
+  /** Words served on earlier runs, held back while their band has alternatives. */
+  avoid: SoloWord[] = [],
 ): SoloSequence => {
   const bands = track.levels;
   const bags = new Map<CEFRLevel, string[]>();
   const queued = new Map<CEFRLevel, string[]>();
+  const recent = new Map<CEFRLevel, string[]>();
+  const served: SoloWord[] = [];
+
   for (const item of priority) {
     if (!bands.includes(item.level)) continue;
     const bucket = queued.get(item.level);
     if (bucket) bucket.push(item.word);
     else queued.set(item.level, [item.word]);
   }
-  let step = 0;
+
+  for (const item of avoid) {
+    if (!bands.includes(item.level)) continue;
+    const bucket = recent.get(item.level) ?? [];
+    if (!bucket.includes(item.word)) bucket.push(item.word);
+    recent.set(item.level, bucket.slice(-SEEN_PER_BAND));
+  }
+
+  const remember = (level: CEFRLevel, word: string): void => {
+    const bucket = recent.get(level) ?? [];
+    bucket.push(word);
+    if (bucket.length > SEEN_PER_BAND) bucket.splice(0, bucket.length - SEEN_PER_BAND);
+    recent.set(level, bucket);
+  };
+
+  /** A fresh shuffle of one band, minus whatever the cooldown (or this run) already used. */
+  const fillBag = (level: CEFRLevel, random: () => number): string[] => {
+    const pool = wordsOfLevel(level);
+    const blocked = new Set(recent.get(level) ?? []);
+    const fresh = pool.filter((word) => !blocked.has(word));
+    // A whole band can be spoken for after a long cooldown; repeats beat a dead run.
+    return shuffle(fresh.length > 0 ? fresh : pool, random);
+  };
 
   const draw = (level: CEFRLevel): string => {
     const anchor = queued.get(level);
     if (anchor && anchor.length > 0) return anchor.shift() as string;
-    let bag = bags.get(level);
-    if (!bag || bag.length === 0) {
-      bag = shuffle(wordsOfLevel(level), rng);
-      bags.set(level, bag);
-    }
-    return bag.pop() as string;
+    const bag = bags.get(level);
+    if (!bag || bag.length === 0) bags.set(level, fillBag(level, rng));
+    const current = bags.get(level) as string[];
+    // A Memory Anchor served from the priority queue still sits in that band's shuffled
+    // bag; drop the words this run already used so the same word never comes back.
+    const blocked = new Set(recent.get(level) ?? []);
+    while (current.length > 0 && blocked.has(current[current.length - 1])) current.pop();
+    if (current.length > 0) return current.pop() as string;
+    // Everything in this band has been served this run — a repeat beats a dead run.
+    const pool = wordsOfLevel(level);
+    return pool[Math.floor(rng() * pool.length)] ?? pool[0];
   };
 
   return {
+    served,
     next: (): SoloWord => {
-      const bandIndex = Math.min(Math.floor(step / SOLO_WORDS_PER_BAND), bands.length - 1);
-      step += 1;
-      const level = bands[bandIndex];
-      return { word: draw(level), level };
+      const weights = soloBandWeights(bands.length, served.length);
+      const ceiling = soloBandCeiling(bands.length, served.length);
+      for (let index = ceiling + 1; index < weights.length; index += 1) weights[index] = 0;
+      const level = bands[pickWeighted(weights, rng)];
+      const word = draw(level);
+      remember(level, word);
+      const entry: SoloWord = { word, level };
+      served.push(entry);
+      return entry;
     },
   };
 };

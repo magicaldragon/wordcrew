@@ -43,6 +43,8 @@ interface DashboardProps {
   onPlayGame: () => void;
   /** Jump straight into Today's Challenge — the one run that is the same for everyone. */
   onStartDaily: () => void;
+  /** Open Teacher Mode — level-locked tests and pasted decks, with no leaderboard. */
+  onOpenTeacher: () => void;
   /** Start the paid path — the app gates this behind sign-in. */
   onUnlock: () => void;
   /** Re-checks what the account owns — lets a freshly reconciled purchase unlock live. */
@@ -221,7 +223,7 @@ const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) 
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onStartDaily, onUnlock, onRefreshAccount }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onStartDaily, onOpenTeacher, onUnlock, onRefreshAccount }) => {
   const { user, profile, loading, getIdToken, updateDisplayName } = useAuth();
   const [section, setSection] = useState<SectionId>('games');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -528,6 +530,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           isUnlocked={isUnlocked}
         />
       </Suspense>
+
+      {/* Teacher Mode sits beside the game, not inside it: a teacher tests a level or a
+          deck without going through the play wizard, and nothing is ranked. */}
+      <section
+        className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--wn-4)] bg-[var(--wn-2)] p-4 sm:flex-row sm:items-center sm:justify-between"
+        aria-label="Teacher Mode"
+      >
+        <div className="flex items-start gap-3">
+          <span className="text-2xl" aria-hidden="true">
+            🧑‍🏫
+          </span>
+          <div>
+            <p className="text-sm font-bold text-[var(--wn-12)]">Teacher Mode</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-[var(--wn-10)]">
+              Test one CEFR level, A1 to B2, or paste this week’s word list — meanings
+              are filled in for you to review. Students get a report, not a leaderboard.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenTeacher}
+          className="wc-btn wc-btn-secondary shrink-0"
+        >
+          <Icon name="type" size={16} />
+          Open Teacher Mode
+        </button>
+      </section>
 
       {/* Proof, not decoration: real counts straight from the word data. */}
       <section className="wc-stats lg:shrink-0" aria-label="What is in the box">
