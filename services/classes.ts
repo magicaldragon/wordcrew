@@ -7,6 +7,10 @@
 // to another user's `users/{uid}` profile, so adding a student to a class never widens what
 // that teacher can see elsewhere.
 //
+// A student gets in through either door: the teacher adds their email, or they redeem the
+// class code alone. Both end in the same member document, which is what the rules read, so
+// the two paths can never drift apart.
+//
 // Three assignment kinds, one submission shape:
 //
 //   vocabulary  a word list, Vietnamese prompt → English answer, scored like Teacher Mode
@@ -20,6 +24,7 @@
 import {
   addDoc,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -34,7 +39,6 @@ import type { TeacherWord } from './teacherDeck';
 
 const CLASSES = 'classes';
 const CODES = 'classCodes';
-const JOINED_KEY = 'wordcrew_class_joined_v1';
 
 export const CLASS_NAME_MAX = 40;
 export const MAX_MEMBERS = 200;
@@ -248,34 +252,6 @@ export const normalizeCode = (raw: string): string => raw.toUpperCase().replace(
 
 export const memberKey = (email: string): string => email.trim().toLowerCase();
 
-/** Classes this browser has joined, so a student does not re-enter the code each time. */
-export const readJoinedClasses = (): string[] => {
-  try {
-    const raw = localStorage.getItem(JOINED_KEY);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-};
-
-export const rememberJoinedClass = (classId: string): void => {
-  const next = [classId, ...readJoinedClasses().filter((id) => id !== classId)].slice(0, 10);
-  try {
-    localStorage.setItem(JOINED_KEY, JSON.stringify(next));
-  } catch {
-    /* Storage blocked — the class simply has to be re-entered next time. */
-  }
-};
-
-export const forgetJoinedClass = (classId: string): void => {
-  try {
-    localStorage.setItem(JOINED_KEY, JSON.stringify(readJoinedClasses().filter((id) => id !== classId)));
-  } catch {
-    /* Storage blocked. */
-  }
-};
-
 // ── Classes ────────────────────────────────────────────────────────────────
 
 const collectionRef = () => {
@@ -330,7 +306,46 @@ export const fetchClass = async (classId: string): Promise<SchoolClass | null> =
 export const deleteClass = async (item: SchoolClass): Promise<void> => {
   await deleteDoc(doc(db!, CODES, item.joinCode)).catch(() => undefined);
   await deleteDoc(doc(db!, CLASSES, item.id));
-  forgetJoinedClass(item.id);
+};
+
+/**
+ * Every class whose roster holds this email, in both entry paths: a teacher added the
+ * address, or the student redeemed the code themselves. Both end in the same member doc,
+ * so one collection-group query finds both — no local "classes I joined" list to drift.
+ *
+ * A line the teacher wrote has no uid until the student shows up. Claiming it on the
+ * first load is what turns "added" into "joined" on the teacher's roster — and it means
+ * a student who never received the code still gets in.
+ */
+export const fetchMyClasses = async (
+  email: string,
+  uid: string,
+  name: string,
+): Promise<SchoolClass[]> => {
+  const key = memberKey(email);
+  if (!key) return [];
+  const snap = await getDocs(query(collectionGroup(db!, 'members'), where('email', '==', key)));
+
+  await Promise.all(
+    snap.docs.map(async (row) => {
+      if (row.data().uid) return;
+      try {
+        await updateDoc(row.ref, { uid, status: 'active', name: row.data().name || name, joinedAt: Date.now() });
+      } catch {
+        /* The line was removed between the query and the claim — nothing to fix. */
+      }
+    }),
+  );
+
+  const found = await Promise.all(
+    snap.docs.map((row) => {
+      const classId = row.ref.parent.parent?.id;
+      return classId ? fetchClass(classId).catch(() => null) : Promise.resolve(null);
+    }),
+  );
+  return found
+    .filter((item): item is SchoolClass => item !== null)
+    .sort((a, b) => a.createdAt - b.createdAt);
 };
 
 // ── Roster ─────────────────────────────────────────────────────────────────
@@ -362,9 +377,13 @@ export const removeMember = async (classId: string, email: string): Promise<void
 };
 
 /**
- * A student redeems the code the teacher handed out. The lookup goes through the public
- * code document, then the member document decides whether this email is actually on the
- * roster — a code alone never grants access to someone who was not added.
+ * A student redeems the code the teacher handed out.
+ *
+ * There are two doors into a class and this is the second one: a teacher may add the
+ * email directly (the student then finds the class without any code), or the student may
+ * walk in with the code alone. Redeeming it writes the roster line if it is missing, and
+ * the code itself is kept on that line as proof — the rules refuse a self-enrolment that
+ * cannot point at a real code for this class, so knowing a classId is not enough.
  */
 export const joinClassByCode = async (
   code: string,
@@ -376,19 +395,31 @@ export const joinClassByCode = async (
   if (!codeSnap.exists()) throw new Error('That code does not match any class.');
   const classId = asString((codeSnap.data() as Record<string, unknown>).classId);
   const key = memberKey(identity.email);
-  const memberSnap = await getDoc(doc(db!, CLASSES, classId, 'members', key));
-  if (!memberSnap.exists()) {
-    throw new Error('That class does not have your email on its roster. Ask your teacher to add it.');
+  const memberRef = doc(db!, CLASSES, classId, 'members', key);
+  const memberSnap = await getDoc(memberRef);
+  const now = Date.now();
+
+  if (memberSnap.exists()) {
+    await updateDoc(memberRef, {
+      uid: identity.uid,
+      name: identity.name || key,
+      status: 'active',
+      joinedAt: now,
+    });
+  } else {
+    await setDoc(memberRef, {
+      email: key,
+      name: identity.name || key,
+      uid: identity.uid,
+      status: 'active',
+      addedAt: now,
+      joinedAt: now,
+      joinCode: normalized,
+    });
   }
-  await updateDoc(doc(db!, CLASSES, classId, 'members', key), {
-    uid: identity.uid,
-    name: identity.name || key,
-    status: 'active',
-    joinedAt: Date.now(),
-  });
+
   const found = await fetchClass(classId);
   if (!found) throw new Error('That class is no longer available.');
-  rememberJoinedClass(classId);
   return found;
 };
 

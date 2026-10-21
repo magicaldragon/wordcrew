@@ -35,6 +35,7 @@ import {
   toolsVisible,
 } from '../services/tools';
 import type { ClassAssignment } from '../services/classes';
+import { CLASS_FREE_UNTIL_LABEL, classConsoleAccess } from '../services/classAccess';
 
 /** Loaded on demand — the leaderboard is opt-in, so it stays out of the entry chunk. */
 const SoloLeaderboardPanel = lazy(() => import('./SoloLeaderboardPanel'));
@@ -159,13 +160,13 @@ const TOOLS_SECTION: { id: SectionId; label: string; icon: IconName; title: stri
   subtitle: 'Classroom tools that sit beside the game — no scores, no leaderboards.',
 };
 
-/** The class shelf: a roster and the work set for it. Only ever opens for a signed-in user. */
+/** The class shelf: a roster and the work set for it. Both roles open the same door. */
 const CLASS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
   id: 'class',
   label: 'My Class',
   icon: 'user',
   title: 'My Class',
-  subtitle: 'Assign work, collect it and read what the class actually got wrong.',
+  subtitle: 'Set work, hand it in, and see what the class actually got wrong.',
 };
 
 /** Owner-only section, appended to the nav only once the admin probe succeeds. */
@@ -766,6 +767,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
    * and the assignment console, a student gets the list of work and nothing about
    * classmates. Signing in is the only requirement to see the tab, because the join form
    * has to live somewhere a brand-new student can reach.
+   *
+   * Only the console is ever gated. A student never pays to open the class their teacher
+   * already set up — the whole loop dies if the learner is asked for money at the door.
    */
   const renderClass = () => {
     if (!user) {
@@ -773,8 +777,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <div className="wc-card flex flex-col items-center gap-3 p-8 text-center">
           <Icon name="user" size={30} className="text-[var(--wn-10)]" />
           <p className="max-w-sm text-sm text-[var(--wn-10)]">
-            Sign in to join your class. Your teacher adds your email first, then gives you the
-            class code.
+            Sign in to join your class. Your teacher either adds this email or gives you a
+            six-letter class code — the work shows up here either way.
           </p>
           <LoginButton />
         </div>
@@ -788,6 +792,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     };
     // Admins count as teachers everywhere else, so the console opens for them too.
     const isTeacher = profile?.role === 'teacher' || admin !== null;
+    const consoleAccess = classConsoleAccess(toolViewer);
+
+    if (isTeacher && !consoleAccess.allowed) {
+      return (
+        <div className="wc-card flex flex-col gap-4 p-5">
+          <div className="flex items-start gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--r-md)] bg-[var(--wn-3)] text-[var(--wn-10)]">
+              <Icon name="lock" size={22} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
+                Teacher console
+              </p>
+              <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">My Class</h3>
+              <p className="mt-1 max-w-prose text-sm leading-relaxed text-[var(--wn-10)]">
+                Opening classes and setting work is part of the full version. Your students
+                always join for free — the licence pays for the console, never for the
+                classroom.
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onUnlock} className="wc-btn wc-btn-primary self-start">
+            <Icon name="unlock" size={16} />
+            Unlock full version
+          </button>
+        </div>
+      );
+    }
 
     return (
       <Suspense
@@ -799,7 +831,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         }
       >
         {isTeacher ? (
-          <ClassTeacherPanel viewer={viewer} refreshKey={classRefreshKey} />
+          <div className="flex flex-col gap-4">
+            <p className="text-xs text-[var(--wn-9)]">
+              {consoleAccess.mode === 'open'
+                ? `Free for teachers until ${CLASS_FREE_UNTIL_LABEL}. Students stay free after that.`
+                : 'Included in the full version. Your students join free.'}
+            </p>
+            <ClassTeacherPanel viewer={viewer} refreshKey={classRefreshKey} />
+          </div>
         ) : (
           <ClassStudentPanel viewer={viewer} onOpenAssignment={onOpenAssignment} refreshKey={classRefreshKey} />
         )}

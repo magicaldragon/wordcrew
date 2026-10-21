@@ -51,9 +51,11 @@ rules_version = '2';
 //
 //     Quyền trong My Class suy ra TỪ DOC LỚP, không từ users/{uid} của ai:
 //       - Giáo viên chỉ chạm được lớp có teacherUid == uid của mình.
-//       - Học sinh đọc bài/ghi bài nộp chỉ khi email của mình nằm trong members và
-//         đã join (status = 'active'). Thêm email vào lớp KHÔNG mở quyền gì trên
-//         hồ sơ người dùng đó — giáo viên không đọc được users/{uid} của học sinh.
+//       - Học sinh đọc bài/ghi bài nộp chỉ khi email của mình có trong members —
+//         hoặc do giáo viên add, hoặc do chính học sinh vào bằng mã lớp. Cả hai
+//         đường đều dừng ở cùng một doc roster.
+//         Thêm email vào lớp KHÔNG mở quyền gì trên hồ sơ người dùng đó — giáo
+//         viên không đọc được users/{uid} của học sinh.
 //       - Admin đi qua nhánh isAdmin() như mọi nơi khác.
 //
 //     classCodes là danh bạ công khai trong phạm vi đã đăng nhập: biết mã thì tra
@@ -113,13 +115,21 @@ service cloud.firestore {
         && classDoc(classId).teacherUid == request.auth.uid;
     }
 
-    // Học sinh đã join lớp: email nằm trong roster VÀ đã nhập mã (status active).
-    // Được add email nhưng chưa join thì chưa đọc được bài.
+    // Chỉ tài khoản role teacher (hoặc admin) mới mở được lớp. Học sinh không tạo
+    // được lớp kể cả khi gọi thẳng API — role là điều kiện, không chỉ là ẩn nút.
+    function isTeacherAccount() {
+      return isSignedIn()
+        && (isAdmin()
+          || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'));
+    }
+
+    // Có tên trong lớp: hoặc giáo viên add email, hoặc học sinh tự vào bằng mã.
+    // Cả hai đường đều dừng ở một doc member, nên quyền đọc bài chỉ cần nhìn doc đó.
     function isClassMember(classId) {
       return isSignedIn()
         && myEmail() != ''
-        && exists(/databases/$(database)/documents/classes/$(classId)/members/$(myEmail()))
-        && get(/databases/$(database)/documents/classes/$(classId)/members/$(myEmail())).data.status == 'active';
+        && exists(/databases/$(database)/documents/classes/$(classId)/members/$(myEmail()));
     }
 
     // ── Hồ sơ người dùng + counter tiến độ ───────────────────────────────
@@ -248,13 +258,13 @@ service cloud.firestore {
     // ── My Class: lớp học, bài giao, bài nộp ─────────────────────────────
 
     match /classes/{classId} {
-      // Giáo viên sở hữu đọc lớp của mình; học sinh đã join đọc được lớp để biết tên
-      // và giáo viên. Danh sách lớp (dashboard giáo viên) dùng query
+      // Giáo viên sở hữu đọc lớp của mình; học sinh có tên trong roster đọc được lớp
+      // để biết tên và giáo viên. Danh sách lớp (dashboard giáo viên) dùng query
       // where('teacherUid','==',uid) nên phải kiểm bằng field, không bằng get().
       allow get: if isClassTeacher(classId) || isClassMember(classId) || isAdmin();
       allow list: if isAdmin() || (isSignedIn() && resource.data.teacherUid == request.auth.uid);
 
-      allow create: if isSignedIn()
+      allow create: if isTeacherAccount()
         && isValidClass(request.resource.data)
         && request.resource.data.teacherUid == request.auth.uid
         && request.resource.data.teacherEmail == myEmail();
@@ -272,16 +282,32 @@ service cloud.firestore {
         allow get: if isClassTeacher(classId) || isAdmin() || memberEmail == myEmail();
         allow list: if isClassTeacher(classId) || isAdmin();
 
-        // Giáo viên add email: trạng thái đầu tiên luôn là 'invited', uid còn trống.
-        allow create: if isClassTeacher(classId)
-          && isValidMember(request.resource.data)
+        // Hai đường vào lớp:
+        //   1. Giáo viên add email → dòng 'invited', chưa có uid.
+        //   2. Học sinh tự vào bằng mã → dòng 'active', và mã được lưu lại làm bằng
+        //      chứng: rule chỉ nhận nếu mã đó thật sự trỏ về đúng lớp này. Biết
+        //      classId không đủ để vào lớp.
+        allow create: if isValidMember(request.resource.data)
           && request.resource.data.email == memberEmail
-          && request.resource.data.status == 'invited'
-          && request.resource.data.uid == null
-          && request.resource.data.joinedAt == null;
+          && (
+            (isClassTeacher(classId)
+              && request.resource.data.status == 'invited'
+              && request.resource.data.uid == null
+              && request.resource.data.joinedAt == null
+              && !request.resource.data.keys().hasAny(['joinCode']))
+            || (isSignedIn()
+              && memberEmail == myEmail()
+              && request.resource.data.uid == request.auth.uid
+              && request.resource.data.status == 'active'
+              && request.resource.data.joinedAt is number
+              && request.resource.data.joinCode is string
+              && exists(/databases/$(database)/documents/classCodes/$(request.resource.data.joinCode))
+              && get(/databases/$(database)/documents/classCodes/$(request.resource.data.joinCode)).data.classId == classId)
+          );
 
-        // Giáo viên sửa được (đổi tên hiển thị). Học sinh chỉ được tự "kích hoạt"
-        // dòng của chính mình khi nhập đúng mã — và chỉ chạm 4 field đó thôi.
+        // Giáo viên sửa được (đổi tên hiển thị). Học sinh chỉ được "nhận" dòng của
+        // chính mình khi mở app — dù vào bằng mã hay được giáo viên add — và chỉ
+        // chạm 4 field đó thôi.
         allow update: if isClassTeacher(classId)
           || (memberEmail == myEmail()
               && isSignedIn()
@@ -296,7 +322,7 @@ service cloud.firestore {
 
       // ── Bài giao ──
       match /assignments/{assignmentId} {
-        // Học sinh đã join đọc được bài; người được add email nhưng chưa join thì không.
+        // Học sinh có tên trong roster đọc được bài — dù vào bằng mã hay được add.
         allow get, list: if isClassTeacher(classId) || isClassMember(classId) || isAdmin();
 
         allow create: if isClassTeacher(classId) && isValidAssignment(request.resource.data);
@@ -366,6 +392,16 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // ── Học sinh tìm lớp của mình ────────────────────────────────────────
+    //
+    // Roster nằm dưới từng lớp nên không query phẳng được. Một collection-group
+    // query where('email','==',…) là cách duy nhất để học sinh thấy lớp mà giáo viên
+    // vừa add email (không cần mã). Rule chỉ mở đúng những dòng mang email của mình,
+    // nên query không có filter đó sẽ bị từ chối.
+    match /{path=**}/members/{memberEmail} {
+      allow list: if isSignedIn() && resource.data.email == myEmail();
+    }
+
     function isValidClass(data) {
       return data.keys().hasAll(['name', 'joinCode', 'teacherUid', 'teacherEmail', 'teacherName', 'createdAt'])
         && data.keys().hasOnly(['name', 'joinCode', 'teacherUid', 'teacherEmail', 'teacherName', 'createdAt'])
@@ -379,7 +415,7 @@ service cloud.firestore {
 
     function isValidMember(data) {
       return data.keys().hasAll(['email', 'name', 'uid', 'status', 'addedAt', 'joinedAt'])
-        && data.keys().hasOnly(['email', 'name', 'uid', 'status', 'addedAt', 'joinedAt'])
+        && data.keys().hasOnly(['email', 'name', 'uid', 'status', 'addedAt', 'joinedAt', 'joinCode'])
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 320
         && data.name is string && data.name.size() <= 80
         && (data.uid == null || data.uid is string)

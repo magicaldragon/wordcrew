@@ -3,14 +3,11 @@ import { Icon } from './Icon';
 import { toast } from './Feedback';
 import {
   fetchAssignments,
-  fetchClass,
+  fetchMyClasses,
   fetchSubmissions,
   isOverdue,
   joinClassByCode,
   normalizeCode,
-  readJoinedClasses,
-  rememberJoinedClass,
-  forgetJoinedClass,
   type ClassAssignment,
   type ClassSubmission,
   type SchoolClass,
@@ -56,21 +53,16 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
     [classes, activeId],
   );
 
+  // Both doors lead here: the roster line the teacher wrote, or the one this student
+  // created with the code. One query covers them, so a class added a minute ago appears
+  // without the student having to type anything.
   const loadClasses = useCallback(async () => {
-    const ids = readJoinedClasses();
-    const found: SchoolClass[] = [];
-    for (const id of ids) {
-      try {
-        const item = await fetchClass(id);
-        if (item) found.push(item);
-        else forgetJoinedClass(id);
-      } catch {
-        // The rules refuse classes this email is no longer on the roster for — drop it.
-        forgetJoinedClass(id);
-      }
+    try {
+      setClasses(await fetchMyClasses(viewer.email, viewer.uid, viewer.name));
+    } catch {
+      setClasses([]);
     }
-    setClasses(found);
-  }, []);
+  }, [viewer.email, viewer.uid, viewer.name]);
 
   const loadWork = useCallback(async (classId: string) => {
     try {
@@ -87,7 +79,7 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
 
   useEffect(() => {
     void loadClasses();
-  }, [loadClasses]);
+  }, [loadClasses, refreshKey]);
 
   useEffect(() => {
     if (active) void loadWork(active.id);
@@ -122,7 +114,8 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
         <div>
           <h3 className="text-lg font-bold text-[var(--wn-12)]">Join your class</h3>
           <p className="text-sm text-[var(--wn-10)]">
-            Your teacher adds your email first, then gives you a six-letter code.
+            Enter the six-letter code your teacher gave you — or ask them to add this email
+            address. Either way the class appears here with your work.
           </p>
         </div>
       </div>

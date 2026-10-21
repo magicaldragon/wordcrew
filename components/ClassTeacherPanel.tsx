@@ -321,7 +321,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
               type="button"
               onClick={() => void copyCode()}
               className="wc-btn wc-btn-secondary min-h-[44px] px-3 text-xs"
-              title="Copy the class code"
+              title="Copy the class code to share with students"
             >
               <Icon name="folder" size={14} />
               {active.joinCode}
@@ -337,6 +337,11 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
             </button>
           </div>
         </div>
+
+        <p className="text-xs text-[var(--wn-9)]">
+          Add a student&rsquo;s email and they are in — no code needed. Or share the code
+          above and anyone who has it can join.
+        </p>
 
         <form
           className="flex flex-col gap-2 sm:flex-row"
