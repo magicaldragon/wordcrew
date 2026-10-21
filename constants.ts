@@ -105,11 +105,12 @@ export const incrementDemoRounds = (): number => {
 };
 
 // Limits of the free demo. Anything outside this is unlocked by a valid access code.
-// The demo is meant to showcase the real classroom loop (Normal + Team modes with
-// all power-ups, Rush Hour, combos and results) while withholding the content that
-// is worth paying for (Hell Mode, extra word packs, longer games, power-user settings).
+// The demo is meant to showcase the real classroom loop (every mode, with all power-ups,
+// Rush Hour, combos and results) while withholding the content that is worth paying for
+// (extra word packs, longer games, power-user settings). Hell Mode is free on purpose:
+// it is the mode players brag about, and the two free packs are what keep it fair.
 export const DEMO_POLICY = {
-  freeModes: [GameMode.NORMAL, GameMode.TEAM] as GameMode[],
+  freeModes: [GameMode.NORMAL, GameMode.HELL, GameMode.TEAM] as GameMode[],
   freePresets: [CEFRLevel.STARTERS, CEFRLevel.MOVERS] as CEFRLevel[],
   freeWordCounts: [5, 10, 20] as number[],
   maxWordsPerGame: 20,      // full version goes up to 60

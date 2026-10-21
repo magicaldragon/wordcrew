@@ -16,6 +16,7 @@ import {
   type TeacherSession,
 } from './services/teacherDeck';
 import { localDateId } from './services/periods';
+import { CHECK_VOCABULARY } from './services/tools';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
 import { Icon } from './components/Icon';
@@ -1121,7 +1122,11 @@ const App: React.FC = () => {
       <div className="container mx-auto w-full flex flex-col h-full max-w-4xl">
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
           <span className="block text-[0.65rem] sm:text-xs font-sans uppercase tracking-[0.35em] text-electric-blue/80 mb-1">
-            {isTeacher ? 'Teacher Mode' : isSolo || isSoloSetup ? 'Solo Challenge' : 'Only Talented Guessers'}
+            {isTeacher
+              ? `${CHECK_VOCABULARY.slot} · ${CHECK_VOCABULARY.name}`
+              : isSolo || isSoloSetup
+                ? 'Solo Challenge'
+                : 'Only Talented Guessers'}
           </span>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold tracking-wider text-warning-yellow animate-goldPulseGlow">
             {canExitToHome ? (

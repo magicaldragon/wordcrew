@@ -28,11 +28,17 @@ import { isDailyDoneToday } from '../services/solo';
 import { localDateId } from '../services/periods';
 import { DAILY_FREEZES_PER_MONTH, dailyMilestone } from '../services/dailyHabit';
 import { fetchMyDailyHistory, type DailyHistoryRow } from '../services/soloLeaderboard';
+import {
+  CHECK_VOCABULARY,
+  TOOL_FREE_UNTIL_LABEL,
+  toolAccess,
+  toolsVisible,
+} from '../services/tools';
 
 /** Loaded on demand — the leaderboard is opt-in, so it stays out of the entry chunk. */
 const SoloLeaderboardPanel = lazy(() => import('./SoloLeaderboardPanel'));
 
-type SectionId = 'games' | 'progress' | 'account' | 'admin' | 'accounts';
+type SectionId = 'games' | 'tools' | 'progress' | 'account' | 'admin' | 'accounts';
 
 interface DashboardProps {
   /** True once a licence has been activated on this device. */
@@ -43,7 +49,7 @@ interface DashboardProps {
   onPlayGame: () => void;
   /** Jump straight into Today's Challenge — the one run that is the same for everyone. */
   onStartDaily: () => void;
-  /** Open Teacher Mode — level-locked tests and pasted decks, with no leaderboard. */
+  /** Open Tool 1: Check Vocabulary — level-locked tests and pasted decks, no leaderboard. */
   onOpenTeacher: () => void;
   /** Start the paid path — the app gates this behind sign-in. */
   onUnlock: () => void;
@@ -128,6 +134,19 @@ const SECTIONS: { id: SectionId; label: string; icon: IconName; title: string; s
   { id: 'account', label: 'Account', icon: 'user', title: 'Account', subtitle: 'Sign-in status and this device.' },
 ];
 
+/**
+ * The teaching shelf — separate from the game grid because nothing here is scored and
+ * the audience is the teacher. The nav label names the shelf; each tool carries its own
+ * "Tool N" label inside, so a class handout can say "open Tool 1" without ambiguity.
+ */
+const TOOLS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
+  id: 'tools',
+  label: 'Teaching tools',
+  icon: 'wrench',
+  title: 'Teaching tools',
+  subtitle: 'Classroom tools that sit beside the game — no scores, no leaderboards.',
+};
+
 /** Owner-only section, appended to the nav only once the admin probe succeeds. */
 const ADMIN_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
   id: 'admin',
@@ -143,7 +162,7 @@ const ADMIN_ACCOUNTS_SECTION: { id: SectionId; label: string; icon: IconName; ti
   label: 'Account management',
   icon: 'user',
   title: 'Account management',
-  subtitle: 'Every account, FREE vs PRO, who is online and who can open Teacher Mode.',
+  subtitle: 'Every account, FREE vs PRO, who is online and who can open the tools.',
 };
 
 const INPUT_CLASS =
@@ -270,15 +289,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     void loadAdmin();
   }, [loadAdmin]);
 
-  const navSections = useMemo(
-    () => (admin ? [...SECTIONS, ADMIN_SECTION, ADMIN_ACCOUNTS_SECTION] : SECTIONS),
-    [admin],
+  // Tool access is a single dial (services/tools.ts): open during launch, teacher-only
+  // when the gate closes, paid when it becomes a product. Nav, card and locked state all
+  // derive from it, so flipping the mode is the only change needed.
+  const toolViewer = useMemo(
+    () => ({
+      isTeacher: profile?.role === 'teacher',
+      isAdmin: admin !== null,
+      isPro: isUnlocked || entitlements.length > 0,
+    }),
+    [profile?.role, admin, isUnlocked, entitlements.length],
   );
-  // Teacher Mode is an admin-granted role: the portal owner always has it, everyone else
-  // only once an admin flips them in Account management. Students never see the card.
-  const canTeach = admin !== null || profile?.role === 'teacher';
-  // A section can disappear while it is open (sign-out, revoked admin); fall back to Games.
-  const current = (section === 'admin' || section === 'accounts') && !admin ? 'games' : section;
+  const toolGate = useMemo(() => toolAccess(toolViewer), [toolViewer]);
+  const showTools = toolsVisible(toolGate);
+
+  const navSections = useMemo(() => {
+    const items = [...SECTIONS];
+    if (showTools) items.splice(1, 0, TOOLS_SECTION);
+    return admin ? [...items, ADMIN_SECTION, ADMIN_ACCOUNTS_SECTION] : items;
+  }, [admin, showTools]);
+  // A section can disappear while it is open (sign-out, revoked admin, the tool gate
+  // closing); fall back to Games.
+  const current =
+    ((section === 'admin' || section === 'accounts') && !admin) ||
+    (section === 'tools' && !showTools)
+      ? 'games'
+      : section;
   const active = useMemo(
     () => navSections.find((item) => item.id === current) ?? navSections[0],
     [navSections, current],
@@ -534,37 +570,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         />
       </Suspense>
 
-      {/* Teacher Mode sits beside the game, not inside it: a teacher tests a level or a
-          deck without going through the play wizard, and nothing is ranked. Only accounts
-          an admin has marked as teachers (or the admin) see the card. */}
-      {canTeach && (
-        <section
-          className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--wn-4)] bg-[var(--wn-2)] p-4 sm:flex-row sm:items-center sm:justify-between"
-          aria-label="Teacher Mode"
-        >
-          <div className="flex items-start gap-3">
-            <span className="text-2xl" aria-hidden="true">
-              🧑‍🏫
-            </span>
-            <div>
-              <p className="text-sm font-bold text-[var(--wn-12)]">Teacher Mode</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-[var(--wn-10)]">
-                Test one CEFR level, A1 to B2, or paste this week’s word list — meanings
-                are filled in for you to review. Students get a report, not a leaderboard.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenTeacher}
-            className="wc-btn wc-btn-secondary shrink-0"
-          >
-            <Icon name="type" size={16} />
-            Open Teacher Mode
-          </button>
-        </section>
-      )}
-
       {/* Proof, not decoration: real counts straight from the word data. */}
       <section className="wc-stats lg:shrink-0" aria-label="What is in the box">
         {HOME_STATS.map((stat) => (
@@ -646,6 +651,90 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       </div>
     </div>
   );
+
+  /**
+   * The tool shelf. One card per tool; the gate decides whether it opens, asks for a
+   * teacher account, or sells the full version. Nothing on this shelf is a game — no
+   * score, no leaderboard, no CEFR ladder.
+   */
+  const renderTools = () => {
+    if (!toolGate.allowed) {
+      const needsPayment = toolGate.denial === 'payment';
+      return (
+        <div className="wc-card flex flex-col items-start gap-4 p-5">
+          <span className="flex h-12 w-12 items-center justify-center rounded-[var(--r-md)] bg-[var(--wn-3)] text-[var(--wn-10)]">
+            <Icon name="lock" size={22} />
+          </span>
+          <div>
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
+              {CHECK_VOCABULARY.slot}
+            </p>
+            <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">
+              {CHECK_VOCABULARY.name}
+            </h3>
+            <p className="mt-1 max-w-prose text-sm leading-relaxed text-[var(--wn-10)]">
+              {needsPayment
+                ? 'This tool is part of the full version. Unlock it once and it keeps working offline on this device.'
+                : 'This tool is for teacher accounts. Ask an admin to mark your account as a teacher in Account management.'}
+            </p>
+          </div>
+          {needsPayment && (
+            <button type="button" onClick={onUnlock} className="wc-btn wc-btn-primary">
+              <Icon name="unlock" size={16} />
+              Unlock full version
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-4">
+        <section className="wc-card overflow-hidden" aria-label={CHECK_VOCABULARY.name}>
+          <div className="flex items-start gap-4 p-5">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--r-md)] bg-[var(--wa-2)] text-[var(--wa-11)]">
+              <Icon name={CHECK_VOCABULARY.icon} size={22} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
+                {CHECK_VOCABULARY.slot}
+              </p>
+              <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">
+                {CHECK_VOCABULARY.name}
+              </h3>
+              <p className="mt-1 text-sm leading-relaxed text-[var(--wn-10)]">
+                {CHECK_VOCABULARY.summary}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {CHECK_VOCABULARY.meta.map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-full border border-[var(--wn-4)] px-2.5 py-1 text-[0.7rem] font-medium text-[var(--wn-10)]"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-3 border-t border-[var(--wn-4)] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-[var(--wn-9)]">
+              {toolGate.mode === 'open'
+                ? `Free for everyone until ${TOOL_FREE_UNTIL_LABEL}.`
+                : toolGate.mode === 'paid'
+                  ? 'Included in the full version.'
+                  : 'Included with a teacher account.'}
+            </p>
+            <button type="button" onClick={onOpenTeacher} className="wc-btn wc-btn-primary">
+              <Icon name="play" size={16} />
+              Open {CHECK_VOCABULARY.slot}
+            </button>
+          </div>
+        </section>
+        <p className="text-xs text-[var(--wn-9)]">More tools will appear on this shelf.</p>
+      </div>
+    );
+  };
 
   const renderProgress = () => {
     if (!loading && !user) {
@@ -1155,6 +1244,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
         <div className="wc-scroll min-h-0 flex-1 overflow-y-auto p-5 md:p-6">
           {current === 'games' && renderGames()}
+          {current === 'tools' && renderTools()}
           {current === 'progress' && renderProgress()}
           {current === 'account' && renderAccount()}
           {current === 'admin' && renderAdmin()}

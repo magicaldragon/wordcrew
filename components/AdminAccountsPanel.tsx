@@ -276,7 +276,7 @@ export const AdminAccountsPanel: React.FC = () => {
       });
       toast(
         next === 'teacher'
-          ? `${label} can open Teacher Mode now.`
+          ? `${label} can open the tools now.`
           : `${label} is back to a student.`,
         'success',
       );
@@ -458,8 +458,8 @@ export const AdminAccountsPanel: React.FC = () => {
                             className="min-h-[44px] shrink-0 rounded-md border border-[var(--wn-4)] px-2 text-[0.7rem] font-semibold text-[var(--wn-10)] transition-colors hover:border-neon-green/60 hover:text-neon-green disabled:opacity-60"
                             title={
                               row.role === 'teacher'
-                                ? 'Remove Teacher Mode access'
-                                : 'Give Teacher Mode access'
+                                ? 'Remove teacher tool access'
+                                : 'Give teacher tool access'
                             }
                           >
                             {roleBusy === row.uid

@@ -106,6 +106,15 @@ const CUSTOM_SOUND_SLOTS = [
   'Time Freeze', 'Skip Freebie', 'Rush Hour Activate', 'Rush Hour Music',
 ];
 
+/**
+ * The Mode step's demo banner, derived from the policy so the banner can never promise a
+ * mode the gate then refuses. Solo is free for everyone, so it is appended rather than
+ * living in `freeModes`.
+ */
+const FREE_MODE_LABELS = `${DEMO_POLICY.freeModes
+  .map((mode) => mode.charAt(0).toUpperCase() + mode.slice(1))
+  .join(' + ')} + Solo`;
+
 export const SetupScreen: React.FC<SetupScreenProps> = ({
   initialGameMode,
   isUnlocked,
@@ -611,7 +620,6 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // discover what the Full Version adds without digging through closed dropdowns.
   // Split in two rows: headline extras first, then the locked word packs.
   const lockedFeaturePerks: string[] = [
-    '💀 Hell Mode',
     '🎯 Solo tracks',
     '🔢 Up to 60 words',
     '⏱️ Up to 10 minutes',
@@ -677,7 +685,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         <div className="setup-demo-banner w-full rounded-lg border border-warning-yellow/40 bg-warning-yellow/10 px-2.5 py-1 text-left">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm leading-tight text-warning-yellow">
-              <strong className="font-heading tracking-wider">DEMO</strong> · Normal + Team + Solo · ≤{DEMO_POLICY.maxWordsPerGame} words · ≤{DEMO_POLICY.maxTotalTimeLimit / 60} min
+              <strong className="font-heading tracking-wider">DEMO</strong> · {FREE_MODE_LABELS} · ≤{DEMO_POLICY.maxWordsPerGame} words · ≤{DEMO_POLICY.maxTotalTimeLimit / 60} min
             </p>
             <button
               type="button"
