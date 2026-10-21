@@ -50,7 +50,6 @@ interface SoloGameScreenProps {
   /** Set for Today's Challenge: the run is seeded from this day id and posts to the daily board. */
   dailyDateId?: string;
   onEnd: (result: SoloRunResult) => void;
-  onExit: () => void;
 }
 
 type Phase = 'guessing' | 'correct' | 'revealed';
@@ -477,7 +476,6 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   customCorrectSounds,
   dailyDateId,
   onEnd,
-  onExit,
 }) => {
   const t = useT('solo');
   const gameTracks = useT('game').setup.tracks;
@@ -572,6 +570,13 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const bannerTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
   const wrongTimer = useRef<number | null>(null);
+  // The answer field is the only place a run can be typed into, so the round hands
+  // focus back to it — but only where there is a real keyboard and a pointer. On a phone
+  // or tablet, pulling focus would raise the on-screen keyboard unasked.
+  const [hasFinePointer] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches,
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { currentRef.current = current; }, [current]);
@@ -878,6 +883,27 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     return () => window.clearInterval(id);
   }, [phase, current, overlayOpen, speech.transcribing]);
 
+  // Focus follows the round, not the pointer: on desktop every new word puts the caret
+  // back in the answer box, and closing an overlay does the same.
+  useEffect(() => {
+    if (!hasFinePointer || phase !== 'guessing' || overlayOpen) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [hasFinePointer, phase, wordNo, overlayOpen]);
+
+  // Typing anywhere counts as typing into the box. Tapping Skip or the mic moves focus to
+  // that button, so the next letter would otherwise go nowhere; here it lands in the field.
+  useEffect(() => {
+    if (!hasFinePointer || overlayOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+      inputRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hasFinePointer, overlayOpen]);
+
   // Auto-pause when the page is hidden; the player taps Resume when they return.
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -1137,6 +1163,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       <div className="flex w-full shrink-0 flex-col gap-2">
         <div className="flex items-stretch gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(event) => {
@@ -1159,7 +1186,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             autoCorrect="off"
             spellCheck={false}
             aria-label={t.game.inputAria}
-            className={`min-w-0 flex-1 rounded-xl border-2 bg-dark-metal px-4 py-3 text-center text-lg font-semibold outline-none transition placeholder:text-muted-text/60 focus:border-electric-blue disabled:opacity-70 ${
+            className={`min-w-0 flex-1 rounded-xl border-2 bg-dark-metal px-4 py-3 text-center text-lg font-semibold caret-electric-blue outline-none transition placeholder:text-muted-text/60 focus:border-electric-blue disabled:opacity-70 ${
               phase === 'correct'
                 ? 'border-neon-green text-neon-green'
                 : phase === 'revealed'
@@ -1324,7 +1351,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           <div className="w-full max-w-sm rounded-xl border border-warning-yellow/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
             <p className="font-heading text-lg font-bold text-warning-yellow">{t.game.quitTitle}</p>
             <p className="mt-1 text-sm text-muted-text">
-              {t.game.quitLost(stats.score.toLocaleString(locale))}
+              {t.game.quitSaved(stats.score.toLocaleString(locale))}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
@@ -1336,7 +1363,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               </button>
               <button
                 type="button"
-                onClick={onExit}
+                onClick={endGame}
                 className="futuristic-button rounded-[var(--r-md)] border border-cyber-purple/60 bg-cyber-purple/40 px-4 py-2.5 font-semibold text-light-text hover:bg-cyber-purple/60"
               >
                 {t.game.quitRun}

@@ -70,10 +70,10 @@ export const solo: Dictionary['solo'] = {
     pausedBody: 'Đồng hồ đã dừng khi bạn rời màn hình.',
     resume: '▶️ Tiếp tục',
     quitAria: 'Xác nhận thoát ván',
-    quitTitle: 'Thoát ván này?',
-    quitLost: (score: string) => `Điểm ${score} của bạn sẽ bị mất.`,
+    quitTitle: 'Kết thúc lượt chơi?',
+    quitSaved: (score: string) => `Điểm ${score} của bạn sẽ được ghi nhận và lượt chơi kết thúc tại đây.`,
     keepPlaying: 'Chơi tiếp',
-    quitRun: 'Thoát ván',
+    quitRun: 'Kết thúc lượt',
 
     speech: {
       micBlocked: 'Quyền truy cập micrô bị chặn — hãy cho phép hoặc nhập từ.',

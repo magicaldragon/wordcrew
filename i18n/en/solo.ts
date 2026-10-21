@@ -70,10 +70,10 @@ export const solo = {
     pausedBody: 'The clock is stopped while you are away.',
     resume: '▶️ Resume',
     quitAria: 'Confirm quitting the run',
-    quitTitle: 'Quit this run?',
-    quitLost: (score: string) => `Your score of ${score} will be lost.`,
+    quitTitle: 'End this run?',
+    quitSaved: (score: string) => `Your score of ${score} is recorded and the run ends here.`,
     keepPlaying: 'Keep playing',
-    quitRun: 'Quit run',
+    quitRun: 'End run',
 
     speech: {
       micBlocked: 'Microphone access was blocked — allow it or type instead.',

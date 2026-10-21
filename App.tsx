@@ -977,7 +977,6 @@ const App: React.FC = () => {
           customCorrectSounds={customCorrectSounds}
           dailyDateId={soloDailyDateId ?? undefined}
           onEnd={handleSoloEnd}
-          onExit={handleSoloExit}
         />
       );
     }
