@@ -25,6 +25,11 @@ rules_version = '2';
 //     Presence: online + lastSeenAt do client heartbeat mỗi 60 giây; lastLoginAt
 //     được ghi mỗi lần đăng nhập. Admin dashboard đọc hai field này.
 //
+//     Role: role = 'teacher' | 'student' (thiếu field = student). Đây là quyền mở
+//     Teacher Mode, CHỈ admin được ghi — chủ tài khoản tự phong giáo viên sẽ bị
+//     rule từ chối. Admin (theo ADMIN_EMAILS) mặc định đã là teacher, không cần
+//     ghi field này.
+//
 //   soloLeaderboards/{boardId}/periods/{period}/scores/{uid}
 //     Một dòng mỗi người chơi mỗi board mỗi kỳ. boardId là id track ('rookie',
 //     'explorer', 'challenger', 'master') hoặc 'daily' cho Today's Challenge.
@@ -81,11 +86,13 @@ service cloud.firestore {
       // Tạo hồ sơ: chỉ chủ tài khoản, với field cơ bản hợp lệ.
       allow create: if isOwner(userId) && isValidProfileCreate(request.resource.data);
 
-      // Cập nhật: admin được làm mọi thứ; chủ tài khoản chỉ được đổi displayName
-      // khi đã hết cooldown 30 ngày (các field khác như counter/presence thì tự do).
+      // Cập nhật: admin được làm mọi thứ (kể cả đổi role); chủ tài khoản chỉ được
+      // đổi displayName khi đã hết cooldown 30 ngày (các field khác như
+      // counter/presence thì tự do, nhưng role thì không).
       allow update: if isAdmin()
         || (isOwner(userId)
             && isValidProfileUpdate()
+            && roleUntouched()
             && renameAllowed());
 
       // Không cho client xoá tài khoản.
@@ -94,13 +101,15 @@ service cloud.firestore {
 
     // Field hồ sơ hợp lệ. Chỉ chặn những gì thực sự cần: tên hiển thị phải là
     // chuỗi 2–24 ký tự và online phải là bool. Các counter tiến độ được để tự do
-    // để thêm counter mới không phải sửa rules.
+    // để thêm counter mới không phải sửa rules. Role bị loại khỏi create: quyền
+    // giáo viên chỉ admin cấp sau đó, không đi kèm lúc tạo hồ sơ.
     function isValidProfileCreate(data) {
       return (!data.keys().hasAny(['displayName'])
           || (data.displayName is string
               && data.displayName.size() >= 2
               && data.displayName.size() <= 24))
-        && (!data.keys().hasAny(['online']) || data.online is bool);
+        && (!data.keys().hasAny(['online']) || data.online is bool)
+        && !data.keys().hasAny(['role', 'roleUpdatedAt']);
     }
 
     // Khi update, chỉ kiểm tra displayName nếu request thực sự đổi nó — nhờ vậy
@@ -111,6 +120,15 @@ service cloud.firestore {
               && request.resource.data.displayName.size() >= 2
               && request.resource.data.displayName.size() <= 24))
         && (!request.resource.data.keys().hasAny(['online']) || request.resource.data.online is bool);
+    }
+
+    // Quyền giáo viên là field do admin cấp; chủ tài khoản không được chạm vào
+    // (kể cả tự hạ mình xuống student). Admin đi qua nhánh isAdmin() ở trên nên
+    // không bị helper này chặn.
+    function roleUntouched() {
+      return !request.resource.data.diff(resource.data)
+        .affectedKeys()
+        .hasAny(['role', 'roleUpdatedAt']);
     }
 
     // Cooldown đổi tên. Chỉ áp dụng khi request thực sự chạm vào displayName —

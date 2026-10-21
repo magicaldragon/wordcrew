@@ -40,10 +40,18 @@ export const DISPLAY_NAME_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const DISPLAY_NAME_MIN = 2;
 export const DISPLAY_NAME_MAX = 24;
 
+/** Self-service roles. Admins count as teachers without needing the field. */
+export type UserRole = 'student' | 'teacher';
+
 /** The `users/{uid}` fields this provider reads. Extra fields are progress counters. */
 export interface UserProfile {
   displayName?: string | null;
   displayNameUpdatedAt?: Timestamp | null;
+  /**
+   * Set by an admin from the account directory. The owner can read it but the rules
+   * refuse to let them write it, so a student cannot promote themselves.
+   */
+  role?: UserRole | null;
   online?: boolean;
   lastSeenAt?: Timestamp | null;
   lastLoginAt?: Timestamp | null;

@@ -137,13 +137,13 @@ const ADMIN_SECTION: { id: SectionId; label: string; icon: IconName; title: stri
   subtitle: 'Orders, revenue, access grants and Solo records.',
 };
 
-/** Owner-only account directory: FREE/PRO, presence and renames. */
+/** Owner-only account directory: FREE/PRO, presence, roles and renames. */
 const ADMIN_ACCOUNTS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
   id: 'accounts',
   label: 'Account management',
   icon: 'user',
   title: 'Account management',
-  subtitle: 'Every account, FREE vs PRO, who is online and last sign-in.',
+  subtitle: 'Every account, FREE vs PRO, who is online and who can open Teacher Mode.',
 };
 
 const INPUT_CLASS =
@@ -274,6 +274,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     () => (admin ? [...SECTIONS, ADMIN_SECTION, ADMIN_ACCOUNTS_SECTION] : SECTIONS),
     [admin],
   );
+  // Teacher Mode is an admin-granted role: the portal owner always has it, everyone else
+  // only once an admin flips them in Account management. Students never see the card.
+  const canTeach = admin !== null || profile?.role === 'teacher';
   // A section can disappear while it is open (sign-out, revoked admin); fall back to Games.
   const current = (section === 'admin' || section === 'accounts') && !admin ? 'games' : section;
   const active = useMemo(
@@ -532,32 +535,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       </Suspense>
 
       {/* Teacher Mode sits beside the game, not inside it: a teacher tests a level or a
-          deck without going through the play wizard, and nothing is ranked. */}
-      <section
-        className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--wn-4)] bg-[var(--wn-2)] p-4 sm:flex-row sm:items-center sm:justify-between"
-        aria-label="Teacher Mode"
-      >
-        <div className="flex items-start gap-3">
-          <span className="text-2xl" aria-hidden="true">
-            🧑‍🏫
-          </span>
-          <div>
-            <p className="text-sm font-bold text-[var(--wn-12)]">Teacher Mode</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-[var(--wn-10)]">
-              Test one CEFR level, A1 to B2, or paste this week’s word list — meanings
-              are filled in for you to review. Students get a report, not a leaderboard.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onOpenTeacher}
-          className="wc-btn wc-btn-secondary shrink-0"
+          deck without going through the play wizard, and nothing is ranked. Only accounts
+          an admin has marked as teachers (or the admin) see the card. */}
+      {canTeach && (
+        <section
+          className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--wn-4)] bg-[var(--wn-2)] p-4 sm:flex-row sm:items-center sm:justify-between"
+          aria-label="Teacher Mode"
         >
-          <Icon name="type" size={16} />
-          Open Teacher Mode
-        </button>
-      </section>
+          <div className="flex items-start gap-3">
+            <span className="text-2xl" aria-hidden="true">
+              🧑‍🏫
+            </span>
+            <div>
+              <p className="text-sm font-bold text-[var(--wn-12)]">Teacher Mode</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-[var(--wn-10)]">
+                Test one CEFR level, A1 to B2, or paste this week’s word list — meanings
+                are filled in for you to review. Students get a report, not a leaderboard.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenTeacher}
+            className="wc-btn wc-btn-secondary shrink-0"
+          >
+            <Icon name="type" size={16} />
+            Open Teacher Mode
+          </button>
+        </section>
+      )}
 
       {/* Proof, not decoration: real counts straight from the word data. */}
       <section className="wc-stats lg:shrink-0" aria-label="What is in the box">

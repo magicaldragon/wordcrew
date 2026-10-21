@@ -20,6 +20,7 @@ import {
   DISPLAY_NAME_MAX,
   DISPLAY_NAME_MIN,
   useAuth,
+  type UserRole,
 } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
 import { fetchAdminAccountAccess, type AdminAccountAccess } from '../services/payments';
@@ -71,6 +72,8 @@ interface DirectoryRow {
   uid: string;
   email: string;
   displayName: string;
+  /** Set by an admin: a teacher sees the Teacher Mode entry, a student does not. */
+  role: UserRole;
   lastSeenAt: number | null;
   lastLoginAt: number | null;
   createdAt: number | null;
@@ -103,8 +106,24 @@ const TierBadge: React.FC<{ pro: boolean }> = ({ pro }) => (
   </span>
 );
 
+const RoleBadge: React.FC<{ role: UserRole; isSelf: boolean }> = ({ role, isSelf }) => {
+  // The signed-in admin is a teacher by definition, so the row says so even before the
+  // `role` field is written.
+  const label = isSelf ? 'ADMIN' : role === 'teacher' ? 'TEACHER' : 'STUDENT';
+  const tone = isSelf
+    ? 'bg-cyber-purple/20 text-cyber-purple'
+    : role === 'teacher'
+      ? 'bg-neon-green/15 text-neon-green'
+      : 'bg-[var(--wn-3)] text-[var(--wn-9)]';
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider ${tone}`}>
+      {label}
+    </span>
+  );
+};
+
 export const AdminAccountsPanel: React.FC = () => {
-  const { getIdToken } = useAuth();
+  const { user, getIdToken } = useAuth();
   const [directory, setDirectory] = useState<DirectoryRow[]>([]);
   const [access, setAccess] = useState<AdminAccountAccess[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +134,7 @@ export const AdminAccountsPanel: React.FC = () => {
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  const [roleBusy, setRoleBusy] = useState<string | null>(null);
 
   // Live directory: names, presence and last login all come from the profile docs.
   useEffect(() => {
@@ -132,6 +152,7 @@ export const AdminAccountsPanel: React.FC = () => {
               uid: item.id,
               email: typeof data.email === 'string' ? data.email : '',
               displayName: typeof data.displayName === 'string' ? data.displayName : '',
+              role: data.role === 'teacher' ? 'teacher' : 'student',
               lastSeenAt: toMillis(data.lastSeenAt),
               lastLoginAt: toMillis(data.lastLoginAt),
               createdAt: toMillis(data.createdAt),
@@ -239,6 +260,33 @@ export const AdminAccountsPanel: React.FC = () => {
     }
   };
 
+  /**
+   * Teachers are the only accounts that get the Teacher Mode entry, and only an admin
+   * can hand that out. The rules let an admin write any profile field, while an owner is
+   * refused the `role` key — so this is the single path that promotes an account.
+   */
+  const saveRole = async (row: AccountRow, next: UserRole) => {
+    if (!db || roleBusy) return;
+    setRoleBusy(row.uid);
+    const label = row.displayName || row.email || row.uid;
+    try {
+      await updateDoc(doc(db, 'users', row.uid), {
+        role: next,
+        roleUpdatedAt: serverTimestamp(),
+      });
+      toast(
+        next === 'teacher'
+          ? `${label} can open Teacher Mode now.`
+          : `${label} is back to a student.`,
+        'success',
+      );
+    } catch {
+      toast('Could not change that role. Check that the admin email is in the Firestore rules.', 'error');
+    } finally {
+      setRoleBusy(null);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -325,6 +373,9 @@ export const AdminAccountsPanel: React.FC = () => {
             {visible.map((row) => {
               const label = row.displayName || row.email || row.uid;
               const isEditing = editingUid === row.uid;
+              // Whoever is looking at this panel is an admin, so their own row needs no
+              // promotion — admin already counts as a teacher everywhere in the app.
+              const isSelf = row.uid === user?.uid;
               return (
                 <li
                   key={row.uid}
@@ -374,6 +425,7 @@ export const AdminAccountsPanel: React.FC = () => {
                             {row.displayName || '(no display name)'}
                           </p>
                           <TierBadge pro={row.pro} />
+                          <RoleBadge role={row.role} isSelf={isSelf} />
                           {row.online && (
                             <span className="inline-flex shrink-0 items-center gap-1 text-[0.65rem] font-semibold text-[var(--wa-11)]">
                               <span className="wc-live-dot" aria-hidden="true" />
@@ -395,15 +447,38 @@ export const AdminAccountsPanel: React.FC = () => {
                     </div>
 
                     {!isEditing && (
-                      <button
-                        type="button"
-                        onClick={() => startEdit(row)}
-                        className="wc-icon-btn shrink-0"
-                        aria-label={`Rename ${label}`}
-                        title="Rename this account"
-                      >
-                        <Icon name="pencil" size={16} />
-                      </button>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        {!isSelf && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void saveRole(row, row.role === 'teacher' ? 'student' : 'teacher')
+                            }
+                            disabled={roleBusy === row.uid}
+                            className="min-h-[44px] shrink-0 rounded-md border border-[var(--wn-4)] px-2 text-[0.7rem] font-semibold text-[var(--wn-10)] transition-colors hover:border-neon-green/60 hover:text-neon-green disabled:opacity-60"
+                            title={
+                              row.role === 'teacher'
+                                ? 'Remove Teacher Mode access'
+                                : 'Give Teacher Mode access'
+                            }
+                          >
+                            {roleBusy === row.uid
+                              ? 'Saving…'
+                              : row.role === 'teacher'
+                                ? 'Make student'
+                                : 'Make teacher'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => startEdit(row)}
+                          className="wc-icon-btn shrink-0"
+                          aria-label={`Rename ${label}`}
+                          title="Rename this account"
+                        >
+                          <Icon name="pencil" size={16} />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </li>
