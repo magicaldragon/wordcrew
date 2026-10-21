@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
+import { useT } from '../i18n/useT';
 import {
   deckWarnings,
   MAX_DECK_WORDS,
@@ -30,6 +31,8 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
   onCancel,
   onDelete,
 }) => {
+  const t = useT('teacher');
+  const { delete: deleteLabel } = useT('common');
   const [name, setName] = useState(deck?.name ?? '');
   const [words, setWords] = useState<TeacherWord[]>(deck?.words ?? []);
   const [paste, setPaste] = useState('');
@@ -38,25 +41,26 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
   const addFromPaste = () => {
     const parsed = parseTeacherWords(paste);
     if (parsed.length === 0) {
-      toast('No words found in the list.', 'error');
+      toast(t.editor.noWordsInList, 'error');
       return;
     }
     const known = new Set(words.map((entry) => entry.word.toLowerCase()));
     const fresh = parsed.filter((entry) => !known.has(entry.word.toLowerCase()));
     const room = MAX_DECK_WORDS - words.length;
     if (room <= 0) {
-      toast(`A deck holds at most ${MAX_DECK_WORDS} words.`, 'error');
+      toast(t.editor.deckFull(MAX_DECK_WORDS), 'error');
       return;
     }
     if (fresh.length === 0) {
-      toast('Those words are already in the deck.', 'error');
+      toast(t.editor.alreadyInDeck, 'error');
       return;
     }
     setWords([...words, ...fresh.slice(0, room)]);
     setPaste('');
     const auto = fresh.filter((entry) => !entry.meaning).length;
+    const added = Math.min(fresh.length, room);
     toast(
-      `${Math.min(fresh.length, room)} words added${auto > 0 ? ` · ${auto} still need a meaning` : ''}.`,
+      auto > 0 ? t.editor.wordsAddedMissing(added, auto) : t.editor.wordsAdded(added),
       auto > 0 ? 'info' : 'success',
     );
   };
@@ -78,17 +82,17 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       }))
       .filter((entry) => entry.word);
     if (cleaned.length === 0) {
-      toast('Add at least one word first.', 'error');
+      toast(t.editor.addAtLeastOne, 'error');
       return;
     }
     if (cleaned.some((entry) => !entry.meaning)) {
-      toast('Every word needs a meaning — fix the rows marked in red.', 'error');
+      toast(t.editor.everyWordNeedsMeaning, 'error');
       return;
     }
     const now = Date.now();
     onSave({
       id: deck?.id ?? newTeacherDeckId(),
-      name: name.trim() || 'Untitled deck',
+      name: name.trim() || t.editor.untitled,
       words: cleaned,
       createdAt: deck?.createdAt ?? now,
       updatedAt: now,
@@ -100,13 +104,13 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <label htmlFor="deck-name" className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
-            Deck name
+            {t.editor.nameLabel}
           </label>
           <input
             id="deck-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. Unit 4 — Travel"
+            placeholder={t.editor.namePlaceholder}
             className="futuristic-input mt-1 w-full min-h-[44px] px-3 py-2 text-sm"
             maxLength={60}
           />
@@ -115,7 +119,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
           type="button"
           onClick={onCancel}
           className="mt-5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-text hover:bg-cyber-purple/40 hover:text-light-text"
-          aria-label="Close the deck editor"
+          aria-label={t.editor.closeAria}
         >
           <Icon name="close" size={18} />
         </button>
@@ -123,12 +127,11 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
 
       <div className="rounded-lg border border-electric-blue/30 bg-dark-metal/50 p-3">
         <p className="text-xs font-semibold text-electric-blue">
-          Paste a list — one word per line
+          {t.editor.pasteTitle}
         </p>
         <p className="mt-1 text-[0.7rem] leading-relaxed text-muted-text">
-          <code className="text-light-text">journey</code> or{' '}
-          <code className="text-light-text">journey - chuyến đi</code>. Meanings you leave
-          out are filled from the built-in dictionary.
+          <code className="text-light-text">journey</code> {t.editor.pasteHelpOr}{' '}
+          <code className="text-light-text">journey - chuyến đi</code>{t.editor.pasteHelpTail}
         </p>
         <textarea
           value={paste}
@@ -136,11 +139,11 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
           rows={4}
           placeholder={'journey\nluggage - hành lý\ndeparture'}
           className="futuristic-input mt-2 w-full resize-y px-3 py-2 font-mono text-xs leading-relaxed"
-          aria-label="Words to add, one per line"
+          aria-label={t.editor.pasteAria}
         />
         <div className="mt-2 flex items-center justify-between gap-2">
           <span className="text-[0.7rem] text-muted-text">
-            {words.length}/{MAX_DECK_WORDS} words
+            {t.editor.wordCount(words.length, MAX_DECK_WORDS)}
           </span>
           <button
             type="button"
@@ -149,7 +152,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
             className="wc-btn wc-btn-secondary min-h-[44px] px-4 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Icon name="check" size={16} />
-            Add to deck
+            {t.editor.addToDeck}
           </button>
         </div>
       </div>
@@ -157,7 +160,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       {words.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
-            Review · the prompt is what the student sees
+            {t.editor.reviewTitle}
           </p>
           {words.map((entry, index) => {
             const warning = warnings.get(index);
@@ -168,7 +171,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
                     value={entry.word}
                     onChange={(event) => updateWord(index, { word: event.target.value })}
                     className="futuristic-input min-h-[44px] w-[42%] min-w-0 px-2 py-1.5 text-sm font-semibold"
-                    aria-label={`Word ${index + 1}`}
+                    aria-label={t.editor.wordAria(index + 1)}
                   />
                   <input
                     value={entry.meaning}
@@ -176,14 +179,14 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
                     className={`futuristic-input min-h-[44px] min-w-0 flex-1 px-2 py-1.5 text-sm ${
                       warning === 'Missing meaning' ? 'border-danger-red/70' : ''
                     }`}
-                    aria-label={`Vietnamese meaning for ${entry.word}`}
-                    placeholder="Nghĩa tiếng Việt"
+                    aria-label={t.editor.meaningAria(entry.word)}
+                    placeholder={t.editor.meaningPlaceholder}
                   />
                   <button
                     type="button"
                     onClick={() => removeWord(index)}
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
-                    aria-label={`Remove ${entry.word}`}
+                    aria-label={t.editor.removeAria(entry.word)}
                   >
                     <Icon name="close" size={16} />
                   </button>
@@ -191,8 +194,8 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
                 {warning && (
                   <p className={`mt-1 text-[0.65rem] ${warning === 'Missing meaning' ? 'text-danger-red' : 'text-warning-yellow'}`}>
                     {warning === 'Duplicate meaning'
-                      ? 'Another word has the same meaning — the question may be ambiguous.'
-                      : warning}
+                      ? t.editor.warningDuplicate
+                      : t.editor.warningMissing}
                   </p>
                 )}
               </div>
@@ -204,7 +207,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={handleSave} className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-4">
           <Icon name="save" size={16} />
-          Save deck
+          {t.editor.saveDeck}
         </button>
         {onDelete && deck && (
           <button
@@ -213,7 +216,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
             className="wc-btn wc-btn-secondary min-h-[44px] px-4 text-danger-red"
           >
             <Icon name="ban" size={16} />
-            Delete
+            {deleteLabel}
           </button>
         )}
       </div>

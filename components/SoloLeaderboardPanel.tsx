@@ -10,6 +10,9 @@ import {
   readLocalSoloBest,
   type SoloBoard,
 } from '../services/soloLeaderboard';
+import { useT } from '../i18n/useT';
+import { trackText } from '../i18n/tracks';
+import { useLocale } from '../i18n/useLocale';
 
 interface SoloLeaderboardPanelProps {
   isOpen: boolean;
@@ -22,19 +25,6 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 
 /** How many days of the daily board stay one tap away in the archive. */
 const DAILY_ARCHIVE_DAYS = 7;
-
-const dailyDateLabel = (dateId: string, index: number): string => {
-  if (index === 0) return 'Today';
-  if (index === 1) return 'Yest.';
-  return new Date(`${dateId}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
-};
-
-const longDate = (dateId: string): string =>
-  new Date(`${dateId}T00:00:00`).toLocaleDateString(undefined, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'short',
-  });
 
 /** Every board the panel can show: the four CEFR tracks, then the challenge of the day. */
 const BOARDS: SoloTrack[] = [...SOLO_TRACKS, DAILY_TRACK];
@@ -59,6 +49,11 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
   isUnlocked,
 }) => {
   const { user } = useAuth();
+  const t = useT('solo');
+  const common = useT('common');
+  const gameTracks = useT('game').setup.tracks;
+  const trackName = (track: SoloTrack) => trackText(gameTracks, track).name;
+  const locale = useLocale();
   const [boardId, setBoardId] = useState(SOLO_TRACKS[0].id);
   const [board, setBoard] = useState<SoloBoard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -117,12 +112,25 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
 
   if (!isOpen) return null;
 
+  const dailyDateLabel = (dateId: string, index: number): string => {
+    if (index === 0) return t.board.today;
+    if (index === 1) return t.board.yesterday;
+    return new Date(`${dateId}T00:00:00`).toLocaleDateString(locale, { weekday: 'short' });
+  };
+
+  const longDate = (dateId: string): string =>
+    new Date(`${dateId}T00:00:00`).toLocaleDateString(locale, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'short',
+    });
+
   const renderBoard = () => {
     if (!user) {
       return (
         <div className="text-center">
           <p className="text-xs text-[var(--wn-9)]">
-            Sign in to post a score and race other players. Your device best is kept either way.
+            {t.board.signInPrompt}
           </p>
           <button
             type="button"
@@ -130,25 +138,25 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
             className="wc-btn wc-btn-secondary wc-btn-sm mt-3"
           >
             <Icon name="user" size={15} />
-            Sign in
+            {common.signIn}
           </button>
         </div>
       );
     }
     if (loading) {
-      return <p className="animate-subtlePulse text-center text-xs text-[var(--wn-9)]">Loading…</p>;
+      return <p className="animate-subtlePulse text-center text-xs text-[var(--wn-9)]">{common.loading}</p>;
     }
     if (!board) {
       return (
         <p className="text-center text-xs text-[var(--wn-9)]">
-          Leaderboard is unavailable right now.
+          {t.board.unavailable}
         </p>
       );
     }
     if (board.rows.length === 0) {
       return (
         <p className="text-center text-xs text-[var(--wn-9)]">
-          {isDaily && !isToday ? 'No scores on that day.' : 'No scores yet — you’re first!'}
+          {isDaily && !isToday ? t.board.noScoresDay : t.board.noScores}
         </p>
       );
     }
@@ -169,10 +177,10 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
                 </span>
                 <span className="min-w-0 flex-1 truncate">
                   {row.name}
-                  {isMe ? ' (you)' : ''}
+                  {isMe ? t.youSuffix : ''}
                 </span>
                 <span className="shrink-0 font-bold tabular-nums text-[var(--wn-12)]">
-                  {row.score.toLocaleString()}
+                  {row.score.toLocaleString(locale)}
                 </span>
               </li>
             );
@@ -180,8 +188,11 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
         </ol>
         {board.rank !== null && board.rank > board.rows.length && (
           <p className="mt-2 text-center text-xs font-semibold text-[var(--wa-10)]">
-            You’re #{board.rank} of {board.total}{' '}
-            {isDaily ? (isToday ? 'today' : 'that day') : 'this month'}.
+            {isDaily
+              ? isToday
+                ? t.board.rankToday(board.rank, board.total)
+                : t.board.rankThatDay(board.rank, board.total)
+              : t.board.rankMonth(board.rank, board.total)}
           </p>
         )}
       </>
@@ -207,23 +218,23 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
               className="flex items-center gap-2 text-xl font-bold tracking-wide text-[var(--wn-12)]"
             >
               <Icon name="trophy" size={20} />
-              Solo leaderboard
+              {t.board.title}
             </h2>
             <p className="mt-1 text-xs text-[var(--wn-9)]">
-              Every board keeps its own scores, so a run is judged against the same word set.
+              {t.board.subtitle}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--wn-9)] transition hover:bg-[var(--wn-3)] hover:text-[var(--wn-12)]"
-            aria-label="Close"
+            aria-label={common.close}
           >
             <Icon name="close" size={18} />
           </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-1.5" role="group" aria-label="Choose a board">
+        <div className="mt-4 flex flex-wrap gap-1.5" role="group" aria-label={t.board.chooseBoardAria}>
           {BOARDS.map((item) => {
             const isActive = item.id === boardId;
             const locked = !isUnlocked && item.id !== DAILY_TRACK.id && item.id !== SOLO_FREE_TRACK_ID;
@@ -236,7 +247,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
                 className={`wc-btn wc-btn-sm ${isActive ? 'wc-btn-primary' : 'wc-btn-ghost'}`}
               >
                 <span aria-hidden="true">{item.emoji}</span>
-                {item.name}
+                {trackName(item)}
                 {locked ? <Icon name="lock" size={13} /> : null}
               </button>
             );
@@ -246,12 +257,12 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
         {isDaily && (
           <div className="mt-3">
             <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-[var(--wn-9)]">
-              Daily archive
+              {t.board.archive}
             </p>
             <div
               className="wc-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
               role="group"
-              aria-label="Choose a day"
+              aria-label={t.board.chooseDayAria}
             >
               {dailyDates.map((date, index) => {
                 const isActive = date === dailyDate;
@@ -272,25 +283,25 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
         )}
 
         <p className="mt-2 text-xs text-[var(--wn-9)]">
-          {track.tagline} · {track.levels.map(shortLevel).join(' → ')}
+          {trackText(gameTracks, track).tagline} · {track.levels.map(shortLevel).join(' → ')}
         </p>
         <p className="mt-1 text-xs font-semibold text-[var(--wa-10)]">
           {isDaily
             ? isToday
-              ? 'Today only — resets at midnight. Past days stay in the archive.'
-              : `Archived board · ${longDate(dailyDate)}`
-            : 'This month — resets on the 1st.'}
+              ? t.board.todayOnly
+              : t.board.archived(longDate(dailyDate))
+            : t.board.thisMonth}
         </p>
 
         {localBest && (
           <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--wn-4)] bg-[var(--field-bg)] px-3 py-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--wn-9)]">
-              Your best here
+              {t.board.yourBest}
             </span>
             <span className="text-sm font-bold tabular-nums text-[var(--wn-12)]">
-              {localBest.score.toLocaleString()}
+              {localBest.score.toLocaleString(locale)}
               <span className="ml-2 font-normal text-[var(--wn-9)]">
-                {localBest.wordsGuessed} words
+                {t.board.words(localBest.wordsGuessed)}
               </span>
             </span>
           </div>
@@ -298,14 +309,14 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
 
         <div className="mt-3 rounded-xl border border-[var(--wn-4)] bg-[var(--card-bg)] p-3">
           <p className="mb-2 text-center text-xs font-semibold uppercase tracking-widest text-[var(--wa-10)]">
-            {track.emoji} {track.name} board
+            {track.emoji} {t.board.boardOf(trackName(track))}
           </p>
           {renderBoard()}
         </div>
 
         {isTrackLocked && (
           <p className="mt-3 text-center text-xs text-[var(--wn-9)]">
-            This track is part of the Full Version — unlock to post a score on it.
+            {t.board.trackLocked}
           </p>
         )}
       </div>
@@ -313,7 +324,7 @@ export const SoloLeaderboardPanel: React.FC<SoloLeaderboardPanelProps> = ({
       <AuthDialog
         isOpen={showAuth}
         onClose={() => setShowAuth(false)}
-        reason="Sign in to save your solo scores and join the leaderboard."
+        reason={t.signInReason}
       />
     </div>
   );

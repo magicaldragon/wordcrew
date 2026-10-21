@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog, toast } from './Feedback';
 import { TeacherDeckEditor } from './TeacherDeckEditor';
+import { useLocale } from '../i18n/useLocale';
+import { useT } from '../i18n/useT';
 import {
   deleteTeacherDeck,
   readTeacherDecks,
@@ -30,6 +32,9 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   onStartDeck,
   onExit,
 }) => {
+  const t = useT('teacher');
+  const { delete: deleteLabel } = useT('common');
+  const locale = useLocale();
   const [tab, setTab] = useState<TabId>('level');
   const [levelId, setLevelId] = useState<TeacherLevelId>('A1');
   const [count, setCount] = useState(10);
@@ -40,18 +45,18 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   const handleSave = (deck: TeacherDeck) => {
     setDecks(saveTeacherDeck(deck));
     setEditing(null);
-    toast('Deck saved on this device.', 'success');
+    toast(t.setup.savedToast, 'success');
   };
 
   const handleDelete = async (deck: TeacherDeck) => {
-    const ok = await confirmDialog(`Delete “${deck.name}” and its ${deck.words.length} words?`, {
-      confirmLabel: 'Delete',
+    const ok = await confirmDialog(t.setup.deleteAsk(deck.name, deck.words.length), {
+      confirmLabel: deleteLabel,
       destructive: true,
     });
     if (!ok) return;
     setDecks(deleteTeacherDeck(deck.id));
     setEditing(null);
-    toast('Deck deleted.', 'success');
+    toast(t.setup.deletedToast, 'success');
   };
 
   if (editing) {
@@ -70,7 +75,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs leading-relaxed text-muted-text">
-            One level per test, fixed length, a report at the end — no hearts, no score.
+            {t.setup.subtitle}
           </p>
         </div>
         <button
@@ -79,14 +84,14 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
           className="flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-muted-text hover:bg-cyber-purple/30 hover:text-light-text"
         >
           <Icon name="arrowLeft" size={16} />
-          Dashboard
+          {t.dashboard}
         </button>
       </div>
 
-      <div className="flex gap-1 rounded-lg border border-white/10 bg-dark-metal/40 p-1" role="tablist" aria-label="Teacher word source">
+      <div className="flex gap-1 rounded-lg border border-white/10 bg-dark-metal/40 p-1" role="tablist" aria-label={t.setup.sourceAria}>
         {([
-          { id: 'level' as TabId, label: 'Level test', emoji: '🎯' },
-          { id: 'decks' as TabId, label: `My decks${decks.length ? ` (${decks.length})` : ''}`, emoji: '🗂️' },
+          { id: 'level' as TabId, label: t.setup.tabs.level, emoji: '🎯' },
+          { id: 'decks' as TabId, label: decks.length ? t.setup.tabs.decksCount(decks.length) : t.setup.tabs.decks, emoji: '🗂️' },
         ]).map((item) => (
           <button
             key={item.id}
@@ -107,7 +112,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
 
       {tab === 'level' ? (
         <>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Level">
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t.setup.levelAria}>
             {TEACHER_LEVELS.map((level) => {
               const active = level.id === levelId;
               return (
@@ -126,7 +131,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                   <span className={`text-sm font-bold ${active ? 'text-neon-green' : 'text-light-text'}`}>
                     <span aria-hidden="true">{level.emoji}</span> {level.id}
                   </span>
-                  <span className="text-[0.7rem] leading-snug text-muted-text">{level.tagline}</span>
+                  <span className="text-[0.7rem] leading-snug text-muted-text">{t.setup.levelTaglines[level.id]}</span>
                 </button>
               );
             })}
@@ -134,7 +139,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
 
           <div>
             <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
-              Words in this test
+              {t.setup.wordsInTest}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {TEACHER_WORD_COUNTS.map((option) => (
@@ -161,18 +166,17 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
             className="wc-btn wc-btn-primary min-h-[48px] w-full"
           >
             <Icon name="play" size={16} />
-            Start {levelId} test · {count} words
+            {t.setup.startTest(levelId, count)}
           </button>
           <p className="text-center text-[0.7rem] leading-relaxed text-muted-text">
-            Level-locked: every word comes from {levelId} only. The student types the
-            English word for the Vietnamese prompt.
+            {t.setup.levelLocked(levelId)}
           </p>
         </>
       ) : (
         <>
           <div className="flex items-center justify-between gap-2">
             <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
-              Saved on this device
+              {t.setup.savedOnDevice}
             </p>
             <button
               type="button"
@@ -180,23 +184,22 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
               className="wc-btn wc-btn-secondary min-h-[44px] px-3"
             >
               <Icon name="save" size={16} />
-              New deck
+              {t.setup.newDeck}
             </button>
           </div>
 
           {decks.length === 0 ? (
             <div className="rounded-lg border border-dashed border-white/15 p-5 text-center">
-              <p className="text-sm font-semibold text-light-text">No decks yet</p>
+              <p className="text-sm font-semibold text-light-text">{t.setup.noDecksTitle}</p>
               <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-text">
-                Paste this week’s word list — one word per line. Meanings are filled in
-                automatically and you review them before the class sees the test.
+                {t.setup.noDecksBody}
               </p>
               <button
                 type="button"
                 onClick={() => setEditing('new')}
                 className="wc-btn wc-btn-primary mt-3 min-h-[44px] px-4"
               >
-                Build the first deck
+                {t.setup.buildFirstDeck}
               </button>
             </div>
           ) : (
@@ -207,7 +210,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-light-text">{deck.name}</p>
                       <p className="mt-0.5 text-[0.7rem] text-muted-text">
-                        {deck.words.length} words · edited {new Date(deck.updatedAt).toLocaleDateString()}
+                        {t.setup.deckMeta(deck.words.length, new Date(deck.updatedAt).toLocaleDateString(locale))}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -215,7 +218,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                         type="button"
                         onClick={() => setEditing(deck)}
                         className="flex h-11 w-11 items-center justify-center rounded-md text-muted-text hover:bg-electric-blue/20 hover:text-electric-blue"
-                        aria-label={`Edit ${deck.name}`}
+                        aria-label={t.setup.editDeckAria(deck.name)}
                       >
                         <Icon name="pencil" size={16} />
                       </button>
@@ -223,7 +226,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                         type="button"
                         onClick={() => void handleDelete(deck)}
                         className="flex h-11 w-11 items-center justify-center rounded-md text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
-                        aria-label={`Delete ${deck.name}`}
+                        aria-label={t.setup.deleteDeckAria(deck.name)}
                       >
                         <Icon name="ban" size={16} />
                       </button>
@@ -235,7 +238,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                     className="wc-btn wc-btn-primary mt-2 min-h-[44px] w-full"
                   >
                     <Icon name="play" size={16} />
-                    Test this deck
+                    {t.setup.testDeck}
                   </button>
                 </li>
               ))}

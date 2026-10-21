@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
 
 /**
  * In-app feedback surface.
@@ -22,8 +23,9 @@ interface ToastItem {
 interface ConfirmItem {
   id: number;
   message: string;
-  confirmLabel: string;
-  cancelLabel: string;
+  /** Both default to the shared Confirm / Cancel copy in the reader's language. */
+  confirmLabel?: string;
+  cancelLabel?: string;
   destructive: boolean;
   resolve: (value: boolean) => void;
 }
@@ -65,8 +67,8 @@ export function confirmDialog(
     confirmItem = {
       id,
       message,
-      confirmLabel: options.confirmLabel ?? 'Confirm',
-      cancelLabel: options.cancelLabel ?? 'Cancel',
+      confirmLabel: options.confirmLabel,
+      cancelLabel: options.cancelLabel,
       destructive: options.destructive ?? true,
       resolve,
     };
@@ -101,6 +103,7 @@ const TOAST_STYLES: Record<ToastKind, string> = {
 
 export const FeedbackHost: React.FC = () => {
   const state = useStore();
+  const common = useT('common');
 
   useEffect(() => {
     if (!state.confirmItem) return;
@@ -129,7 +132,7 @@ export const FeedbackHost: React.FC = () => {
               type="button"
               onClick={() => dismissToast(t.id)}
               className="-mr-1 -mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-text transition hover:text-light-text"
-              aria-label="Dismiss message"
+              aria-label={common.dismiss}
             >
               <Icon name="close" size={14} />
             </button>
@@ -156,7 +159,7 @@ export const FeedbackHost: React.FC = () => {
                 onClick={() => settleConfirm(false)}
                 className="futuristic-button min-h-[44px] rounded-[var(--r-md)] bg-[var(--surface-3)] px-4 py-2.5 text-sm font-semibold text-muted-text hover:text-light-text"
               >
-                {state.confirmItem.cancelLabel}
+                {state.confirmItem.cancelLabel ?? common.cancel}
               </button>
               <button
                 type="button"
@@ -167,7 +170,7 @@ export const FeedbackHost: React.FC = () => {
                     : 'bg-neon-green hover:bg-emerald-400'
                 }`}
               >
-                {state.confirmItem.confirmLabel}
+                {state.confirmItem.confirmLabel ?? common.confirm}
               </button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FULL_VERSION_PERKS } from '../constants';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
+import { describeCode } from '../i18n/errors';
 import type { UnlockOutcome } from '../services/payments';
 
 interface UnlockDialogProps {
@@ -12,6 +13,8 @@ interface UnlockDialogProps {
 // Shared modal for entering a licence key (or the legacy teacher access code). Used
 // from the landing, setup and results screens so the unlock flow stays identical.
 export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onUnlock }) => {
+  const t = useT('auth');
+  const errors = useT('errors');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,7 +50,7 @@ export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onU
     if (outcome.ok) {
       onClose();
     } else {
-      setError(outcome.message ?? 'That code did not work. Please check it and try again.');
+      setError(describeCode(errors, outcome.code, t.unlock.failure));
     }
   };
 
@@ -68,17 +71,17 @@ export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onU
           className="flex items-center gap-2 font-heading text-xl font-bold tracking-wide text-warning-yellow"
         >
           <Icon name="unlock" size={22} />
-          Unlock Full Version
+          {t.unlockFull}
         </h2>
         <ul className="mt-3 space-y-1.5 text-left font-sans text-xs text-muted-text">
-          {FULL_VERSION_PERKS.map((perk) => (
+          {t.perks.map((perk) => (
             <li key={perk}>{perk}</li>
           ))}
         </ul>
 
         <form onSubmit={handleSubmit} className="mt-4">
           <label htmlFor="unlockCodeInput" className="mb-1 block text-left font-sans text-xs text-muted-text">
-            Licence key or teacher access code
+            {t.unlock.licenceLabel}
           </label>
           <div className="flex gap-2">
             <input
@@ -101,7 +104,7 @@ export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onU
               disabled={isSubmitting || !code.trim()}
               className="futuristic-button min-h-[48px] rounded-[var(--r-md)] bg-cyber-purple/70 px-4 py-3 text-sm font-semibold text-light-text hover:bg-cyber-purple"
             >
-              {isSubmitting ? '…' : 'Unlock'}
+              {isSubmitting ? '…' : t.unlock.submit}
             </button>
           </div>
           {error && (
@@ -120,7 +123,7 @@ export const UnlockDialog: React.FC<UnlockDialogProps> = ({ isOpen, onClose, onU
           onClick={onClose}
           className="mt-4 font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
         >
-          Maybe later
+          {t.unlock.later}
         </button>
       </div>
     </div>

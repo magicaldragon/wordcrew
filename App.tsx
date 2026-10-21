@@ -17,10 +17,11 @@ import {
 } from './services/teacherDeck';
 import { localDateId } from './services/periods';
 import type { ClassAssignment } from './services/classes';
-import { CHECK_VOCABULARY } from './services/tools';
+import { trackText } from './i18n/tracks';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
 import { Icon } from './components/Icon';
+import { useT } from './i18n/useT';
 
 // The portal dashboard is the entry point, so it ships in the initial bundle.
 // Every game-side screen is loaded on first navigation instead — the setup wizard
@@ -44,12 +45,15 @@ const ClassWorkScreen = lazy(() =>
 );
 
 /** Neutral placeholder shown for the instant a split screen chunk is still loading. */
-const ScreenFallback: React.FC = () => (
-  <div className="flex h-full min-h-[12rem] w-full items-center justify-center" role="status" aria-live="polite">
-    <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--hairline-strong)] border-t-electric-blue" />
-    <span className="sr-only">Loading…</span>
-  </div>
-);
+const ScreenFallback: React.FC = () => {
+  const t = useT('common');
+  return (
+    <div className="flex h-full min-h-[12rem] w-full items-center justify-center" role="status" aria-live="polite">
+      <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--hairline-strong)] border-t-electric-blue" />
+      <span className="sr-only">{t.loading}</span>
+    </div>
+  );
+};
 import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
@@ -91,6 +95,12 @@ function usePrevious<T>(value: T): T | undefined {
 }
 
 const App: React.FC = () => {
+  // Copy for the frame around every screen: banner, exit and full-screen controls,
+  // update notices. The screens below own their own namespaces.
+  const shellCopy = useT('shell');
+  const dashboardCopy = useT('dashboard');
+  const gameCopy = useT('game');
+
   const [gamePhase, setGamePhase] = useState<GamePhase>(GamePhase.SETUP);
   const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
   const [gameEndDetails, setGameEndDetails] = useState<GameEndDetails | null>(null);
@@ -470,10 +480,10 @@ const App: React.FC = () => {
         console.error(`Error saving ${key} to localStorage:`, e);
         if (key.startsWith('custom') && !storageWarningShown.current) {
             storageWarningShown.current = true;
-            toast('Browser storage is full, so this audio could not be saved and would be lost on reload. Remove a custom sound (or use "Reset all to default sounds") and upload a smaller file.', 'error');
+            toast(shellCopy.storageFull, 'error');
         }
     }
-  }, []); 
+  }, [shellCopy]); 
 
   useEffect(() => {
     if (!initialLoadDone.current) return;
@@ -1075,20 +1085,20 @@ const App: React.FC = () => {
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-electric-blue/50 bg-dark-metal/95 px-3 py-1.5 shadow-[var(--elev-3)] animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
             <span className="text-base sm:text-lg" aria-hidden="true">🎉</span>
             <p className="font-sans text-xs text-light-text sm:text-sm">
-              <span className="font-heading tracking-wide text-electric-blue">WordCrew {majorUpdateVersion}</span> is available.
+              <span className="font-heading tracking-wide text-electric-blue">{shellCopy.update.majorName(majorUpdateVersion)}</span>{shellCopy.update.majorTail}
             </p>
             <button
               type="button"
               onClick={handleReloadForUpdate}
               className="futuristic-button rounded-full bg-electric-blue px-3 py-1 text-xs font-bold text-dark-metal hover:bg-sky-400 sm:text-sm"
             >
-              Reload
+              {shellCopy.update.reload}
             </button>
             <button
               type="button"
               onClick={handleDismissUpdateNotice}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-text hover:text-light-text"
-              aria-label="Dismiss update notice"
+              aria-label={shellCopy.update.dismissMajorAria}
             >
               <Icon name="close" size={16} />
             </button>
@@ -1100,20 +1110,20 @@ const App: React.FC = () => {
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-neon-green/50 bg-dark-metal/95 px-3 py-1.5 shadow-[var(--elev-3)] animate-fadeInScaleUp sm:gap-3 sm:px-4 sm:py-2">
             <span className="text-base sm:text-lg" aria-hidden="true">✨</span>
             <p className="font-sans text-xs text-light-text sm:text-sm">
-              A new build is ready.
+              {shellCopy.update.ready}
             </p>
             <button
               type="button"
               onClick={handleReloadForUpdate}
               className="futuristic-button rounded-full bg-neon-green px-3 py-1 text-xs font-bold text-dark-metal hover:bg-emerald-400 sm:text-sm"
             >
-              Reload
+              {shellCopy.update.reload}
             </button>
             <button
               type="button"
               onClick={() => setDismissedPwaUpdate(true)}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-text hover:text-light-text"
-              aria-label="Dismiss update offer"
+              aria-label={shellCopy.update.dismissMinorAria}
             >
               <Icon name="close" size={16} />
             </button>
@@ -1147,10 +1157,10 @@ const App: React.FC = () => {
         <header className={`mb-3 sm:mb-4 flex-shrink-0 text-center ${rushHourBounceClass}`}>
           <span className="block text-[0.65rem] sm:text-xs font-sans uppercase tracking-[0.35em] text-electric-blue/80 mb-1">
             {isTeacher
-              ? `${CHECK_VOCABULARY.slot} · ${CHECK_VOCABULARY.name}`
+              ? `${dashboardCopy.tools.definition.slot} · ${dashboardCopy.tools.definition.name}`
               : isSolo || isSoloSetup
-                ? 'Solo Challenge'
-                : 'Only Talented Guessers'}
+                ? shellCopy.banner.solo
+                : shellCopy.banner.party}
           </span>
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-heading font-bold tracking-wider text-warning-yellow animate-goldPulseGlow">
             {canExitToHome ? (
@@ -1158,8 +1168,8 @@ const App: React.FC = () => {
                 type="button"
                 onClick={handleGoHome}
                 className="cursor-pointer rounded-md transition-transform duration-200 hover:scale-[1.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
-                title="Back to home"
-                aria-label="WordCrew — back to home"
+                title={shellCopy.header.backHome}
+                aria-label={shellCopy.header.homeAria}
               >
                 WordCrew
               </button>
@@ -1170,13 +1180,13 @@ const App: React.FC = () => {
           <p className="mt-1 sm:mt-2 text-base sm:text-lg text-muted-text font-sans">
             {isTeacher
               ? teacherSession
-                ? `${teacherSession.title} — type the English word for each prompt.`
-                : 'One level or one deck. A report at the end — no hearts, no score.'
+                ? shellCopy.header.teacherRunning(teacherSession.title)
+                : shellCopy.header.teacherIdle
               : isSolo || isSoloSetup
                 ? soloPhase === 'playing' && soloTrack
-                  ? `${soloTrack.emoji} ${soloTrack.name} — type or say your guess before time runs out!`
-                  : 'Play solo, climb the CEFR ladder and top the leaderboard.'
-                : 'Describe the word on screen to your partner before time runs out!'}
+                  ? shellCopy.header.soloRunning(soloTrack.emoji, trackText(gameCopy.setup.tracks, soloTrack).name)
+                  : shellCopy.header.soloIdle
+                : shellCopy.header.party}
           </p>
         </header>
         <div className="relative flex min-h-0 w-full flex-grow flex-col">
@@ -1192,8 +1202,8 @@ const App: React.FC = () => {
               type="button"
               onClick={handleGoHome}
               className="absolute right-1.5 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-full text-muted-text transition-colors hover:bg-cyber-purple/40 hover:text-light-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-electric-blue"
-              aria-label="Exit setup and return home"
-              title="Exit setup"
+              aria-label={shellCopy.header.exitSetupAria}
+              title={shellCopy.header.exitSetup}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-5 w-5 sm:h-6 sm:w-6">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -1202,14 +1212,14 @@ const App: React.FC = () => {
           )}
         </div>
         <footer className={`mt-3 sm:mt-4 text-xs sm:text-sm text-muted-text flex justify-between items-center w-full px-1 flex-shrink-0 ${rushHourBounceClass} max-w-4xl`}>
-          <p className="footer-credit">Made by Mr. C <span role="img" aria-label="heart" className="text-danger-red">❤️</span></p>
+          <p className="footer-credit">{shellCopy.footer.credit} <span role="img" aria-label={shellCopy.footer.heartAria} className="text-danger-red">❤️</span></p>
           <div className="flex items-center fullscreen-toggle-container">
               <button
                   type="button"
                   onClick={toggleFullScreen}
                   className="p-1.5 rounded-full text-muted-text hover:text-light-text hover:bg-cyber-purple/50 transition-colors"
-                  aria-label={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
-                  title={isFullscreen ? 'Exit full screen' : 'Enter full screen'}
+                  aria-label={isFullscreen ? shellCopy.fullscreen.exit : shellCopy.fullscreen.enter}
+                  title={isFullscreen ? shellCopy.fullscreen.exit : shellCopy.fullscreen.enter}
               >
                   {isFullscreen ? (
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-4 w-4 sm:h-5 sm:w-5">
@@ -1243,7 +1253,7 @@ const App: React.FC = () => {
       <AuthDialog
         isOpen={showAuthDialog}
         onClose={() => setShowAuthDialog(false)}
-        reason="Sign in to continue to checkout."
+        reason={shellCopy.signInForCheckout}
       />
       <PurchaseDialog
         isOpen={showPurchaseDialog}

@@ -33,6 +33,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { auth, db, firebaseConfigured, googleProvider } from '../services/firebase';
+import { AppError } from '../services/apiError';
 import { refreshSoloDisplayName } from '../services/soloLeaderboard';
 
 /** How long a player must wait between two self-service renames. */
@@ -91,39 +92,48 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const NOT_CONFIGURED = 'Sign-in is not available right now. Please try again later.';
-
 /** Trims, collapses runs of spaces and caps the length the rules accept. */
 const normalizeDisplayName = (value: string | null | undefined): string =>
   (value ?? '').trim().replace(/\s+/g, ' ').slice(0, DISPLAY_NAME_MAX);
 
-/** Turns Firebase's terse error codes into something a teacher can act on. */
-const describeError = (error: unknown): string => {
+/** Formats a cooldown date the way the rest of the portal does, in the UI's language. */
+const dateLabel = (ms: number): string =>
+  new Date(ms).toLocaleDateString(
+    document.documentElement.lang === 'vi' ? 'vi-VN' : 'en-GB',
+    { day: 'numeric', month: 'long', year: 'numeric' },
+  );
+
+/**
+ * Maps Firebase's terse error codes onto the keys in the `errors` dictionary. The code is
+ * what leaves this module — the sentence is chosen by whichever screen shows it, in the
+ * reader's language.
+ */
+const authErrorCode = (error: unknown): string => {
   const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : '';
   switch (code) {
     case 'auth/invalid-email':
-      return 'That email address does not look right.';
+      return 'invalidEmail';
     case 'auth/missing-password':
-      return 'Please enter your password.';
+      return 'missingPassword';
     case 'auth/weak-password':
-      return 'Passwords need at least 6 characters.';
+      return 'weakPassword';
     case 'auth/email-already-in-use':
-      return 'An account already uses that email. Try signing in instead.';
+      return 'emailInUse';
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return 'Email or password is incorrect.';
+      return 'wrongCredentials';
     case 'auth/too-many-requests':
-      return 'Too many attempts. Please wait a moment and try again.';
+      return 'tooManyAttempts';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
-      return 'Sign-in window was closed before finishing.';
+      return 'popupClosed';
     case 'auth/popup-blocked':
-      return 'Your browser blocked the sign-in popup. Allow popups and try again.';
+      return 'popupBlocked';
     case 'auth/network-request-failed':
-      return 'Network problem — check your connection and try again.';
+      return 'networkError';
     default:
-      return 'Something went wrong. Please try again.';
+      return 'generic';
   }
 };
 
@@ -229,17 +239,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   const requireAuth = useCallback((): NonNullable<typeof auth> => {
-    if (!auth) throw new Error(NOT_CONFIGURED);
+    if (!auth) throw new AppError('signInNotConfigured');
     return auth;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
     const instance = requireAuth();
-    if (!googleProvider) throw new Error(NOT_CONFIGURED);
+    if (!googleProvider) throw new AppError('signInNotConfigured');
     try {
       await signInWithPopup(instance, googleProvider);
     } catch (error) {
-      throw new Error(describeError(error));
+      throw new AppError(authErrorCode(error));
     }
   }, [requireAuth]);
 
@@ -249,7 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await signInWithEmailAndPassword(instance, email.trim(), password);
       } catch (error) {
-        throw new Error(describeError(error));
+        throw new AppError(authErrorCode(error));
       }
     },
     [requireAuth],
@@ -263,7 +273,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (name.trim()) await updateProfile(credential.user, { displayName: name.trim() });
         await syncUserProfile(credential.user, name);
       } catch (error) {
-        throw new Error(describeError(error));
+        throw new AppError(authErrorCode(error));
       }
     },
     [requireAuth],
@@ -275,7 +285,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await sendPasswordResetEmail(instance, email.trim());
       } catch (error) {
-        throw new Error(describeError(error));
+        throw new AppError(authErrorCode(error));
       }
     },
     [requireAuth],
@@ -296,10 +306,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const updateDisplayName = useCallback(async (raw: string) => {
-    if (!db || !auth?.currentUser) throw new Error('Sign in before changing your name.');
+    if (!db || !auth?.currentUser) throw new AppError('nameSignIn');
     const name = normalizeDisplayName(raw);
     if (name.length < DISPLAY_NAME_MIN) {
-      throw new Error(`Names need at least ${DISPLAY_NAME_MIN} characters.`);
+      throw new AppError('nameTooShort', undefined, String(DISPLAY_NAME_MIN));
     }
 
     const uid = auth.currentUser.uid;
@@ -310,9 +320,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const data = (snapshot.data() ?? {}) as UserProfile;
     const lastChanged = displayNameCooldownEndsAt(data);
     if (lastChanged && Date.now() < lastChanged) {
-      throw new Error(
-        `You can change your name again on ${new Date(lastChanged).toLocaleDateString()}. Contact the admin if you need it sooner.`,
-      );
+      throw new AppError('nameCooldown', undefined, dateLabel(lastChanged));
     }
 
     // The rules repeat the cooldown check, so a modified client cannot bypass it.

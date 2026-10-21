@@ -35,6 +35,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { AppError } from './apiError';
 import type { TeacherWord } from './teacherDeck';
 
 const CLASSES = 'classes';
@@ -255,7 +256,7 @@ export const memberKey = (email: string): string => email.trim().toLowerCase();
 // ── Classes ────────────────────────────────────────────────────────────────
 
 const collectionRef = () => {
-  if (!db) throw new Error('Firestore is not configured.');
+  if (!db) throw new AppError('firestoreNotConfigured');
   return collection(db, CLASSES);
 };
 
@@ -390,9 +391,9 @@ export const joinClassByCode = async (
   identity: { email: string; uid: string; name: string },
 ): Promise<SchoolClass> => {
   const normalized = normalizeCode(code);
-  if (normalized.length !== 6) throw new Error('Enter the six-character class code.');
+  if (normalized.length !== 6) throw new AppError('classCodeLength');
   const codeSnap = await getDoc(doc(db!, CODES, normalized));
-  if (!codeSnap.exists()) throw new Error('That code does not match any class.');
+  if (!codeSnap.exists()) throw new AppError('classCodeUnknown');
   const classId = asString((codeSnap.data() as Record<string, unknown>).classId);
   const key = memberKey(identity.email);
   const memberRef = doc(db!, CLASSES, classId, 'members', key);
@@ -419,7 +420,7 @@ export const joinClassByCode = async (
   }
 
   const found = await fetchClass(classId);
-  if (!found) throw new Error('That class is no longer available.');
+  if (!found) throw new AppError('classGone');
   return found;
 };
 

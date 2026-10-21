@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
+import { describeError } from '../i18n/errors';
 
 interface AuthDialogProps {
   isOpen: boolean;
@@ -19,6 +21,9 @@ type Mode = 'signin' | 'signup';
  */
 export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSuccess, reason }) => {
   const { signInWithGoogle, signInWithEmail, registerWithEmail, configured } = useAuth();
+  const t = useT('auth');
+  const common = useT('common');
+  const errors = useT('errors');
   const [mode, setMode] = useState<Mode>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -59,7 +64,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
       await signInWithGoogle();
       finish();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not sign in.');
+      setError(describeError(errors, err, t.signIn.error));
       setBusy(null);
     }
   };
@@ -76,7 +81,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
       }
       finish();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not sign in.');
+      setError(describeError(errors, err, t.signIn.error));
       setBusy(null);
     }
   };
@@ -99,7 +104,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="authDialogTitle" className="text-xl font-bold tracking-wide text-[var(--wn-12)]">
-              {mode === 'signin' ? 'Sign in to WordCrew' : 'Create your account'}
+              {mode === 'signin' ? t.signIn.title : t.signIn.signUpTitle}
             </h2>
             {reason && <p className="mt-1 text-xs text-[var(--wn-9)]">{reason}</p>}
           </div>
@@ -107,7 +112,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
             type="button"
             onClick={onClose}
             className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--wn-9)] transition hover:bg-[var(--wn-3)] hover:text-[var(--wn-12)]"
-            aria-label="Close"
+            aria-label={common.close}
           >
             <Icon name="close" size={18} />
           </button>
@@ -115,8 +120,9 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
 
         {!configured && (
           <p className="mt-4 rounded-xl border border-[#c9952e]/40 bg-[#c9952e]/10 px-3 py-2 text-xs text-[var(--wn-11)]">
-            Firebase is not configured on this build, so sign-in is disabled. Add your
-            <code className="mx-1">VITE_FIREBASE_*</code> keys to <code>.env.local</code>.
+            {t.signIn.firebaseNoticeBefore}
+            <code className="mx-1">VITE_FIREBASE_*</code> {t.signIn.firebaseNoticeKeysTo}{' '}
+            <code>.env.local</code>{t.signIn.firebaseNoticeAfter}
           </p>
         )}
 
@@ -144,12 +150,12 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
               d="M12 5.08c1.69 0 3.21.58 4.4 1.72l3.3-3.3C17.72 1.6 15.11.5 12 .5A11.5 11.5 0 0 0 1.7 6.85l3.84 2.98C6.45 7.11 9 5.08 12 5.08Z"
             />
           </svg>
-          {busy === 'google' ? 'Opening Google…' : 'Continue with Google'}
+          {busy === 'google' ? t.signIn.openingGoogle : t.signIn.continueWithGoogle}
         </button>
 
         <div className="my-5 flex items-center gap-3 text-xs text-[var(--wn-8)]">
           <span className="h-px flex-1 bg-[var(--wn-4)]" />
-          or use email
+          {t.signIn.emailDivider}
           <span className="h-px flex-1 bg-[var(--wn-4)]" />
         </div>
 
@@ -157,7 +163,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
           {mode === 'signup' && (
             <div>
               <label htmlFor="authName" className="mb-1 block text-xs font-semibold text-[var(--wn-10)]">
-                Name
+                {t.signIn.name}
               </label>
               <input
                 id="authName"
@@ -166,14 +172,14 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 className={inputClass}
-                placeholder="Ms. Lan"
+                placeholder={t.signIn.namePlaceholder}
               />
             </div>
           )}
 
           <div>
             <label htmlFor="authEmail" className="mb-1 block text-xs font-semibold text-[var(--wn-10)]">
-              Email
+              {t.signIn.email}
             </label>
             <input
               id="authEmail"
@@ -189,7 +195,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
 
           <div>
             <label htmlFor="authPassword" className="mb-1 block text-xs font-semibold text-[var(--wn-10)]">
-              Password
+              {t.signIn.password}
             </label>
             <input
               id="authPassword"
@@ -216,15 +222,15 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
             className="wc-btn wc-btn-primary w-full"
           >
             {busy === 'email'
-              ? 'Please wait…'
+              ? t.signIn.pleaseWait
               : mode === 'signin'
-                ? 'Sign in'
-                : 'Create account'}
+                ? common.signIn
+                : t.signIn.createAccount}
           </button>
         </form>
 
         <p className="mt-4 text-center text-xs text-[var(--wn-9)]">
-          {mode === 'signin' ? 'New to WordCrew?' : 'Already have an account?'}{' '}
+          {mode === 'signin' ? t.signIn.newHere : t.signIn.haveAccount}{' '}
           <button
             type="button"
             onClick={() => {
@@ -233,7 +239,7 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
             }}
             className="font-semibold text-[var(--wa-11)] underline decoration-dotted underline-offset-4 hover:text-[var(--wa-10)]"
           >
-            {mode === 'signin' ? 'Create an account' : 'Sign in'}
+            {mode === 'signin' ? t.signIn.createAccountLink : common.signIn}
           </button>
         </p>
       </div>

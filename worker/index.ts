@@ -98,6 +98,14 @@ const json = (body: unknown, status = 200): Response =>
     },
   });
 
+/**
+ * A failed request carries two fields: `error` for people reading logs or a raw API
+ * response, and `code` for the portal. The portal translates the code into the reader's
+ * language, so a Vietnamese checkout never shows an English sentence.
+ */
+const fail = (code: string, message: string, status: number): Response =>
+  json({ error: message, code }, status);
+
 const readJson = async (request: Request): Promise<Record<string, unknown>> => {
   try {
     const parsed = await request.json();
@@ -131,7 +139,7 @@ const getPricing = (env: Env): Response =>
 const createOrder = async (request: Request, env: Env): Promise<Response> => {
   const body = await readJson(request);
   const requestedId = String(body.productId || PRODUCT.id);
-  if (requestedId !== PRODUCT.id) return json({ error: 'Unknown product' }, 400);
+  if (requestedId !== PRODUCT.id) return fail('unknownProduct', 'Unknown product', 400);
 
   // Checkout is gated behind sign-in: the order is bound to a *verified* Firebase
   // account so the customer record (email/uid) survives for later campaigns. The game
@@ -140,15 +148,15 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
   const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
   if (projectId) {
     const token = extractBearerToken(request);
-    if (!token) return json({ error: 'Please sign in before checking out.' }, 401);
+    if (!token) return fail('signInRequired', 'Please sign in before checking out.', 401);
     buyer = await verifyFirebaseIdToken(token, projectId);
-    if (!buyer) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+    if (!buyer) return fail('sessionExpired', 'Your session has expired. Please sign in again.', 401);
   }
 
   const bankName = String(env.SEPAY_BANK_NAME || '').trim();
   const accountNumber = String(env.SEPAY_BANK_ACCOUNT || '').trim();
   if (!bankName || !accountNumber) {
-    return json({ error: 'Payments are not configured yet' }, 503);
+    return fail('paymentsNotConfigured', 'Payments are not configured yet', 503);
   }
 
   const clientIp = request.headers.get('CF-Connecting-IP') || '';
@@ -160,7 +168,7 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
       .bind(clientIp, since)
       .first<{ total: number }>();
     if ((recent?.total ?? 0) >= ORDERS_PER_IP_PER_HOUR) {
-      return json({ error: 'Too many orders from this device. Please try again later.' }, 429);
+      return fail('tooManyOrders', 'Too many orders from this device. Please try again later.', 429);
     }
   }
 
@@ -214,9 +222,9 @@ const getOrder = async (request: Request, code: string, env: Env): Promise<Respo
   const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
   if (projectId) {
     const token = extractBearerToken(request);
-    if (!token) return json({ error: 'Please sign in.' }, 401);
+    if (!token) return fail('signInRequired', 'Please sign in.', 401);
     const user = await verifyFirebaseIdToken(token, projectId);
-    if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+    if (!user) return fail('sessionExpired', 'Your session has expired. Please sign in again.', 401);
     uid = user.uid;
   }
 
@@ -233,8 +241,8 @@ const getOrder = async (request: Request, code: string, env: Env): Promise<Respo
       user_id: string | null;
     }>();
 
-  if (!row) return json({ error: 'Order not found' }, 404);
-  if (uid && row.user_id !== uid) return json({ error: 'Order not found' }, 404);
+  if (!row) return fail('orderNotFound', 'Order not found', 404);
+  if (uid && row.user_id !== uid) return fail('orderNotFound', 'Order not found', 404);
 
   let status = row.status;
   if (status === 'pending' && Date.now() > row.expires_at) {
@@ -261,13 +269,13 @@ const getOrder = async (request: Request, code: string, env: Env): Promise<Respo
  */
 const listOrders = async (request: Request, env: Env): Promise<Response> => {
   const token = extractBearerToken(request);
-  if (!token) return json({ error: 'Please sign in.' }, 401);
+  if (!token) return fail('signInRequired', 'Please sign in.', 401);
 
   const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
   if (!projectId) return json({ orders: [] });
 
   const user = await verifyFirebaseIdToken(token, projectId);
-  if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+  if (!user) return fail('sessionExpired', 'Your session has expired. Please sign in again.', 401);
 
   const email = user.emailVerified && user.email ? user.email.trim().toLowerCase() : '';
   const statement = email
@@ -327,13 +335,13 @@ const listOrders = async (request: Request, env: Env): Promise<Response> => {
  */
 const getEntitlement = async (request: Request, env: Env): Promise<Response> => {
   const token = extractBearerToken(request);
-  if (!token) return json({ error: 'Please sign in.' }, 401);
+  if (!token) return fail('signInRequired', 'Please sign in.', 401);
 
   const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
   if (!projectId) return json({ entitled: false });
 
   const user = await verifyFirebaseIdToken(token, projectId);
-  if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+  if (!user) return fail('sessionExpired', 'Your session has expired. Please sign in again.', 401);
 
   // One entry per product the account owns; a repeat buyer keeps the newest licence.
   // Orders are matched on uid, or on a *verified* email so an admin can hand a licence
@@ -404,19 +412,19 @@ const requireAdmin = async (request: Request, env: Env): Promise<FirebaseUser | 
     .split(',')
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
-  if (allowList.length === 0) return json({ error: 'Not found' }, 404);
+  if (allowList.length === 0) return fail('notFound', 'Not found', 404);
 
   const token = extractBearerToken(request);
-  if (!token) return json({ error: 'Please sign in.' }, 401);
+  if (!token) return fail('signInRequired', 'Please sign in.', 401);
 
   const projectId = String(env.FIREBASE_PROJECT_ID || '').trim();
-  if (!projectId) return json({ error: 'Sign-in is not configured.' }, 503);
+  if (!projectId) return fail('signInNotConfigured', 'Sign-in is not configured.', 503);
 
   const user = await verifyFirebaseIdToken(token, projectId);
-  if (!user) return json({ error: 'Your session has expired. Please sign in again.' }, 401);
+  if (!user) return fail('sessionExpired', 'Your session has expired. Please sign in again.', 401);
 
   const email = String(user.email || '').trim().toLowerCase();
-  if (!email || !allowList.includes(email)) return json({ error: 'Not found' }, 404);
+  if (!email || !allowList.includes(email)) return fail('notFound', 'Not found', 404);
 
   return user;
 };
@@ -519,16 +527,16 @@ const grantAccess = async (request: Request, env: Env): Promise<Response> => {
   const email = String(body.email || '').trim().toLowerCase();
   const productId = String(body.productId || PRODUCT.id);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return json({ error: 'Enter a valid email address.' }, 400);
+    return fail('invalidEmail', 'Enter a valid email address.', 400);
   }
-  if (productId !== PRODUCT.id) return json({ error: 'Unknown product' }, 400);
+  if (productId !== PRODUCT.id) return fail('unknownProduct', 'Unknown product', 400);
 
   const existing = await env.DB.prepare(
     "SELECT code FROM orders WHERE LOWER(user_email) = ? AND product_id = ? AND status = 'paid' LIMIT 1",
   )
     .bind(email, productId)
     .first<{ code: string }>();
-  if (existing) return json({ error: 'That email already owns this product.' }, 409);
+  if (existing) return fail('emailOwnsProduct', 'That email already owns this product.', 409);
 
   const now = Date.now();
   const code = generateOrderCode();
@@ -557,7 +565,7 @@ const revokeAccess = async (request: Request, env: Env): Promise<Response> => {
 
   const body = await readJson(request);
   const key = normalizeLicenseKey(String(body.licenseKey || ''));
-  if (!key) return json({ error: 'That does not look like a licence key.' }, 400);
+  if (!key) return fail('invalidLicenceKey', 'That does not look like a licence key.', 400);
 
   const [licenseResult, orderResult] = await env.DB.batch([
     env.DB.prepare('UPDATE licenses SET revoked = 1 WHERE key = ?').bind(key),
@@ -565,7 +573,7 @@ const revokeAccess = async (request: Request, env: Env): Promise<Response> => {
   ]);
 
   if (!(licenseResult?.meta.changes ?? 0) && !(orderResult?.meta.changes ?? 0)) {
-    return json({ error: 'Licence key not found.' }, 404);
+    return fail('licenceNotFound', 'Licence key not found.', 404);
   }
   return json({ ok: true });
 };
@@ -582,7 +590,7 @@ const reconcileOrder = async (request: Request, env: Env): Promise<Response> => 
 
   const body = await readJson(request);
   const code = String(body.code || '').trim().toUpperCase();
-  if (!/^WC[A-Z0-9]{7}$/.test(code)) return json({ error: 'Unknown order code.' }, 400);
+  if (!/^WC[A-Z0-9]{7}$/.test(code)) return fail('unknownOrderCode', 'Unknown order code.', 400);
 
   const order = await env.DB.prepare(
     'SELECT code, product_id, status, license_key FROM orders WHERE code = ?',
@@ -590,13 +598,13 @@ const reconcileOrder = async (request: Request, env: Env): Promise<Response> => 
     .bind(code)
     .first<{ code: string; product_id: string; status: string; license_key: string | null }>();
 
-  if (!order) return json({ error: 'Order not found.' }, 404);
+  if (!order) return fail('orderNotFound', 'Order not found.', 404);
   // Idempotent: re-running on an already paid order hands the same key back, so the admin
   // cannot mint a second licence by clicking twice.
   if (order.status === 'paid') {
     return json({ ok: true, code, status: 'paid', licenseKey: order.license_key, alreadyPaid: true });
   }
-  if (order.status === 'revoked') return json({ error: 'That order was revoked.' }, 409);
+  if (order.status === 'revoked') return fail('orderRevoked', 'That order was revoked.', 409);
 
   const licenseKey = generateLicenseKey();
   const now = Date.now();
@@ -607,7 +615,7 @@ const reconcileOrder = async (request: Request, env: Env): Promise<Response> => 
   )
     .bind(licenseKey, now, code)
     .run();
-  if (!updated.meta.changes) return json({ error: 'Could not update that order.' }, 409);
+  if (!updated.meta.changes) return fail('orderUpdateFailed', 'Could not update that order.', 409);
 
   await env.DB.prepare(
     'INSERT OR IGNORE INTO licenses (key, product_id, order_code, created_at) VALUES (?, ?, ?, ?)',
@@ -627,7 +635,7 @@ const handleSepayWebhook = async (request: Request, env: Env): Promise<Response>
   if (expectedKey) {
     const provided = extractApiKey(request);
     if (!provided || !safeEqual(provided, expectedKey)) {
-      return json({ error: 'Unauthorized' }, 401);
+      return fail('unauthorized', 'Unauthorized', 401);
     }
   }
 
@@ -703,7 +711,7 @@ const handleSepayWebhook = async (request: Request, env: Env): Promise<Response>
 const verifyLicense = async (request: Request, env: Env): Promise<Response> => {
   const body = await readJson(request);
   const key = normalizeLicenseKey(String(body.key || ''));
-  if (!key) return json({ valid: false, error: 'That does not look like a licence key.' }, 400);
+  if (!key) return json({ valid: false, error: 'That does not look like a licence key.', code: 'invalidLicenceKey' }, 400);
 
   const row = await env.DB.prepare(
     'SELECT key, product_id FROM licenses WHERE key = ? AND revoked = 0',
@@ -711,7 +719,7 @@ const verifyLicense = async (request: Request, env: Env): Promise<Response> => {
     .bind(key)
     .first<{ key: string; product_id: string }>();
 
-  if (!row) return json({ valid: false, error: 'Licence key not found.' }, 404);
+  if (!row) return json({ valid: false, error: 'Licence key not found.', code: 'licenceNotFound' }, 404);
   return json({ valid: true, productId: row.product_id });
 };
 
@@ -752,13 +760,13 @@ const reserveAsrCall = async (request: Request, env: Env): Promise<Response | nu
       .first<{ ip_minute: number; ip_day: number; day: number }>();
 
     if ((counts?.ip_minute ?? 0) >= ASR_PER_IP_PER_MINUTE) {
-      return json({ error: 'Too many voice answers in a row. Wait a minute or type the word.' }, 429);
+      return fail('voiceRateLimited', 'Too many voice answers in a row. Wait a minute or type the word.', 429);
     }
     if ((counts?.ip_day ?? 0) >= ASR_PER_IP_PER_DAY) {
-      return json({ error: 'Voice answers from this device are finished for today. Type the word instead.' }, 429);
+      return fail('voiceDailyLimit', 'Voice answers from this device are finished for today. Type the word instead.', 429);
     }
     if ((counts?.day ?? 0) >= ASR_PER_DAY) {
-      return json({ error: 'Voice answers are at capacity today. Type the word instead.' }, 503);
+      return fail('voiceCapacity', 'Voice answers are at capacity today. Type the word instead.', 503);
     }
 
     await env.DB.batch([
@@ -787,11 +795,11 @@ const reserveAsrCall = async (request: Request, env: Env): Promise<Response | nu
  */
 const transcribeClip = async (request: Request, env: Env): Promise<Response> => {
   const declared = Number(request.headers.get('content-length') || '0');
-  if (declared > MAX_CLIP_BYTES) return json({ error: 'Clip too long' }, 413);
+  if (declared > MAX_CLIP_BYTES) return fail('clipTooLong', 'Clip too long', 413);
 
   const buffer = await request.arrayBuffer();
-  if (!buffer.byteLength) return json({ error: 'No audio received' }, 400);
-  if (buffer.byteLength > MAX_CLIP_BYTES) return json({ error: 'Clip too long' }, 413);
+  if (!buffer.byteLength) return fail('noAudio', 'No audio received', 400);
+  if (buffer.byteLength > MAX_CLIP_BYTES) return fail('clipTooLong', 'Clip too long', 413);
 
   const refused = await reserveAsrCall(request, env);
   if (refused) return refused;
@@ -804,7 +812,7 @@ const transcribeClip = async (request: Request, env: Env): Promise<Response> => 
     });
     return json({ transcript: String(result?.text || '').trim() });
   } catch {
-    return json({ error: 'Could not transcribe that clip.' }, 502);
+    return fail('transcriptionFailed', 'Could not transcribe that clip.', 502);
   }
 };
 
@@ -829,7 +837,7 @@ const handleApi = async (request: Request, env: Env, url: URL): Promise<Response
   const orderMatch = pathname.match(/^\/api\/orders\/([A-Za-z0-9]+)$/);
   if (orderMatch && method === 'GET') return getOrder(request, orderMatch[1].toUpperCase(), env);
 
-  return json({ error: 'Not found' }, 404);
+  return fail('notFound', 'Not found', 404);
 };
 
 export default {

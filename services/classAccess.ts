@@ -23,12 +23,13 @@ export const CLASS_GATE: { mode: ClassConsoleAccessMode; freeUntil: string } = {
   freeUntil: '2026-11-30T23:59:59+07:00',
 };
 
-/** The deadline as it prints in the UI — derived, never retyped. */
-export const CLASS_FREE_UNTIL_LABEL = new Date(CLASS_GATE.freeUntil).toLocaleDateString('en-GB', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-});
+/** The deadline as it prints in the UI — derived, never retyped, formatted for the reader. */
+export const classFreeUntilLabel = (locale: string): string =>
+  new Date(CLASS_GATE.freeUntil).toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 
 export const classGateMode = (): ClassConsoleAccessMode =>
   CLASS_GATE.mode === 'open' && Date.now() > Date.parse(CLASS_GATE.freeUntil)

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog } from './Feedback';
+import { useT } from '../i18n/useT';
 import { matchesTeacherWord, type TeacherAnswer, type TeacherSession } from '../services/teacherDeck';
 
 interface TeacherTestScreenProps {
@@ -18,6 +19,8 @@ const ADVANCE_MS = 1300;
  * vocabulary recall rather than spelling.
  */
 export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, onFinish, onExit }) => {
+  const t = useT('teacher');
+  const { cancel: cancelLabel } = useT('common');
   const [index, setIndex] = useState(0);
   const [input, setInput] = useState('');
   const [answers, setAnswers] = useState<TeacherAnswer[]>([]);
@@ -68,8 +71,9 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   };
 
   const handleExit = async () => {
-    const ok = await confirmDialog('Leave this test? The answers so far are not saved.', {
-      confirmLabel: 'Leave',
+    const ok = await confirmDialog(t.test.leaveAsk, {
+      confirmLabel: t.test.leaveLabel,
+      cancelLabel,
       destructive: true,
     });
     if (ok) onExit();
@@ -86,7 +90,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
           type="button"
           onClick={() => void handleExit()}
           className="flex h-11 w-11 items-center justify-center rounded-full text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
-          aria-label="Leave the test"
+          aria-label={t.test.leaveAria}
         >
           <Icon name="close" size={18} />
         </button>
@@ -118,7 +122,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
         }`}
       >
         <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
-          Vietnamese → English
+          {t.test.direction}
         </span>
         <p className="text-2xl font-bold leading-snug text-light-text sm:text-3xl">{word.meaning}</p>
 
@@ -128,34 +132,34 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
             value={input}
             onChange={(event) => setInput(event.target.value)}
             disabled={Boolean(revealed)}
-            placeholder="Type the English word"
+            placeholder={t.test.answerPlaceholder}
             autoComplete="off"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
             className="futuristic-input min-h-[48px] w-full px-3 text-center text-lg font-semibold disabled:opacity-70"
-            aria-label="Your answer"
+            aria-label={t.test.answerAria}
           />
           <button
             type="submit"
             disabled={!input.trim() || Boolean(revealed)}
             className="wc-btn wc-btn-primary min-h-[48px] w-full disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {index + 1 >= total ? 'Finish & see report' : 'Check'}
+            {index + 1 >= total ? t.test.finish : t.test.check}
           </button>
         </form>
 
         {revealed ? (
           <div className="min-h-[3rem]" role="status" aria-live="polite">
             <p className={`text-sm font-bold ${revealed.correct ? 'text-neon-green' : 'text-danger-red'}`}>
-              {revealed.correct ? '✅ Correct' : '❌ Not this time'}
+              {revealed.correct ? t.test.correct : t.test.incorrect}
             </p>
             <p className="mt-0.5 text-sm text-light-text">
               {word.word}
               <span className="text-muted-text"> · {word.meaning}</span>
             </p>
             {!revealed.correct && revealed.guess && (
-              <p className="mt-0.5 truncate text-[0.7rem] text-muted-text">You wrote “{revealed.guess}”</p>
+              <p className="mt-0.5 truncate text-[0.7rem] text-muted-text">{t.test.youWrote(revealed.guess)}</p>
             )}
           </div>
         ) : (
@@ -164,7 +168,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
             onClick={() => recordAnswer('')}
             className="min-h-[44px] rounded-md px-3 text-xs font-semibold text-muted-text hover:text-light-text"
           >
-            I don’t know — show the answer
+            {t.test.reveal}
           </button>
         )}
       </div>

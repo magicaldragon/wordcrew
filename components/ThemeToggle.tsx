@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useT } from '../i18n/useT';
 
 /**
  * Sun/moon switch for the portal app bar. Ported from the WiseSpeak header control:
@@ -7,7 +8,8 @@ import { useTheme } from '../contexts/ThemeContext';
  */
 export const ThemeToggle: React.FC = () => {
   const { isDark, toggleTheme } = useTheme();
-  const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+  const t = useT('common');
+  const label = isDark ? t.switchToLight : t.switchToDark;
 
   return (
     <button

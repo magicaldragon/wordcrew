@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
 
 interface VolumeControlsProps {
   musicVolume: number;
@@ -21,11 +22,14 @@ export const VolumeControls: React.FC<VolumeControlsProps> = ({
   effectsVolume,
   onEffectsVolumeChange,
   idPrefix,
-}) => (
+}) => {
+  const t = useT('game');
+
+  return (
   <div className="flex flex-col gap-2.5">
     <div className="flex items-center justify-between gap-3">
       <label htmlFor={`${idPrefix}musicVolume`} className="text-xs sm:text-sm text-light-text">
-        Music
+        {t.audio.music}
       </label>
       <div className="flex items-center gap-2">
         <span className="text-muted-text" aria-hidden="true"><Icon name="music" size={16} /></span>
@@ -38,14 +42,14 @@ export const VolumeControls: React.FC<VolumeControlsProps> = ({
           value={musicVolume}
           onChange={onMusicVolumeChange}
           className="h-2 w-32 sm:w-44 rounded-lg bg-cyber-purple appearance-none cursor-pointer accent-electric-blue"
-          aria-label="Music volume"
+          aria-label={t.audio.musicVolumeAria}
         />
         <span className="w-9 text-right text-xs text-muted-text">{(musicVolume * 100).toFixed(0)}%</span>
       </div>
     </div>
     <div className="flex items-center justify-between gap-3">
       <label htmlFor={`${idPrefix}effectsVolume`} className="text-xs sm:text-sm text-light-text">
-        Effects
+        {t.audio.effects}
       </label>
       <div className="flex items-center gap-2">
         <span className="text-muted-text" aria-hidden="true"><Icon name="volume" size={16} /></span>
@@ -58,10 +62,11 @@ export const VolumeControls: React.FC<VolumeControlsProps> = ({
           value={effectsVolume}
           onChange={onEffectsVolumeChange}
           className="h-2 w-32 sm:w-44 rounded-lg bg-cyber-purple appearance-none cursor-pointer accent-neon-green"
-          aria-label="Effects volume"
+          aria-label={t.audio.effectsVolumeAria}
         />
         <span className="w-9 text-right text-xs text-muted-text">{(effectsVolume * 100).toFixed(0)}%</span>
       </div>
     </div>
   </div>
-);
+  );
+};

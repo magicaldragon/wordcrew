@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
 import type { TeacherAnswer, TeacherSession } from '../services/teacherDeck';
 
 interface TeacherReportScreenProps {
@@ -21,6 +22,7 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
   onRetryAll,
   onHome,
 }) => {
+  const t = useT('teacher');
   const total = answers.length;
   const correct = answers.filter((answer) => answer.correct).length;
   const missed = total - correct;
@@ -35,8 +37,8 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
         </p>
         <p className={`mt-1 text-4xl font-bold tabular-nums ${tone}`}>{accuracy}%</p>
         <p className="mt-1 text-sm text-light-text">
-          {correct} / {total} correct
-          {missed > 0 && <span className="text-muted-text"> · {missed} to revisit</span>}
+          {t.report.score(correct, total)}
+          {missed > 0 && <span className="text-muted-text"> {t.report.toRevisit(missed)}</span>}
         </p>
         <div className="mx-auto mt-2 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-white/10" aria-hidden="true">
           <span className={`block h-full rounded-full ${accuracy >= 80 ? 'bg-neon-green' : accuracy >= 50 ? 'bg-warning-yellow' : 'bg-danger-red'}`} style={{ width: `${accuracy}%` }} />
@@ -59,7 +61,7 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
               <p className="text-xs text-muted-text">{answer.word.meaning}</p>
               {!answer.correct && (
                 <p className="mt-0.5 truncate text-[0.7rem] text-danger-red">
-                  {answer.guess ? `Wrote “${answer.guess}”` : 'No answer'}
+                  {answer.guess ? t.report.wrote(answer.guess) : t.report.noAnswer}
                 </p>
               )}
             </div>
@@ -71,16 +73,16 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
         {missed > 0 && (
           <button type="button" onClick={onRetryMissed} className="wc-btn wc-btn-primary min-h-[48px] flex-1">
             <Icon name="rotate" size={16} />
-            Retry {missed} missed
+            {t.report.retryMissed(missed)}
           </button>
         )}
         <button type="button" onClick={onRetryAll} className="wc-btn wc-btn-secondary min-h-[48px] flex-1">
           <Icon name="shuffle" size={16} />
-          Test again
+          {t.report.testAgain}
         </button>
         <button type="button" onClick={onHome} className="wc-btn wc-btn-secondary min-h-[48px] flex-1">
           <Icon name="arrowLeft" size={16} />
-          Dashboard
+          {t.dashboard}
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 
 import React, { useRef, useCallback } from 'react';
 import { CustomSoundFile } from '../types';
+import { useT } from '../i18n/useT';
 import { toast } from './Feedback';
 
 interface FileUploadButtonProps {
@@ -41,10 +42,11 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
   label,
   accept,
   onFileUpload,
-  buttonText = 'Upload File',
+  buttonText,
   className = '',
   disabled = false,
 }) => {
+  const t = useT('game').setup.sounds;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = useCallback(
@@ -61,19 +63,19 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
         const isAcceptedFormat = (ACCEPTED_AUDIO_FORMATS as readonly string[]).includes(fileExtension(file.name));
 
         if (!isAcceptedFormat) {
-          toast(`Unsupported file type. Please choose an audio file: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`, 'error');
+          toast(t.errType(ACCEPTED_AUDIO_FORMATS_LABEL), 'error');
           resetInput();
           return;
         }
 
         if (!canBrowserDecode(file)) {
-          toast(`This browser cannot play "${file.type}" audio. Please choose: ${ACCEPTED_AUDIO_FORMATS_LABEL}.`, 'error');
+          toast(t.errCannotPlay(file.type, ACCEPTED_AUDIO_FORMATS_LABEL), 'error');
           resetInput();
           return;
         }
 
         if (file.size > MAX_AUDIO_FILE_SIZE_BYTES) {
-          toast(`File size exceeds ${MAX_AUDIO_FILE_SIZE_MB}MB limit. Please pick a shorter clip or a lower bitrate file.`, 'error');
+          toast(t.errTooLarge(MAX_AUDIO_FILE_SIZE_MB), 'error');
           resetInput();
           return;
         }
@@ -84,19 +86,19 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
             onFileUpload({ name: file.name, data: e.target.result });
           } else {
             console.error("FileReader did not return a string result for file:", file.name);
-            toast("Error reading file. The file data could not be processed.", 'error');
+            toast(t.errRead, 'error');
           }
           resetInput(); // Reset after successful or failed load attempt (within onload)
         };
         reader.onerror = () => {
           console.error("FileReader error:", reader.error, "for file:", file.name);
-          toast("Error reading file. Please try again or select a different file.", 'error');
+          toast(t.errReadRetry, 'error');
           resetInput(); // Reset on error
         };
         reader.readAsDataURL(file);
       }
     },
-    [onFileUpload]
+    [onFileUpload, t]
   );
 
   const handleClick = () => {
@@ -123,7 +125,7 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
         className={`futuristic-button min-h-[44px] bg-cyber-purple/70 hover:bg-cyber-purple text-light-text py-2.5 px-4 rounded-[var(--r-md)] text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         disabled={disabled}
       >
-        {buttonText}
+        {buttonText ?? t.uploadFile}
       </button>
     </div>
   );

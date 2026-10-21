@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createOrder, fetchOrder, formatPrice, type OrderDraft } from '../services/payments';
-import { FULL_VERSION_PERKS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
+import { describeError } from '../i18n/errors';
 
 interface PurchaseDialogProps {
   isOpen: boolean;
@@ -32,6 +33,9 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
   suspendEscape = false,
 }) => {
   const { user, getIdToken } = useAuth();
+  const t = useT('auth');
+  const common = useT('common');
+  const errors = useT('errors');
   const [phase, setPhase] = useState<Phase>('intro');
   const [order, setOrder] = useState<OrderDraft | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
@@ -49,7 +53,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
       // rather than surfacing as a confusing 401.
       const token = await getIdToken();
       if (!token) {
-        setError('Your session expired. Please sign in again to continue.');
+        setError(t.purchase.sessionExpired);
         setPhase('error');
         return;
       }
@@ -57,10 +61,10 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
       setOrder(await createOrder('pro', token));
       setPhase('awaiting');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start the order.');
+      setError(describeError(errors, err, t.purchase.orderFailed));
       setPhase('error');
     }
-  }, [getIdToken]);
+  }, [getIdToken, t, errors]);
 
   // Price first: opening shows what the licence covers. The QR only starts once the
   // buyer commits, and sign-in is asked for at that point rather than on the way in.
@@ -94,7 +98,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
           setLicenseKey(state.licenseKey);
           setPhase('paid');
         } else if (state.status === 'expired') {
-          setError('This QR code has expired. Start a new one to continue.');
+          setError(t.purchase.qrExpired);
           setPhase('error');
         }
       } catch {
@@ -105,7 +109,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isOpen, phase, order, sessionToken]);
+  }, [isOpen, phase, order, sessionToken, t]);
 
   useEffect(() => {
     if (!isOpen || suspendEscape) return;
@@ -154,13 +158,13 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
       >
         <div className="flex items-start justify-between gap-3">
           <h2 id="purchaseDialogTitle" className="text-xl font-bold tracking-wide text-[var(--wn-12)]">
-            Unlock Full Version
+            {t.unlockFull}
           </h2>
           <button
             type="button"
             onClick={onClose}
             className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--wn-9)] transition hover:bg-[var(--wn-3)] hover:text-[var(--wn-12)]"
-            aria-label="Close"
+            aria-label={common.close}
           >
             <Icon name="close" size={18} />
           </button>
@@ -170,13 +174,13 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
           <p className="mt-1 text-2xl font-bold text-[var(--wa-11)]">
             {amountLabel}
             <span className="ml-2 text-xs font-normal uppercase tracking-wider text-[var(--wn-9)]">
-              one-time · yours forever
+              {t.purchase.oneTime}
             </span>
           </p>
         )}
 
         <ul className="mt-3 space-y-1.5 text-left text-xs text-[var(--wn-10)]">
-          {FULL_VERSION_PERKS.map((perk) => (
+          {t.perks.map((perk) => (
             <li key={perk}>{perk}</li>
           ))}
         </ul>
@@ -184,16 +188,16 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
         {phase === 'intro' && (
           <div className="mt-5">
             <button type="button" onClick={beginCheckout} className="wc-btn wc-btn-primary w-full">
-              {user ? 'Continue to payment' : 'Sign in and continue'}
+              {user ? t.purchase.continueToPayment : t.purchase.signInAndContinue}
             </button>
             <p className="mt-2 text-center text-[0.7rem] text-[var(--wn-9)]">
-              Bank transfer — a QR code appears on the next step.
+              {t.purchase.bankTransferNote}
             </p>
           </div>
         )}
 
         {phase === 'loading' && (
-          <p className="mt-5 text-center text-sm text-[var(--wn-9)]">Preparing your QR code…</p>
+          <p className="mt-5 text-center text-sm text-[var(--wn-9)]">{t.purchase.preparingQr}</p>
         )}
 
         {phase === 'error' && (
@@ -202,7 +206,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
               {error}
             </p>
             <button type="button" onClick={() => void startOrder()} className="wc-btn wc-btn-secondary mt-3">
-              Try again
+              {common.tryAgain}
             </button>
           </div>
         )}
@@ -211,13 +215,13 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
           <div className="mt-4">
             <img
               src={order.qrUrl}
-              alt={`VietQR code for order ${order.code}`}
+              alt={t.purchase.qrAlt(order.code)}
               width={208}
               height={208}
               className="mx-auto h-52 w-52 rounded-lg bg-white p-2"
             />
             <p className="mt-3 text-center text-xs text-[var(--wn-9)]">
-              Scan with any banking app, or transfer manually to
+              {t.purchase.scanHint}
             </p>
             <p className="mt-1 text-center text-sm text-[var(--wn-12)]">
               <span className="font-semibold">{order.bank.name}</span> · {order.bank.accountNumber}
@@ -225,7 +229,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
 
             <div className="mt-3 rounded-xl border border-[var(--wn-4)] bg-[var(--field-bg)] p-3">
               <p className="text-[0.7rem] uppercase tracking-wider text-[var(--wn-9)]">
-                Transfer memo — keep it exactly as shown
+                {t.purchase.transferMemo}
               </p>
               <div className="mt-1 flex items-center justify-between gap-2">
                 <code className="text-base font-bold tracking-wider text-[var(--wa-11)]">{order.code}</code>
@@ -234,15 +238,15 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
                   onClick={() => void copy(order.code, 'code')}
                   className="wc-btn wc-btn-secondary wc-btn-sm"
                 >
-                  {copied === 'code' ? 'Copied' : 'Copy'}
+                  {copied === 'code' ? common.copied : common.copy}
                 </button>
               </div>
               <p className="mt-2 text-[0.7rem] text-[var(--wn-9)]">
-                The licence is issued automatically the moment the transfer arrives.
+                {t.purchase.licenceAuto}
               </p>
             </div>
 
-            <p className="mt-3 text-center text-xs text-[var(--wn-9)]">⏳ Waiting for your transfer…</p>
+            <p className="mt-3 text-center text-xs text-[var(--wn-9)]">{t.purchase.waiting}</p>
           </div>
         )}
 
@@ -252,7 +256,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
               🎉
             </p>
             <p className="mt-1 text-sm text-[var(--wa-11)]">
-              Payment received — here is your licence key.
+              {t.purchase.paymentReceived}
             </p>
             <code className="mt-3 block rounded-xl border border-[var(--wa-4)] bg-[var(--field-bg)] px-3 py-3 text-lg tracking-[0.15em] text-[var(--wn-12)]">
               {licenseKey}
@@ -263,18 +267,18 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
                 onClick={() => void copy(licenseKey, 'key')}
                 className="wc-btn wc-btn-secondary flex-1"
               >
-                {copied === 'key' ? 'Copied' : 'Copy key'}
+                {copied === 'key' ? common.copied : t.purchase.copyKey}
               </button>
               <button
                 type="button"
                 onClick={() => onLicensed(licenseKey)}
                 className="wc-btn wc-btn-primary flex-1"
               >
-                Unlock this device
+                {t.purchase.unlockDevice}
               </button>
             </div>
             <p className="mt-2 text-[0.7rem] text-[var(--wn-9)]">
-              Keep this key — it also unlocks the game on your other devices.
+              {t.purchase.keepKey}
             </p>
           </div>
         )}

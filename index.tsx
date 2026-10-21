@@ -4,6 +4,7 @@ import './index.css';
 import './assets/fonts/fonts.css';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 
 const rootElement = document.getElementById('root');
@@ -15,9 +16,11 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ThemeProvider>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </LanguageProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

@@ -12,6 +12,9 @@ import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_STYLES, SO
 import { readLocalSoloBest } from '../services/soloLeaderboard';
 import { readDueReviews, reviewCount } from '../services/review';
 import { confirmDialog, toast } from './Feedback';
+import { useT } from '../i18n/useT';
+import { useLocale } from '../i18n/useLocale';
+import { trackText } from '../i18n/tracks';
 
 interface SetupScreenProps {
   /** Solo is a mode choice, so it arrives through this same container. */
@@ -73,13 +76,6 @@ const DEFAULT_SELECTED_WORD_TYPES: SelectedWordTypes = {
   phrasalVerbs: true,
 };
 
-const WORD_TYPE_LABELS: Record<keyof SelectedWordTypes, string> = {
-  nouns: 'Nouns',
-  verbs: 'Verbs',
-  adjectives: 'Adjectives',
-  phrasalVerbs: 'Phrasal Verbs',
-};
-
 const TIME_PER_WORD_OPTIONS = [10, 15, 20, 25, 30, 45];
 
 /** Friendly "Pre-A1 → A2" label for a track's difficulty span. */
@@ -91,29 +87,13 @@ const soloRangeLabel = (track: SoloTrack): string => {
 
 // App-like wizard: the setup is split into sequential panels so the primary action
 // is always reachable without scrolling through one long form.
-const PASS_AND_PLAY_STEPS = ['Mode', 'Words', 'Settings'] as const;
+const PASS_AND_PLAY_STEPS = ['mode', 'words', 'settings'] as const;
 // Solo needs no word list — it draws its own endless words — so that step is swapped
 // for the track picker, letting a run be fully configured without leaving this shell.
-const SOLO_STEPS = ['Mode', 'Pick a track', 'Settings'] as const;
+const SOLO_STEPS = ['mode', 'track', 'settings'] as const;
 /** Solo is a first-class mode choice, but it is not a `GameMode` value. */
 type SetupMode = GameMode | 'solo';
-
-// Preview of the upload slots shown while custom sounds are still locked, so the
-// Settings step communicates what the Full Version adds instead of looking empty.
-const CUSTOM_SOUND_SLOTS = [
-  'Setup Music', 'Game Music', 'Start Game', 'Countdown "GO!"', 'Correct Guess',
-  'Skip Word', "Time's Up", 'Game Over (Win)', 'Play Again', 'Collected',
-  'Time Freeze', 'Skip Freebie', 'Rush Hour Activate', 'Rush Hour Music',
-];
-
-/**
- * The Mode step's demo banner, derived from the policy so the banner can never promise a
- * mode the gate then refuses. Solo is free for everyone, so it is appended rather than
- * living in `freeModes`.
- */
-const FREE_MODE_LABELS = `${DEMO_POLICY.freeModes
-  .map((mode) => mode.charAt(0).toUpperCase() + mode.slice(1))
-  .join(' + ')} + Solo`;
+type SetupStep = (typeof PASS_AND_PLAY_STEPS)[number] | (typeof SOLO_STEPS)[number];
 
 export const SetupScreen: React.FC<SetupScreenProps> = ({
   initialGameMode,
@@ -140,6 +120,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   customRushHourActivationSound, setCustomRushHourActivationSound,
   customRushHourMusicLoop, setCustomRushHourMusicLoop,
 }) => {
+  const t = useT('game');
+  const locale = useLocale();
   const [wordsInput, setWordsInput] = useState<string>('');
   const [totalTimeLimit, setTotalTimeLimit] = useState<number>(DEFAULT_TOTAL_TIME_LIMIT);
   const [timePerWord, setTimePerWord] = useState<number>(20);
@@ -175,7 +157,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
   // Solo keeps the demo allowance: it is free for everyone, only its tracks are gated.
   const isSoloMode = gameMode === 'solo';
-  const wizardSteps: readonly string[] = isSoloMode ? SOLO_STEPS : PASS_AND_PLAY_STEPS;
+  const wizardSteps: readonly SetupStep[] = isSoloMode ? SOLO_STEPS : PASS_AND_PLAY_STEPS;
+  const stepLabel = (key: SetupStep) => t.setup.steps[key];
+  // Track names and taglines are data on `services/solo.ts`; the copy shown here lives in
+  // the dictionary, keyed by the track id.
+  const dailyCopy = trackText(t.setup.tracks, DAILY_TRACK);
 
   // Local bests are device-scoped; read them once per mount for the track picker.
   const soloBests = useMemo(
@@ -212,7 +198,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
     if (pool.length === 0) {
         setWordsInput('');
-        setError('No words available for the selected types in these packs. Please select at least one word type.');
+        setError(t.setup.errors.noWordsForTypes);
         return;
     }
     setError('');
@@ -222,7 +208,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     const wordsToUse = shuffledWords.slice(0, actualWordCountToUse);
 
     setWordsInput(formatWordsForTextarea(wordsToUse));
-  }, [selectedPresets, selectedWordTypes, selectedWordCountForPreset]);
+  }, [selectedPresets, selectedWordTypes, selectedWordCountForPreset, t]);
 
 
   useEffect(() => {
@@ -302,12 +288,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // Saving keeps the exact list on screen, so a teacher can drop a topic and reload it later.
   const handleSaveWordSet = () => {
     if (parsedWords.length === 0) {
-      setSetsNotice('Add some words first, then save them as a set.');
+      setSetsNotice(t.setup.sets.addWordsFirst);
       return;
     }
     const base = editingSetId ? wordSets.filter((set) => set.id !== editingSetId) : wordSets;
     setWordSets(addWordSet(base, setNameInput, parsedWords));
-    setSetsNotice(`Saved “${setNameInput.trim() || 'Untitled set'}” · ${parsedWords.length} words`);
+    setSetsNotice(t.setup.sets.savedNotice(setNameInput.trim() || t.setup.sets.untitled, parsedWords.length));
     setSetNameInput('');
     setEditingSetId(null);
     setSaveDialogOpen(false);
@@ -319,14 +305,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     setEntryMode('manual');
     setWordsInput(formatWordsForTextarea(set.words));
     setError('');
-    setSetsNotice(`Loaded “${set.name}” · ${set.words.length} words`);
+    setSetsNotice(t.setup.sets.loadedNotice(set.name, set.words.length));
     setLoadDialogOpen(false);
   };
 
   const handleDeleteWordSet = async (set: SavedWordSet) => {
-    if (!(await confirmDialog(`Delete the saved set “${set.name}”?`, { confirmLabel: 'Delete' }))) return;
+    if (!(await confirmDialog(t.setup.sets.deleteConfirm(set.name), { confirmLabel: t.setup.sets.deleteConfirmLabel }))) return;
     setWordSets(removeWordSet(wordSets, set.id));
-    setSetsNotice(`Deleted “${set.name}”.`);
+    setSetsNotice(t.setup.sets.deletedNotice(set.name));
     if (editingSetId === set.id) {
       setEditingSetId(null);
       setSetNameInput('');
@@ -357,17 +343,17 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         .filter(word => word.length > 0 && word.length < 50);
 
     if (gameWords.length < 3) {
-      setError('Please enter at least 3 valid words (max 50 characters each). Or select a valid preset with enough words for your chosen types.');
+      setError(t.setup.errors.tooFewWords);
       return;
     }
 
     if (!isUnlocked && gameWords.length > DEMO_POLICY.maxWordsPerGame) {
-      setError(`The free demo plays up to ${DEMO_POLICY.maxWordsPerGame} words per game. Unlock the Full Version for up to 60.`);
+      setError(t.setup.errors.demoWordCap(DEMO_POLICY.maxWordsPerGame));
       return;
     }
 
     if (gameMode !== GameMode.TEAM && (totalTimeLimit < MIN_TOTAL_TIME_LIMIT || totalTimeLimit > effectiveMaxTimeLimit)) {
-      setError(`Game time must be between ${MIN_TOTAL_TIME_LIMIT / 60} and ${effectiveMaxTimeLimit / 60} minutes.`);
+      setError(t.setup.errors.timeRange(MIN_TOTAL_TIME_LIMIT / 60, effectiveMaxTimeLimit / 60));
       return;
     }
 
@@ -378,13 +364,13 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         !(levelHasPhrasalVerbs && selectedWordTypes.phrasalVerbs);
 
     if (isPresetEffectivelyActive && noWordTypesSelected) {
-        setError('Please select at least one word type when using a preset.');
+        setError(t.setup.errors.selectTypePreset);
         return;
     }
 
     setError('');
     onGameStart({ words: gameWords, totalTimeLimit, gameMode, timePerWord });
-  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPresets, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit]);
+  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPresets, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit, t]);
 
   // Multi-select: tapping a pack adds or removes it from the pool the suggestions draw on.
   const togglePreset = (level: CEFRLevel) => {
@@ -408,7 +394,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             !(levelHasPhrasalVerbs && newTypes.phrasalVerbs);
 
         if (isPresetModeActive && noTypes) {
-            setError('Please select at least one word type.');
+            setError(t.setup.errors.selectType);
         } else {
             setError('');
         }
@@ -447,7 +433,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const hasAnyCustomSound = customSoundCount > 0;
 
   const handleResetAllCustomSounds = async () => {
-    if (!(await confirmDialog('Remove every custom sound and go back to the built-in defaults?', { confirmLabel: 'Remove all' }))) return;
+    if (!(await confirmDialog(t.setup.settings.resetAllConfirm, { confirmLabel: t.setup.settings.resetAllConfirmLabel }))) return;
     setCustomBackgroundMusic(null);
     setCustomGameMusic(null);
     setCustomStartGameSound(null);
@@ -469,21 +455,21 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     label: string,
     currentSound: CustomSoundFile | null,
     setSound: (file: CustomSoundFile | null) => void,
-    buttonText: string = 'Upload Sound'
+    buttonText: string = t.setup.sounds.upload
   ) => (
     <div className="mb-2 p-2 border border-cyber-purple/30 rounded-lg">
       <label className="block text-sm font-semibold text-electric-blue mb-0.5">{label}:</label>
       {currentSound ? (
         <div className="flex items-center justify-between text-sm bg-dark-metal p-1.5 rounded">
           <span className="truncate" title={currentSound.name}>{currentSound.name}</span>
-          <button onClick={() => setSound(null)} className="ml-2 text-danger-red hover:text-red-400 text-sm p-1">Clear</button>
+          <button onClick={() => setSound(null)} className="ml-2 text-danger-red hover:text-red-400 text-sm p-1">{t.setup.sounds.clear}</button>
         </div>
       ) : (
-         <p className="text-sm text-muted-text mb-0.5">Default sound.</p>
+         <p className="text-sm text-muted-text mb-0.5">{t.setup.sounds.defaultSound}</p>
       )}
       <FileUploadButton
         id={id}
-        label={`Upload ${label}`}
+        label={t.setup.sounds.uploadNamed(label)}
         accept={ACCEPTED_AUDIO_ACCEPT_ATTR}
         onFileUpload={(file) => setSound(file)}
         buttonText={buttonText}
@@ -508,30 +494,30 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 onClick={() => setSounds(currentSounds.filter((_, i) => i !== index))}
                 className="ml-2 text-danger-red hover:text-red-400 text-sm p-1"
               >
-                Remove
+                {t.setup.sounds.remove}
               </button>
             </li>
           ))}
         </ul>
       ) : (
-         <p className="text-sm text-muted-text mb-0.5">Default sounds.</p>
+         <p className="text-sm text-muted-text mb-0.5">{t.setup.sounds.defaultSounds}</p>
       )}
       <FileUploadButton
         id={`${idPrefix}-uploader`}
-        label={`Add ${label}`}
+        label={t.setup.sounds.addNamed(label)}
         accept={ACCEPTED_AUDIO_ACCEPT_ATTR}
         onFileUpload={(file) => setSounds([...currentSounds, file])}
-        buttonText={`Add Custom ${label.replace(' Sounds', ' Sound')}`}
+        buttonText={t.setup.sounds.addCustom(label)}
       />
     </div>
   );
 
   const handleCopyToClipboard = (data: string, soundName: string) => {
     navigator.clipboard.writeText(data)
-      .then(() => toast(`${soundName} base64 data copied to clipboard!`, 'success'))
+      .then(() => toast(t.setup.sounds.copied(soundName), 'success'))
       .catch(err => {
         console.error('Failed to copy base64 data: ', err);
-        toast(`Failed to copy ${soundName} data. See console for details.`, 'error');
+        toast(t.setup.sounds.copyFailed(soundName), 'error');
       });
   };
 
@@ -545,7 +531,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           onClick={() => handleCopyToClipboard(soundFile.data, name)}
           className="text-sm bg-electric-blue/70 hover:bg-electric-blue text-dark-metal py-0.5 px-1.5 rounded mt-0.5 futuristic-button"
         >
-          Copy Base64 Data
+          {t.setup.sounds.copyBase64}
         </button>
       </div>
     );
@@ -560,7 +546,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             onClick={() => handleCopyToClipboard(soundFile.data, `${namePrefix} #${index + 1}`)}
             className="text-sm bg-electric-blue/70 hover:bg-electric-blue text-dark-metal py-0.5 px-1.5 rounded mt-0.5 futuristic-button"
             >
-            Copy Base64 Data
+            {t.setup.sounds.copyBase64}
             </button>
         </div>
     ));
@@ -600,7 +586,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // The Words step is the only place a list is produced. Both flows (suggested packs
   // or a typed list) are valid, but leaving it with fewer than 3 words is a dead end,
   // so the wizard refuses to advance rather than silently shipping an empty game.
-  const wordsStepIncomplete = !isSoloMode && currentStep === 'Words' && hasTooFewWords;
+  const wordsStepIncomplete = !isSoloMode && currentStep === 'words' && hasTooFewWords;
 
   const goToStep = (next: number) => {
     setError('');
@@ -620,17 +606,17 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   // discover what the Full Version adds without digging through closed dropdowns.
   // Split in two rows: headline extras first, then the locked word packs.
   const lockedFeaturePerks: string[] = [
-    '🎯 Solo tracks',
-    '🔢 Up to 60 words',
-    '⏱️ Up to 10 minutes',
-    '🎵 Custom Sounds',
+    t.setup.demo.perks.soloTracks,
+    t.setup.demo.perks.upTo60Words,
+    t.setup.demo.perks.upTo10Minutes,
+    t.setup.demo.perks.customSounds,
   ];
   const lockedPackPerks: string[] = [
     CEFRLevel.FLYERS,
     CEFRLevel.KET,
     CEFRLevel.PET,
     CEFRLevel.PRE_IELTS,
-  ].map(level => `📚 ${level.split(' (')[0]} pack`);
+  ].map(level => t.setup.demo.packPerk(level.split(' (')[0]));
 
   const renderPerkChips = (perks: string[]) =>
     perks.map(perk => (
@@ -646,10 +632,10 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
   return (
     <div className="flex h-full flex-col items-center text-light-text">
-      <h2 className="text-2xl sm:text-3xl font-heading font-semibold text-electric-blue setup-screen-title">Game Setup</h2>
+      <h2 className="text-2xl sm:text-3xl font-heading font-semibold text-electric-blue setup-screen-title">{t.setup.title}</h2>
 
       {/* Wizard step indicator — tap a step to jump straight to it. */}
-      <div className="my-1.5 flex w-full items-center justify-center gap-1.5 sm:gap-2" role="tablist" aria-label="Setup steps">
+      <div className="my-1.5 flex w-full items-center justify-center gap-1.5 sm:gap-2" role="tablist" aria-label={t.setup.stepsAria}>
         {wizardSteps.map((label, index) => {
           const isActive = index === step;
           const isDone = index < step;
@@ -671,7 +657,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-dark-metal/60 text-xs font-bold text-light-text">
                 {isDone ? <Icon name="check" size={10} /> : index + 1}
               </span>
-              <span className="hidden sm:inline">{label}</span>
+              <span className="hidden sm:inline">{stepLabel(label)}</span>
             </button>
           );
         })}
@@ -679,20 +665,20 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
       {/* Panel area — one step at a time; scrolls only if a single step is tall. */}
       <div key={step} className="setup-wizard-panel flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto overflow-x-hidden animate-fadeInScaleUp">
-      {currentStep === 'Mode' && (
+      {currentStep === 'mode' && (
       <>
       {!isUnlocked && (
         <div className="setup-demo-banner w-full rounded-lg border border-warning-yellow/40 bg-warning-yellow/10 px-2.5 py-1 text-left">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm leading-tight text-warning-yellow">
-              <strong className="font-heading tracking-wider">DEMO</strong> · {FREE_MODE_LABELS} · ≤{DEMO_POLICY.maxWordsPerGame} words · ≤{DEMO_POLICY.maxTotalTimeLimit / 60} min
+              <strong className="font-heading tracking-wider">{t.setup.demo.badge}</strong> · {t.setup.demo.freeModes} · {t.setup.demo.words(DEMO_POLICY.maxWordsPerGame)} · {t.setup.demo.minutes(DEMO_POLICY.maxTotalTimeLimit / 60)}
             </p>
             <button
               type="button"
               onClick={() => setShowUnlockDialog(true)}
               className="futuristic-button shrink-0 rounded-md bg-cyber-purple/70 px-2.5 py-1 text-sm font-semibold text-light-text hover:bg-cyber-purple"
             >
-              Unlock
+              {t.setup.demo.unlock}
             </button>
           </div>
           <div className="mt-0.5 flex flex-col gap-1">
@@ -706,7 +692,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       <div className="grid w-full grid-cols-2 gap-2">
         <div className="setup-mode-card rounded-lg border border-cyber-purple/30 p-2 text-left sm:p-3">
           <label htmlFor="gameModeSelect" className="mb-1 block text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-            Game Mode:
+            {t.setup.modeLabel}
           </label>
           <select
             id="gameModeSelect"
@@ -715,10 +701,10 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             className="w-full rounded-lg p-2 shadow-sm futuristic-input text-sm transition duration-150 ease-in-out focus:border-neon-green focus:ring-2 focus:ring-neon-green setup-screen-input sm:text-base"
           >
             {([
-              { value: GameMode.NORMAL, label: '😊 Normal' },
-              { value: GameMode.TEAM, label: '🤝 Team' },
-              { value: GameMode.HELL, label: '💀 Hell' },
-              { value: 'solo', label: '🎯 Solo' },
+              { value: GameMode.NORMAL, label: t.setup.modes.normal },
+              { value: GameMode.TEAM, label: t.setup.modes.team },
+              { value: GameMode.HELL, label: t.setup.modes.hell },
+              { value: 'solo', label: t.setup.modes.solo },
             ] as { value: SetupMode; label: string }[]).map(({ value, label }) => {
               const locked = !isUnlocked && value !== 'solo' && !DEMO_POLICY.freeModes.includes(value);
               return (
@@ -734,20 +720,19 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           {isSoloMode ? (
             <>
               <p className="mb-1 text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-                Solo Rundown:
+                {t.setup.solo.rundownLabel}
               </p>
               <p className="text-sm leading-snug text-muted-text setup-screen-small-text">
-                Start with {SOLO_START_HEARTS} hearts · {SOLO_FREE_SKIPS} free skips · {SOLO_STYLE_TIME[soloStyle]}s per
-                word, tightening to {SOLO_TIMER_FLOOR[soloStyle]}s as the run goes on.
+                {t.setup.solo.rundown(SOLO_START_HEARTS, SOLO_FREE_SKIPS, SOLO_STYLE_TIME[soloStyle], SOLO_TIMER_FLOOR[soloStyle])}
               </p>
               <p className="mt-1 text-sm leading-snug text-muted-text setup-screen-small-text">
-                Right: +10 points. Wrong? Try again — only running out of time costs −10 points and −1 heart. Losing every heart ends the run.
+                {t.setup.solo.scoring}
               </p>
             </>
           ) : gameMode === GameMode.TEAM ? (
             <>
               <label htmlFor="timePerWord" className="mb-1 block text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-                Time / Word:
+                {t.setup.timePerWordLabel}
               </label>
               <select
                 id="timePerWord"
@@ -756,14 +741,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 className="w-full rounded-lg p-2 shadow-sm futuristic-input text-sm setup-screen-input sm:text-base"
               >
                 {TIME_PER_WORD_OPTIONS.map(time => (
-                  <option key={time} value={time}>{time} seconds</option>
+                  <option key={time} value={time}>{t.setup.secondsOption(time)}</option>
                 ))}
               </select>
             </>
           ) : (
             <>
               <label htmlFor="totalTimeLimit" className="mb-1 block text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-                Game Time:
+                {t.setup.gameTimeLabel}
               </label>
               <input
                 id="totalTimeLimit"
@@ -781,11 +766,10 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 max={effectiveMaxTimeLimit}
                 step="30"
                 className="w-full rounded-lg p-2 shadow-sm futuristic-input text-sm setup-screen-input sm:text-base"
-                aria-label="Set total game time in seconds"
+                aria-label={t.setup.gameTimeAria}
               />
               <p className="mt-1 text-left text-sm leading-tight text-muted-text setup-screen-small-text">
-                {Math.floor(totalTimeLimit / 60)}m {totalTimeLimit % 60}s · {MIN_TOTAL_TIME_LIMIT / 60}-{effectiveMaxTimeLimit / 60}m
-                {!isUnlocked && ' · Unlock 10m'}
+                {t.setup.gameTimeSummary(Math.floor(totalTimeLimit / 60), totalTimeLimit % 60, MIN_TOTAL_TIME_LIMIT / 60, effectiveMaxTimeLimit / 60, !isUnlocked)}
               </p>
             </>
           )}
@@ -800,13 +784,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         <div className="w-full" role="radiogroup" aria-labelledby="soloStyleLabel">
           <div className="mb-1 flex items-baseline justify-between gap-2">
             <span id="soloStyleLabel" className="text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-              Play style:
+              {t.setup.solo.playStyleLabel}
             </span>
-            <span className="text-sm text-muted-text setup-screen-small-text">pick the skill you want to train</span>
+            <span className="text-sm text-muted-text setup-screen-small-text">{t.setup.solo.playStyleHint}</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             {SOLO_STYLES.map((option) => {
               const selected = soloStyle === option.id;
+              const styleCopy = t.setup.solo.styles[option.id];
               return (
                 <button
                   key={option.id}
@@ -822,14 +807,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 >
                   <span className="flex w-full items-center gap-1.5 text-sm font-bold text-light-text sm:text-base">
                     <span aria-hidden="true">{option.emoji}</span>
-                    <span className="min-w-0 flex-1">{option.name}</span>
+                    <span className="min-w-0 flex-1">{styleCopy.name}</span>
                     {selected && <Icon name="check" size={12} />}
                   </span>
                   <span className="mt-1 block text-[0.7rem] leading-snug text-muted-text sm:text-xs">
-                    {option.tagline}
+                    {styleCopy.tagline}
                   </span>
                   <span className={`mt-1.5 block text-[0.6rem] font-semibold uppercase tracking-wider ${selected ? 'text-neon-green' : 'text-electric-blue/80'}`}>
-                    {option.ladder}
+                    {styleCopy.ladder}
                   </span>
                 </button>
               );
@@ -839,17 +824,15 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       )}
 
       {gameMode === GameMode.TEAM && (
-        <p className="w-full text-left text-sm text-electric-blue setup-screen-small-text">Two teams take turns guessing words. Rack up points and sabotage your rivals!</p>
+        <p className="w-full text-left text-sm text-electric-blue setup-screen-small-text">{t.setup.teamBlurb}</p>
       )}
       {gameMode === GameMode.HELL && (
-        <p className="w-full text-left text-sm text-warning-yellow setup-screen-small-text">Hell Mode has special rules like skip penalties and intense rush hours. Check instructions!</p>
+        <p className="w-full text-left text-sm text-warning-yellow setup-screen-small-text">{t.setup.hellBlurb}</p>
       )}
 
       {isSoloMode && (
         <p className="w-full text-left text-sm text-cyber-purple setup-screen-small-text">
-          {soloStyle === 'describe'
-            ? 'Hear an English description, then type or say the word. Stuck? Open the hint, then the Vietnamese meaning — that last rung ends your streak.'
-            : 'Play alone against the clock — pick a track in the next step, then type or say each word from its Vietnamese meaning.'}
+          {soloStyle === 'describe' ? t.setup.solo.blurbDescribe : t.setup.solo.blurbMeaning}
         </p>
       )}
 
@@ -858,13 +841,13 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       <div className="w-full rounded-lg border border-cyber-purple/30 p-2 sm:p-3">
         <div className="mb-1 flex items-baseline justify-between gap-2">
           <span className="text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-            Word Packs
+            {t.setup.packs.label}
           </span>
           <span className="text-sm text-muted-text setup-screen-small-text">
-            {selectedPresets.length > 0 ? `${selectedPresets.length} selected` : 'pick one or more'}
+            {selectedPresets.length > 0 ? t.setup.packs.selected(selectedPresets.length) : t.setup.packs.pickOneOrMore}
           </span>
         </div>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Word packs to suggest words from">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t.setup.packs.groupAria}>
           {Object.values(CEFRLevel).map(level => {
             const locked = !isUnlocked && !DEMO_POLICY.freePresets.includes(level);
             const selected = selectedPresets.includes(level);
@@ -881,7 +864,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     ? 'border-warning-yellow/40 bg-dark-metal/60 text-warning-yellow/80 hover:border-warning-yellow hover:text-warning-yellow'
                     : 'border-cyber-purple/40 bg-dark-metal text-electric-blue hover:border-electric-blue'
                 }`}
-                title={locked ? 'Unlock the Full Version to play this pack' : `Toggle ${level}`}
+                title={locked ? t.setup.packs.lockedTitle : t.setup.packs.toggleTitle(level)}
               >
                 {level.split(' (')[0]}
                 {locked ? ' 🔒' : selected ? ' ✓' : ''}
@@ -890,16 +873,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           })}
         </div>
         <p className="mt-1 text-left text-sm leading-tight text-muted-text setup-screen-small-text">
-          {selectedPresets.length > 0
-            ? 'Suggestions are merged from every pack you pick — you refine the list on the next step.'
-            : 'Pick one or more packs for a ready-to-play list, or leave them blank and type your own words on the next step.'}
+          {selectedPresets.length > 0 ? t.setup.packs.helpMerged : t.setup.packs.helpEmpty}
         </p>
       </div>
       )}
       </>
       )}
 
-      {currentStep === 'Pick a track' && (
+      {currentStep === 'track' && (
       <>
       {/* Today's Challenge — one tap, no track and no settings: the words are the same
           for every player today, so the only variable is how far you get. */}
@@ -908,16 +889,16 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           <div className="min-w-0 text-left">
             <p className="flex items-center gap-1.5 font-heading text-base font-bold text-warning-yellow">
               <span className="text-xl" role="img" aria-hidden="true">{DAILY_TRACK.emoji}</span>
-              {DAILY_TRACK.name}
+              {dailyCopy.name}
               {dailyStatus.done && (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-neon-green/40 bg-neon-green/10 px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-neon-green">
                   <Icon name="check" size={11} />
-                  Done
+                  {t.setup.track.done}
                 </span>
               )}
             </p>
             <p className="mt-0.5 text-sm leading-snug text-muted-text setup-screen-small-text">
-              {DAILY_TRACK.tagline} Resets at midnight.
+              {t.setup.track.dailyLine(dailyCopy.tagline)}
             </p>
           </div>
           <button
@@ -925,7 +906,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             onClick={onStartDaily}
             className="futuristic-button shrink-0 rounded-[var(--r-md)] min-h-[44px] bg-warning-yellow px-5 py-2 text-sm font-bold text-dark-metal hover:brightness-110"
           >
-            {dailyStatus.done ? 'Replay' : 'Play'}
+            {dailyStatus.done ? t.setup.track.replay : t.setup.track.play}
           </button>
         </div>
       </div>
@@ -933,19 +914,20 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       {dailyStatus.anchors > 0 && (
         <p className="w-full text-left text-sm leading-snug text-warning-yellow setup-screen-small-text">
           📌 {dailyStatus.due > 0
-            ? `${dailyStatus.due} word${dailyStatus.due === 1 ? '' : 's'} from earlier slips will lead your next run.`
-            : `${dailyStatus.anchors} word${dailyStatus.anchors === 1 ? '' : 's'} in your review pile — they come back as they fall due.`}
+            ? t.setup.track.dueNotice(dailyStatus.due)
+            : t.setup.track.pileNotice(dailyStatus.anchors)}
         </p>
       )}
 
       <div className="w-full rounded-lg border border-cyber-purple/30 p-2 sm:p-3">
         <span className="mb-2 block text-left text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-          Track:
+          {t.setup.track.label}
         </span>
         <div className="grid w-full grid-cols-2 gap-2">
           {SOLO_TRACKS.map((track) => {
             const isSelected = track.id === selectedSoloTrackId;
             const best = soloBests[track.id];
+            const copy = trackText(t.setup.tracks, track);
             // Solo itself is free for everyone; only the Rookie track ships with it.
             const locked = !isUnlocked && track.id !== SOLO_FREE_TRACK_ID;
             return (
@@ -955,7 +937,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 onClick={() => (locked ? setShowUnlockDialog(true) : setSelectedSoloTrackId(track.id))}
                 aria-pressed={isSelected}
                 aria-disabled={locked}
-                title={locked ? 'Unlock the Full Version to play this track' : undefined}
+                title={locked ? t.setup.track.lockedTitle : undefined}
                 className={`group flex min-w-0 flex-col items-start rounded-[var(--r-lg)] border bg-[var(--surface-1)] p-2.5 text-left shadow-[var(--elev-2)] transition duration-200 hover:-translate-y-0.5 ${track.accentBorder} ${track.glow} ${
                   isSelected ? 'ring-2 ring-electric-blue' : ''
                 } ${locked ? 'opacity-60' : ''}`}
@@ -965,7 +947,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     {track.emoji}
                   </span>
                   <span className={`truncate font-heading text-base font-bold ${track.accentText}`}>
-                    {track.name}
+                    {copy.name}
                   </span>
                 </span>
                 <span className="mt-0.5 flex w-full items-center justify-between gap-1">
@@ -975,40 +957,35 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                   {locked ? (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning-yellow/40 bg-[var(--surface-3)] px-1.5 py-0.5 text-xs font-semibold text-warning-yellow">
                       <Icon name="lock" size={12} />
-                      Full
+                      {t.setup.track.lockedBadge}
                     </span>
                   ) : best && best.score > 0 ? (
                     <span
                       className="inline-flex shrink-0 items-center rounded-full bg-[var(--surface-3)] px-1.5 py-0.5 text-xs font-semibold text-warning-yellow"
-                      title="Your best score on this track"
+                      title={t.setup.track.bestTitle}
                     >
-                      ★ {best.score.toLocaleString()}
+                      ★ {best.score.toLocaleString(locale)}
                     </span>
                   ) : null}
                 </span>
-                <span className="mt-1 text-sm leading-snug text-muted-text setup-screen-small-text">{track.tagline}</span>
+                <span className="mt-1 text-sm leading-snug text-muted-text setup-screen-small-text">{copy.tagline}</span>
               </button>
             );
           })}
         </div>
         <p className="mt-2 text-left text-sm leading-snug text-muted-text setup-screen-small-text">
-          {isUnlocked
-            ? 'Every track is unlocked.'
-            : 'Rookie is free — unlock the Full Version to play Explorer, Challenger and Master.'}{' '}
-          {isSignedIn
-            ? 'Your best score is saved to the leaderboard.'
-            : 'Sign in to join the shared leaderboard.'}
+          {t.setup.track.footnote(isUnlocked, isSignedIn)}
         </p>
       </div>
       </>
       )}
 
-      {currentStep === 'Words' && (
+      {currentStep === 'words' && (
       <>
       {/* Word entry flow selector — the two options label themselves, so no
           heading is needed and the step keeps 28px of vertical budget. */}
       <div className="w-full">
-        <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="How to build your word list">
+        <div className="grid grid-cols-2 gap-2" role="tablist" aria-label={t.setup.words.tabsAria}>
           <button
             type="button"
             role="tab"
@@ -1017,7 +994,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             className={`futuristic-button hover-lift inline-flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-3 text-sm sm:text-base ${entryMode === 'suggest' ? 'bg-electric-blue text-dark-metal' : 'bg-dark-metal text-electric-blue hover:bg-cyber-purple/30'}`}
           >
             <Icon name="shuffle" size={15} />
-            Suggestion
+            {t.setup.words.suggestion}
           </button>
           <button
             type="button"
@@ -1027,7 +1004,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             className={`futuristic-button hover-lift inline-flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-3 text-sm sm:text-base ${entryMode === 'manual' ? 'bg-electric-blue text-dark-metal' : 'bg-dark-metal text-electric-blue hover:bg-cyber-purple/30'}`}
           >
             <Icon name="pencil" size={15} />
-            Enter your word list
+            {t.setup.words.manual}
           </button>
         </div>
       </div>
@@ -1038,7 +1015,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         <div className="grid grid-cols-2 gap-2 sm:gap-3">
           <div className="text-left">
             <label className="mb-1 block text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-              Word Types:
+              {t.setup.words.typesLabel}
             </label>
             <div className="grid grid-cols-2 gap-x-2 gap-y-1">
               {visibleWordTypeKeys.map(type => (
@@ -1050,7 +1027,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     className="custom-checkbox"
                     aria-labelledby={`word-type-label-${type}`}
                   />
-                  <span id={`word-type-label-${type}`}>{WORD_TYPE_LABELS[type]}</span>
+                  <span id={`word-type-label-${type}`}>{t.setup.words.types[type]}</span>
                 </label>
               ))}
             </div>
@@ -1058,7 +1035,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
           <div className="text-left">
             <label htmlFor="wordCountPreset" className="mb-1 block text-sm font-semibold uppercase tracking-wider text-electric-blue setup-screen-label sm:text-base">
-              Number of Words:
+              {t.setup.words.countLabel}
             </label>
             <div className="flex items-center gap-1.5">
               <select
@@ -1066,14 +1043,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 value={selectedWordCountForPreset}
                 onChange={(e) => setSelectedWordCountForPreset(Number(e.target.value))}
                 className="min-w-0 flex-1 rounded-lg p-2 shadow-sm futuristic-input text-sm setup-screen-input sm:text-base"
-                aria-label="Select number of words from preset pool"
+                aria-label={t.setup.words.countAria}
                 disabled={noWordTypesSelected}
               >
                 {WORD_COUNT_OPTIONS.map(count => {
                   const locked = !isUnlocked && !DEMO_POLICY.freeWordCounts.includes(count);
                   return (
                     <option key={count} value={count} disabled={locked}>
-                      {count} words{locked ? ' 🔒' : ''}
+                      {t.setup.words.countOption(count)}{locked ? ' 🔒' : ''}
                     </option>
                   );
                 })}
@@ -1083,22 +1060,22 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 onClick={updateWordsFromPreset}
                 disabled={noWordTypesSelected}
                 className="futuristic-button inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-dark-metal hover:bg-cyber-purple/30 text-electric-blue py-2 px-2.5 text-sm sm:text-base disabled:opacity-40"
-                title="Shuffle a new set of words from this pack"
+                title={t.setup.words.shuffleTitle}
               >
                 <Icon name="shuffle" size={15} />
-                Shuffle
+                {t.setup.words.shuffle}
               </button>
               <button
                 type="button"
                 onClick={handleClearPreset}
                 className="futuristic-button shrink-0 rounded-md bg-danger-red/70 hover:bg-danger-red text-light-text py-2 px-2.5 text-sm sm:text-base"
-                title="Clear the loaded pack from the word list"
+                title={t.setup.words.clearTitle}
               >
-                Clear
+                {t.setup.words.clear}
               </button>
             </div>
             {noWordTypesSelected && (
-              <p className="mt-1 text-sm text-danger-red setup-screen-small-text">Select a word type.</p>
+              <p className="mt-1 text-sm text-danger-red setup-screen-small-text">{t.setup.words.selectType}</p>
             )}
           </div>
         </div>
@@ -1109,9 +1086,9 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       <div className="flex w-full flex-col gap-2">
       <div className="w-full">
         <label htmlFor="wordsInput" className="block text-base font-semibold text-electric-blue mb-2 text-left uppercase tracking-wider setup-screen-label">
-          Your Words
+          {t.setup.words.yourWords}
           <span className={`text-sm normal-case ${isOverDemoWordCap ? 'text-danger-red font-semibold' : 'text-muted-text'}`}>
-            {' '}({parsedWordCount} {parsedWordCount === 1 ? 'word' : 'words'}, min 3{!isUnlocked ? `, demo max ${DEMO_POLICY.maxWordsPerGame}` : ''})
+            {' '}{t.setup.words.counter(parsedWordCount, 3, isUnlocked ? null : DEMO_POLICY.maxWordsPerGame)}
           </span>:
         </label>
         <textarea
@@ -1124,17 +1101,17 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           className="w-full max-h-[20vh] p-2 sm:p-3 rounded-lg shadow-sm futuristic-input text-base sm:text-lg setup-screen-input"
           placeholder={
             entryMode === 'suggest'
-              ? "Words from the pack appear here — edit them freely..."
-              : "E.g., Apple, Banana, Cherry"
+              ? t.setup.words.placeholderSuggest
+              : t.setup.words.placeholderManual
           }
-          aria-label="Word list for the game"
+          aria-label={t.setup.words.listAria}
         />
         <p className="text-sm text-muted-text mt-2 text-left setup-screen-small-text">
           {entryMode === 'suggest'
             ? (selectedPresets.length > 0
-                ? 'Suggested from your packs. Edit freely, or press 🎲 Shuffle for a new set.'
-                : 'Pick a pack in the previous step to get suggestions, or just type your own words.')
-            : 'One word per line, or separated by commas.'}
+                ? t.setup.words.helpSuggested
+                : t.setup.words.helpPickPack)
+            : t.setup.words.helpManual}
         </p>
       </div>
 
@@ -1148,19 +1125,19 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             onClick={openSaveDialog}
             disabled={parsedWords.length === 0}
             className="futuristic-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-neon-green/80 px-3 py-2 text-sm font-semibold text-dark-metal hover:bg-neon-green disabled:opacity-40 sm:text-base"
-            title="Save the words currently in the list as a set"
+            title={t.setup.words.saveTitle}
           >
             <Icon name="save" size={15} />
-            Save
+            {t.setup.words.save}
           </button>
           <button
             type="button"
             onClick={openLoadDialog}
             className="futuristic-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-electric-blue/80 px-3 py-2 text-sm font-semibold text-dark-metal hover:bg-electric-blue sm:text-base"
-            title="Load a saved set into the word list"
+            title={t.setup.words.loadTitle}
           >
             <Icon name="folder" size={15} />
-            Load
+            {t.setup.words.load}
           </button>
         </div>
         {setsNotice && (
@@ -1172,12 +1149,12 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       </>
       )}
 
-      {currentStep === 'Settings' && (
+      {currentStep === 'settings' && (
       <>
       {/* Audio levels live here and in the in-game pause menu (Esc). */}
       <div className="w-full rounded-lg border border-electric-blue/30 p-2 sm:p-3">
         <p className="mb-2 text-left text-sm font-semibold uppercase tracking-wider text-electric-blue">
-          Sound
+          {t.setup.settings.soundLabel}
         </p>
         <VolumeControls
           idPrefix="setup"
@@ -1197,22 +1174,22 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           className="futuristic-button flex w-full items-center justify-between gap-2 rounded-lg border border-electric-blue/30 bg-dark-metal/40 px-3 py-2 text-left"
           aria-expanded={showCustomSounds}
           aria-controls="custom-sounds-panel"
-          title="Upload your own audio for every moment of the game"
+          title={t.setup.sounds.panelTitleHint}
         >
           <span className="inline-flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wider text-electric-blue sm:text-base">
             <Icon name="music" size={15} />
-            Custom Sounds
+            {t.setup.sounds.panelTitle}
           </span>
           <span className="flex items-center gap-2 text-sm text-muted-text">
             {!isUnlocked ? (
               <span className="inline-flex items-center gap-1">
                 <Icon name="lock" size={12} />
-                Full version
+                {t.setup.sounds.fullVersion}
               </span>
             ) : customSoundCount > 0 ? (
-              `${customSoundCount} uploaded`
+              t.setup.sounds.uploaded(customSoundCount)
             ) : (
-              'Optional'
+              t.setup.sounds.optional
             )}
             <span aria-hidden="true">{showCustomSounds ? '▴' : '▾'}</span>
           </span>
@@ -1224,7 +1201,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           <div className="rounded-lg border border-electric-blue/30 p-2 sm:p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <p className="text-left text-sm italic leading-tight text-muted-text">
-                Upload your own audio for every moment of the game.
+                {t.setup.sounds.lockedBody}
               </p>
               <button
                 type="button"
@@ -1232,11 +1209,11 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 className="futuristic-button inline-flex shrink-0 items-center gap-1 rounded-md bg-cyber-purple/70 px-2.5 py-1 text-sm font-semibold text-light-text hover:bg-cyber-purple"
               >
                 <Icon name="lock" size={12} />
-                Unlock
+                {t.setup.sounds.unlock}
               </button>
             </div>
             <div className="grid grid-cols-3 gap-1.5">
-              {CUSTOM_SOUND_SLOTS.map(slot => (
+              {Object.values(t.setup.sounds.slots).map(slot => (
                 <div key={slot} className="flex items-center justify-between gap-1 rounded-md border border-cyber-purple/30 bg-dark-metal/40 px-1.5 py-1 text-xs text-muted-text">
                   <span className="truncate">{slot}</span>
                   <span aria-hidden="true">🔒</span>
@@ -1246,33 +1223,33 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           </div>
         ) : (
           <div className="max-h-[46vh] overflow-y-auto rounded-lg border border-electric-blue/30 p-2 sm:p-3">
-            <p className="text-sm text-muted-text mb-2 italic">Upload audio ({ACCEPTED_AUDIO_FORMATS_LABEL}, max {MAX_AUDIO_FILE_SIZE_MB}MB each). Stored in this browser — Clear on a sound restores the default.</p>
-            {renderSoundUploader('setupMusicUpload', 'Setup Music', customBackgroundMusic, setCustomBackgroundMusic, 'Upload Setup Music')}
-            {renderSoundUploader('gameMusicUpload', 'Game Music', customGameMusic, setCustomGameMusic, 'Upload Game Music')}
-            {renderSoundUploader('startGameSoundUpload', 'Start Game', customStartGameSound, setCustomStartGameSound)}
-            {renderSoundUploader('countdownGoSoundUpload', 'Countdown "GO!"', customCountdownGoSound, setCustomCountdownGoSound)}
-            {renderMultiSoundUploader('correctSoundsUpload', 'Correct Guess', customCorrectSounds, setCustomCorrectSounds)}
-            {renderMultiSoundUploader('skipSoundsUpload', 'Skip Word', customSkipSounds, setCustomSkipSounds)}
-            {renderSoundUploader('timesUpSoundUpload', 'Time\'s Up', customTimesUpSound, setCustomTimesUpSound)}
-            {renderSoundUploader('gameOverSoundUpload', 'Game Over (Win)', customGameOverSound, setCustomGameOverSound)}
-            {renderSoundUploader('playAgainSoundUpload', 'Play Again', customPlayAgainSound, setCustomPlayAgainSound)}
+            <p className="text-sm text-muted-text mb-2 italic">{t.setup.sounds.intro(ACCEPTED_AUDIO_FORMATS_LABEL, MAX_AUDIO_FILE_SIZE_MB)}</p>
+            {renderSoundUploader('setupMusicUpload', t.setup.sounds.slots.setupMusic, customBackgroundMusic, setCustomBackgroundMusic, t.setup.sounds.uploadNamed(t.setup.sounds.slots.setupMusic))}
+            {renderSoundUploader('gameMusicUpload', t.setup.sounds.slots.gameMusic, customGameMusic, setCustomGameMusic, t.setup.sounds.uploadNamed(t.setup.sounds.slots.gameMusic))}
+            {renderSoundUploader('startGameSoundUpload', t.setup.sounds.slots.startGame, customStartGameSound, setCustomStartGameSound)}
+            {renderSoundUploader('countdownGoSoundUpload', t.setup.sounds.slots.countdownGo, customCountdownGoSound, setCustomCountdownGoSound)}
+            {renderMultiSoundUploader('correctSoundsUpload', t.setup.sounds.slots.correctGuess, customCorrectSounds, setCustomCorrectSounds)}
+            {renderMultiSoundUploader('skipSoundsUpload', t.setup.sounds.slots.skipWord, customSkipSounds, setCustomSkipSounds)}
+            {renderSoundUploader('timesUpSoundUpload', t.setup.sounds.slots.timesUp, customTimesUpSound, setCustomTimesUpSound)}
+            {renderSoundUploader('gameOverSoundUpload', t.setup.sounds.slots.gameOverWin, customGameOverSound, setCustomGameOverSound)}
+            {renderSoundUploader('playAgainSoundUpload', t.setup.sounds.slots.playAgain, customPlayAgainSound, setCustomPlayAgainSound)}
 
-            <h4 className="text-base font-semibold text-neon-green mt-3 mb-1 border-t border-electric-blue/20 pt-2">Power-Up Sounds:</h4>
-            {renderSoundUploader('powerupCollectedSoundUpload', 'Collected', customPowerupCollectedSound, setCustomPowerupCollectedSound)}
-            {renderSoundUploader('powerupTimeFreezeSoundUpload', 'Time Freeze', customPowerupTimeFreezeSound, setCustomPowerupTimeFreezeSound)}
-            {renderSoundUploader('powerupSkipFreebieUsedSoundUpload', 'Skip Freebie Used', customPowerupSkipFreebieUsedSound, setCustomPowerupSkipFreebieUsedSound)}
-            {renderSoundUploader('rushHourActivationSoundUpload', 'Rush Hour Activate', customRushHourActivationSound, setCustomRushHourActivationSound)}
-            {renderSoundUploader('rushHourMusicLoopUpload', 'Rush Hour Music', customRushHourMusicLoop, setCustomRushHourMusicLoop)}
+            <h4 className="text-base font-semibold text-neon-green mt-3 mb-1 border-t border-electric-blue/20 pt-2">{t.setup.sounds.powerUpsHeading}</h4>
+            {renderSoundUploader('powerupCollectedSoundUpload', t.setup.sounds.slots.collected, customPowerupCollectedSound, setCustomPowerupCollectedSound)}
+            {renderSoundUploader('powerupTimeFreezeSoundUpload', t.setup.sounds.slots.timeFreeze, customPowerupTimeFreezeSound, setCustomPowerupTimeFreezeSound)}
+            {renderSoundUploader('powerupSkipFreebieUsedSoundUpload', t.setup.sounds.slots.skipFreebieUsed, customPowerupSkipFreebieUsedSound, setCustomPowerupSkipFreebieUsedSound)}
+            {renderSoundUploader('rushHourActivationSoundUpload', t.setup.sounds.slots.rushHourActivate, customRushHourActivationSound, setCustomRushHourActivationSound)}
+            {renderSoundUploader('rushHourMusicLoopUpload', t.setup.sounds.slots.rushHourMusic, customRushHourMusicLoop, setCustomRushHourMusicLoop)}
 
             {hasAnyCustomSound && (
               <button
                 type="button"
                 onClick={handleResetAllCustomSounds}
                 className="futuristic-button mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-danger-red/70 py-2 px-3 text-sm text-light-text hover:bg-danger-red sm:text-base"
-                title="Remove every custom sound and go back to the built-in defaults"
+                title={t.setup.sounds.resetAllTitle}
               >
                 <Icon name="rotate" size={14} />
-                Reset all to default sounds
+                {t.setup.sounds.resetAll}
               </button>
             )}
 
@@ -1285,28 +1262,28 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                     aria-expanded={displayDevUtils}
                     aria-controls="dev-utils-panel"
                 >
-                    {displayDevUtils ? 'Hide' : 'Show'} Dev Utilities {displayDevUtils ? '▴' : '▾'}
+                    {displayDevUtils ? t.setup.sounds.hideDev : t.setup.sounds.showDev} {displayDevUtils ? '▴' : '▾'}
                 </button>
                 {displayDevUtils && (
                     <div id="dev-utils-panel" className="mt-1 p-2 border border-neon-green/30 rounded-lg animate-fadeInScaleUp max-h-32 sm:max-h-40 overflow-y-auto">
-                        <h4 className="text-base font-semibold text-neon-green mb-1">Export Custom Sound Data</h4>
-                        <p className="text-sm text-muted-text mb-2">Copy Base64 to embed in `constants.ts`.</p>
-                        {renderBase64Exporter(customBackgroundMusic, 'Setup Music')}
-                        {renderBase64Exporter(customGameMusic, 'Game Music')}
-                        {renderBase64Exporter(customStartGameSound, 'Start Game')}
-                        {renderBase64Exporter(customCountdownGoSound, 'Countdown "GO!"')}
-                        {renderMultiBase64Exporter(customCorrectSounds, 'Correct Guess')}
-                        {renderMultiBase64Exporter(customSkipSounds, 'Skip Word')}
-                        {renderBase64Exporter(customTimesUpSound, 'Time\'s Up')}
-                        {renderBase64Exporter(customGameOverSound, 'Game Over (Win)')}
-                        {renderBase64Exporter(customPlayAgainSound, 'Play Again')}
-                        {renderBase64Exporter(customPowerupCollectedSound, 'Collected')}
-                        {renderBase64Exporter(customPowerupTimeFreezeSound, 'Time Freeze')}
-                        {renderBase64Exporter(customPowerupSkipFreebieUsedSound, 'Skip Freebie Used')}
-                        {renderBase64Exporter(customRushHourActivationSound, 'Rush Hour Activate')}
-                        {renderBase64Exporter(customRushHourMusicLoop, 'Rush Hour Music')}
+                        <h4 className="text-base font-semibold text-neon-green mb-1">{t.setup.sounds.devHeading}</h4>
+                        <p className="text-sm text-muted-text mb-2">{t.setup.sounds.devHelp}</p>
+                        {renderBase64Exporter(customBackgroundMusic, t.setup.sounds.slots.setupMusic)}
+                        {renderBase64Exporter(customGameMusic, t.setup.sounds.slots.gameMusic)}
+                        {renderBase64Exporter(customStartGameSound, t.setup.sounds.slots.startGame)}
+                        {renderBase64Exporter(customCountdownGoSound, t.setup.sounds.slots.countdownGo)}
+                        {renderMultiBase64Exporter(customCorrectSounds, t.setup.sounds.slots.correctGuess)}
+                        {renderMultiBase64Exporter(customSkipSounds, t.setup.sounds.slots.skipWord)}
+                        {renderBase64Exporter(customTimesUpSound, t.setup.sounds.slots.timesUp)}
+                        {renderBase64Exporter(customGameOverSound, t.setup.sounds.slots.gameOverWin)}
+                        {renderBase64Exporter(customPlayAgainSound, t.setup.sounds.slots.playAgain)}
+                        {renderBase64Exporter(customPowerupCollectedSound, t.setup.sounds.slots.collected)}
+                        {renderBase64Exporter(customPowerupTimeFreezeSound, t.setup.sounds.slots.timeFreeze)}
+                        {renderBase64Exporter(customPowerupSkipFreebieUsedSound, t.setup.sounds.slots.skipFreebieUsed)}
+                        {renderBase64Exporter(customRushHourActivationSound, t.setup.sounds.slots.rushHourActivate)}
+                        {renderBase64Exporter(customRushHourMusicLoop, t.setup.sounds.slots.rushHourMusic)}
 
-                        {!hasAnyCustomSound && <p className="text-sm text-muted-text">No custom sounds uploaded yet.</p>}
+                        {!hasAnyCustomSound && <p className="text-sm text-muted-text">{t.setup.sounds.noneUploaded}</p>}
                     </div>
                 )}
             </div>
@@ -1330,25 +1307,25 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
             className="futuristic-button setup-screen-button inline-flex shrink-0 items-center gap-1.5 rounded-[var(--r-md)] min-h-[44px] bg-[var(--surface-2)] px-3 py-2.5 text-base text-electric-blue hover:bg-cyber-purple/30 sm:px-5"
           >
             <Icon name="arrowLeft" size={16} />
-            Back
+            {t.setup.footer.back}
           </button>
         )}
         <button
           type="button"
           onClick={handlePrimaryAction}
           disabled={(isLastStep && startDisabled) || wordsStepIncomplete}
-          title={wordsStepIncomplete ? 'Add at least 3 words to continue' : undefined}
+          title={wordsStepIncomplete ? t.setup.footer.needWords : undefined}
           className="futuristic-button inline-flex flex-1 items-center justify-center gap-2 rounded-[var(--r-md)] min-h-[44px] bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2.5 px-6 text-lg sm:text-xl setup-screen-button disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label={isLastStep ? (isSoloMode ? 'Start solo run button' : 'Start game button') : `Go to ${wizardSteps[step + 1]} step`}
+          aria-label={isLastStep ? (isSoloMode ? t.setup.footer.startSoloAria : t.setup.footer.startGameAria) : t.setup.footer.goToStepAria(stepLabel(wizardSteps[step + 1]))}
         >
           {isLastStep ? (
             <>
               <Icon name="play" size={18} />
-              {isSoloMode ? 'Start Solo!' : 'Start Game!'}
+              {isSoloMode ? t.setup.footer.startSolo : t.setup.footer.startGame}
             </>
           ) : (
             <>
-              Next: {wizardSteps[step + 1]}
+              {t.setup.footer.next(stepLabel(wizardSteps[step + 1]))}
               <Icon name="arrowRight" size={18} />
             </>
           )}
@@ -1376,14 +1353,14 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           >
             <h2 id="saveSetDialogTitle" className="flex items-center gap-2 font-heading text-lg font-bold tracking-wide text-neon-green">
               <Icon name="save" size={18} />
-              Save Word Set
+              {t.setup.saveDialog.title}
             </h2>
             <p className="mt-1 text-left font-sans text-sm text-muted-text">
-              Name this set to create a new one, or pick a saved set below to rename and update it.
+              {t.setup.saveDialog.body}
             </p>
 
             <label htmlFor="setNameField" className="mt-3 block text-left font-sans text-sm text-muted-text">
-              Set name
+              {t.setup.saveDialog.nameLabel}
             </label>
             <input
               id="setNameField"
@@ -1392,20 +1369,20 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
               value={setNameInput}
               onChange={(event) => setSetNameInput(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleSaveWordSet(); } }}
-              placeholder="E.g., Animals — Unit 3"
+              placeholder={t.setup.saveDialog.namePlaceholder}
               maxLength={40}
               className="futuristic-input mt-1 w-full rounded-lg px-3 py-2 text-sm"
             />
             {editingSetId && (
               <p className="mt-1 text-left font-sans text-sm text-warning-yellow">
-                Editing an existing set — saving will replace it.
+                {t.setup.saveDialog.editing}
               </p>
             )}
 
             {wordSets.length > 0 && (
               <div className="mt-3">
                 <p className="mb-1 text-left font-sans text-sm uppercase tracking-wider text-muted-text">
-                  Existing sets
+                  {t.setup.saveDialog.existing}
                 </p>
                 <ul className="flex max-h-32 flex-col gap-1 overflow-y-auto">
                   {wordSets.map(set => (
@@ -1421,7 +1398,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                         title={set.words.join(', ')}
                       >
                         {editingSetId === set.id && <Icon name="pencil" size={12} className="mr-1" />}
-                        {set.name} <span className="text-muted-text">· {set.words.length} words</span>
+                        {set.name} <span className="text-muted-text">· {t.setup.saveDialog.wordsCount(set.words.length)}</span>
                       </button>
                     </li>
                   ))}
@@ -1435,7 +1412,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 onClick={() => setSaveDialogOpen(false)}
                 className="futuristic-button flex-1 rounded-lg bg-dark-metal px-3 py-2.5 text-sm text-muted-text hover:bg-cyber-purple/30"
               >
-                Cancel
+                {t.setup.saveDialog.cancel}
               </button>
               <button
                 type="button"
@@ -1443,7 +1420,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                 disabled={parsedWords.length === 0}
                 className="futuristic-button flex-1 rounded-lg bg-neon-green/80 px-3 py-2.5 text-sm font-semibold text-dark-metal hover:bg-neon-green disabled:opacity-40"
               >
-                {editingSetId ? 'Update set' : 'Save new set'}
+                {editingSetId ? t.setup.saveDialog.update : t.setup.saveDialog.saveNew}
               </button>
             </div>
           </div>
@@ -1465,7 +1442,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           >
             <h2 id="loadSetDialogTitle" className="flex items-center gap-2 font-heading text-lg font-bold tracking-wide text-electric-blue">
               <Icon name="folder" size={18} />
-              Load Word Set
+              {t.setup.loadDialog.title}
             </h2>
             {wordSets.length > 0 ? (
               <ul className="mt-3 flex max-h-64 flex-col gap-1.5 overflow-y-auto">
@@ -1477,13 +1454,13 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
                       className="min-w-0 flex-1 truncate px-1 py-1.5 text-left font-sans text-sm text-light-text transition hover:text-neon-green"
                       title={set.words.join(', ')}
                     >
-                      {set.name} <span className="text-muted-text">· {set.words.length} words</span>
+                      {set.name} <span className="text-muted-text">· {t.setup.saveDialog.wordsCount(set.words.length)}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDeleteWordSet(set)}
                       className="futuristic-button inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-danger-red/60 text-light-text hover:bg-danger-red"
-                      aria-label={`Delete saved set ${set.name}`}
+                      aria-label={t.setup.loadDialog.deleteAria(set.name)}
                     >
                       <Icon name="close" size={14} />
                     </button>
@@ -1492,7 +1469,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
               </ul>
             ) : (
               <p className="mt-3 text-left font-sans text-sm italic text-muted-text">
-                No saved sets yet — save your word list first.
+                {t.setup.loadDialog.empty}
               </p>
             )}
             <button
@@ -1500,7 +1477,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
               onClick={() => setLoadDialogOpen(false)}
               className="mt-4 font-sans text-sm text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
             >
-              Close
+              {t.setup.loadDialog.close}
             </button>
           </div>
         </div>

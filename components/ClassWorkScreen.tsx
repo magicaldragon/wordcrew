@@ -3,6 +3,8 @@ import { Icon } from './Icon';
 import { toast } from './Feedback';
 import { TeacherTestScreen } from './TeacherTestScreen';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../i18n/useLocale';
+import { useT } from '../i18n/useT';
 import {
   assignmentWords,
   percent,
@@ -19,12 +21,6 @@ interface ClassWorkScreenProps {
   assignment: ClassAssignment;
   onClose: () => void;
 }
-
-const KIND_LABEL: Record<ClassAssignment['kind'], string> = {
-  vocabulary: 'Word set',
-  quiz: 'Multiple choice',
-  writing: 'Writing',
-};
 
 const shuffle = <T,>(input: T[]): T[] => {
   const array = [...input];
@@ -44,6 +40,9 @@ const shuffle = <T,>(input: T[]): T[] => {
  * which keeps the pass line honest when the student retries.
  */
 export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assignment, onClose }) => {
+  const t = useT('myClass');
+  const common = useT('common');
+  const locale = useLocale();
   const { user, profile } = useAuth();
   const [roundKey, setRoundKey] = useState(0);
   const [result, setResult] = useState<ClassSubmission | null>(null);
@@ -59,7 +58,7 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
     try {
       setResult(await submitWork({ classId, assignment, student, detail, score }));
     } catch {
-      toast('Could not submit. Check your connection and try again.', 'error');
+      toast(t.work.submitFailed, 'error');
     } finally {
       setBusy(false);
     }
@@ -72,16 +71,23 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
           type="button"
           onClick={onClose}
           className="flex h-11 w-11 items-center justify-center rounded-full text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
-          aria-label="Leave this assignment"
+          aria-label={t.work.leaveAria}
         >
           <Icon name="close" size={18} />
         </button>
         <div className="min-w-0 flex-1 text-center">
           <p className="truncate text-sm font-semibold text-light-text">{assignment.title}</p>
           <p className="text-[0.7rem] text-muted-text">
-            {KIND_LABEL[assignment.kind]}
-            {assignment.passScore !== null ? ` · pass ${assignment.passScore}%` : ''}
-            {assignment.dueAt ? ` · due ${new Date(assignment.dueAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}
+            {t.work.headerMeta(
+              t.kinds[assignment.kind],
+              assignment.passScore,
+              assignment.dueAt
+                ? new Date(assignment.dueAt).toLocaleDateString(locale, {
+                    day: 'numeric',
+                    month: 'short',
+                  })
+                : null,
+            )}
           </p>
         </div>
         <span className="h-11 w-11" aria-hidden="true" />
@@ -94,11 +100,9 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
     return shell(
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <Icon name="lock" size={28} className="text-muted-text" />
-        <p className="max-w-xs text-sm text-muted-text">
-          Sign in with the email your teacher added to the class to do this assignment.
-        </p>
+        <p className="max-w-xs text-sm text-muted-text">{t.work.notSignedIn}</p>
         <button type="button" onClick={onClose} className="wc-btn wc-btn-secondary min-h-[44px]">
-          Back
+          {common.back}
         </button>
       </div>,
     );
@@ -122,7 +126,7 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
   if (assignment.kind === 'vocabulary') {
     const session: TeacherSession = {
       title: assignment.title,
-      source: `${assignment.words.length} words · class assignment`,
+      source: t.work.sessionSource(assignment.words.length),
       words: assignmentWords(assignment),
     };
     return shell(
@@ -180,6 +184,9 @@ interface QuizRunnerProps {
 }
 
 const QuizRunner: React.FC<QuizRunnerProps> = ({ assignment, onSubmit }) => {
+  const t = useT('myClass');
+  const common = useT('common');
+
   // The display order is fixed for this attempt: questions shuffled, options shuffled,
   // and every option remembers the index it had in the teacher's own list.
   const view = useMemo(
@@ -210,10 +217,8 @@ const QuizRunner: React.FC<QuizRunnerProps> = ({ assignment, onSubmit }) => {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3">
       <div className="flex items-center justify-between text-xs text-muted-text">
-        <span>
-          Question {index + 1} / {view.length}
-        </span>
-        <span>{answered} answered</span>
+        <span>{t.work.quiz.counter(index + 1, view.length)}</span>
+        <span>{t.work.quiz.answered(answered)}</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
         <span
@@ -260,7 +265,7 @@ const QuizRunner: React.FC<QuizRunnerProps> = ({ assignment, onSubmit }) => {
           disabled={index === 0}
           className="wc-btn wc-btn-secondary min-h-[48px] flex-1 disabled:opacity-40"
         >
-          Back
+          {common.back}
         </button>
         {last ? (
           <button
@@ -271,7 +276,7 @@ const QuizRunner: React.FC<QuizRunnerProps> = ({ assignment, onSubmit }) => {
             disabled={picked < 0}
             className="wc-btn wc-btn-primary min-h-[48px] flex-[2] disabled:opacity-40"
           >
-            Submit answers
+            {t.work.quiz.submit}
           </button>
         ) : (
           <button
@@ -280,7 +285,7 @@ const QuizRunner: React.FC<QuizRunnerProps> = ({ assignment, onSubmit }) => {
             disabled={picked < 0}
             className="wc-btn wc-btn-primary min-h-[48px] flex-[2] disabled:opacity-40"
           >
-            Next
+            {common.next}
           </button>
         )}
       </div>
@@ -298,6 +303,7 @@ interface WritingRunnerProps {
 const countWords = (text: string): number => text.trim().split(/\s+/).filter(Boolean).length;
 
 const WritingRunner: React.FC<WritingRunnerProps> = ({ assignment, onSubmit }) => {
+  const t = useT('myClass');
   const [text, setText] = useState('');
   const words = countWords(text);
   const short = words < assignment.minWords;
@@ -305,21 +311,23 @@ const WritingRunner: React.FC<WritingRunnerProps> = ({ assignment, onSubmit }) =
   return (
     <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3">
       <div className="rounded-xl border border-[var(--hairline-strong)] bg-dark-metal/60 p-4">
-        <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">Prompt</p>
+        <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
+          {t.work.writing.promptLabel}
+        </p>
         <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-light-text">{assignment.prompt}</p>
       </div>
       <textarea
         value={text}
         onChange={(event) => setText(event.target.value)}
         rows={10}
-        placeholder="Write your answer here…"
+        placeholder={t.work.writing.placeholder}
         className="futuristic-input min-h-[14rem] w-full flex-1 px-3 py-2 text-sm leading-relaxed"
       />
       <div className="flex items-center justify-between text-xs">
         <span className={short ? 'text-warning-yellow' : 'text-neon-green'}>
-          {words} / {assignment.minWords} words
+          {t.work.writing.wordCount(words, assignment.minWords)}
         </span>
-        <span className="text-muted-text">Your teacher grades this one.</span>
+        <span className="text-muted-text">{t.work.writing.gradedByTeacher}</span>
       </div>
       <button
         type="button"
@@ -327,7 +335,7 @@ const WritingRunner: React.FC<WritingRunnerProps> = ({ assignment, onSubmit }) =
         disabled={short}
         className="wc-btn wc-btn-primary min-h-[48px] w-full disabled:opacity-40"
       >
-        {short ? `Write ${assignment.minWords - words} more words` : 'Submit to my teacher'}
+        {short ? t.work.writing.moreWords(assignment.minWords - words) : t.work.writing.submit}
       </button>
     </div>
   );
@@ -344,22 +352,22 @@ interface ResultViewProps {
 }
 
 const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRetry, onClose }) => {
+  const t = useT('myClass');
+  const common = useT('common');
+
   if (assignment.kind === 'writing') {
     return (
       <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 text-center">
         <span className="flex h-16 w-16 items-center justify-center rounded-full bg-electric-blue/15 text-electric-blue">
           <Icon name="check" size={30} />
         </span>
-        <p className="text-xl font-bold text-light-text">Submitted</p>
-        <p className="max-w-sm text-sm text-muted-text">
-          Your teacher will read it and send a score back. You can open this assignment again to
-          see the feedback.
-        </p>
+        <p className="text-xl font-bold text-light-text">{t.work.result.submitted}</p>
+        <p className="max-w-sm text-sm text-muted-text">{t.work.result.submittedBody}</p>
         {result.attempts > 1 && (
-          <p className="text-xs text-muted-text">Attempt {result.attempts}</p>
+          <p className="text-xs text-muted-text">{t.work.result.attempt(result.attempts)}</p>
         )}
         <button type="button" onClick={onClose} className="wc-btn wc-btn-primary min-h-[48px] w-full max-w-xs">
-          Back to My Class
+          {t.work.result.backToClass}
         </button>
       </div>
     );
@@ -380,16 +388,19 @@ const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRet
       </span>
       <p className="text-4xl font-bold tabular-nums text-light-text">{result.score}%</p>
       <p className={`text-sm font-bold ${passed ? 'text-neon-green' : 'text-warning-yellow'}`}>
-        {passed ? 'Passed' : `Pass line is ${passLine}%`}
+        {passed ? t.work.result.passed : t.work.result.passLine(passLine)}
       </p>
       <p className="text-xs text-muted-text">
-        Attempt {result.attempts} · {Math.max(0, result.detail.answers.length || assignment.questions.length)} questions
+        {t.work.result.attemptLine(
+          result.attempts,
+          Math.max(0, result.detail.answers.length || assignment.questions.length),
+        )}
       </p>
 
       {missed.length > 0 && (
         <div className="w-full rounded-md border border-[var(--hairline-strong)] bg-dark-metal/60 p-3 text-left">
           <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-danger-red">
-            Worth another look
+            {t.work.result.worthAnotherLook}
           </p>
           <ul className="mt-1.5 flex flex-col gap-1">
             {missed.slice(0, 8).map((answer) => (
@@ -410,11 +421,11 @@ const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRet
             disabled={busy}
             className="wc-btn wc-btn-secondary min-h-[48px] flex-1 disabled:opacity-50"
           >
-            Try again
+            {common.tryAgain}
           </button>
         )}
         <button type="button" onClick={onClose} className="wc-btn wc-btn-primary min-h-[48px] flex-1">
-          Back to My Class
+          {t.work.result.backToClass}
         </button>
       </div>
     </div>

@@ -12,6 +12,27 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <script>
+    // Runs before React mounts so the tab title and <html lang> are already right, and a
+    // Vietnamese device never flashes the English title. Mirrors readInitialLanguage()
+    // in contexts/LanguageContext.tsx — change the rule in both places.
+    (function () {
+      var titles = {
+        en: 'WordCrew — Only Talented Guessers',
+        vi: 'WordCrew — Chỉ dành cho cao thủ đoán từ'
+      };
+      try {
+        var saved = localStorage.getItem('wordcrew_language_v1');
+        var lang = saved === 'vi' || saved === 'en'
+          ? saved
+          : (navigator.language || '').toLowerCase().indexOf('vi') === 0 ? 'vi' : 'en';
+        document.documentElement.lang = lang;
+        document.title = titles[lang];
+      } catch (e) {
+        /* blocked storage — the English defaults above stay */
+      }
+    })();
+  </script>
+  <script>
     // Runs before React mounts so the portal never flashes the wrong theme.
     (function () {
       try {

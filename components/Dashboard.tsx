@@ -6,6 +6,7 @@ import {
   displayNameCooldownEndsAt,
   useAuth,
 } from '../contexts/AuthContext';
+import { LanguageToggle } from './LanguageToggle';
 import { LoginButton } from './LoginButton';
 import { ThemeToggle } from './ThemeToggle';
 import { confirmDialog, toast } from './Feedback';
@@ -30,12 +31,15 @@ import { DAILY_FREEZES_PER_MONTH, dailyMilestone } from '../services/dailyHabit'
 import { fetchMyDailyHistory, type DailyHistoryRow } from '../services/soloLeaderboard';
 import {
   CHECK_VOCABULARY,
-  TOOL_FREE_UNTIL_LABEL,
+  toolFreeUntilLabel,
   toolAccess,
   toolsVisible,
 } from '../services/tools';
 import type { ClassAssignment } from '../services/classes';
-import { CLASS_FREE_UNTIL_LABEL, classConsoleAccess } from '../services/classAccess';
+import { classFreeUntilLabel, classConsoleAccess } from '../services/classAccess';
+import { useT } from '../i18n/useT';
+import { describeError } from '../i18n/errors';
+import { useLocale } from '../i18n/useLocale';
 
 /** Loaded on demand — the leaderboard is opt-in, so it stays out of the entry chunk. */
 const SoloLeaderboardPanel = lazy(() => import('./SoloLeaderboardPanel'));
@@ -73,24 +77,18 @@ interface DashboardProps {
 interface GameEntry {
   id: string;
   name: string;
-  tagline: string;
   icon: IconName;
-  meta: string;
-  available: boolean;
 }
 
 /**
  * The catalogue. WordCrew is the first title; the placeholder keeps the grid's shape
- * honest — more games land here over time.
+ * honest — more games land here over time. Copy lives in the dictionary.
  */
 const GAMES: GameEntry[] = [
   {
     id: 'wordcrew',
     name: 'WordCrew',
-    tagline: 'One player describes the word, the crew guesses it before time runs out.',
     icon: 'type',
-    meta: 'Normal, Hell, Team and Solo modes',
-    available: true,
   },
 ];
 
@@ -104,88 +102,8 @@ const PACK_COUNT = Object.keys(cefrWordLists).length;
 /** Normal, Hell, Team and Solo — the modes the game ships with. */
 const GAME_MODE_COUNT = 4;
 
-const HOME_STATS = [
-  { label: 'Words ready', value: WORD_COUNT },
-  { label: 'CEFR packs', value: PACK_COUNT },
-  { label: 'Game modes', value: GAME_MODE_COUNT },
-];
-
-const HOME_CHIPS = [
-  'Levels Pre-A1 to B2',
-  `${WORD_COUNT.toLocaleString()} words`,
-  'Pass-and-play',
-  'Works offline',
-];
-
-const HOME_PERKS = [
-  {
-    title: 'Cambridge CEFR packs',
-    body: 'Starters to B2 First. Pick a level for the class and the word list is ready.',
-  },
-  {
-    title: 'Keeps running offline',
-    body: 'Install it on the classroom laptop once; it still works when the wifi drops.',
-  },
-  {
-    title: 'Nothing to set up',
-    body: 'Players just pick up the screen. No accounts, no invites, no extra devices.',
-  },
-];
-
-/** A round in play — the hero's one bold element. Purely decorative. */
-const SAMPLE_ROUND = {
-  word: 'Lighthouse',
-  clue: 'It warns ships away from the rocks at night.',
-  timer: '0:38',
-  round: 'Round 3 of 8',
-  progress: 40,
-};
-
-const SECTIONS: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string }[] = [
-  { id: 'games', label: 'Games', icon: 'gamepad', title: 'Game collection', subtitle: 'Pick a game and start a round.' },
-  { id: 'progress', label: 'My progress', icon: 'chart', title: 'My progress', subtitle: 'Your rounds, scores and streaks.' },
-  { id: 'account', label: 'Account', icon: 'user', title: 'Account', subtitle: 'Sign-in status and this device.' },
-];
-
-/**
- * The teaching shelf — separate from the game grid because nothing here is scored and
- * the audience is the teacher. The nav label names the shelf; each tool carries its own
- * "Tool N" label inside, so a class handout can say "open Tool 1" without ambiguity.
- */
-const TOOLS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
-  id: 'tools',
-  label: 'Teaching tools',
-  icon: 'wrench',
-  title: 'Teaching tools',
-  subtitle: 'Classroom tools that sit beside the game — no scores, no leaderboards.',
-};
-
-/** The class shelf: a roster and the work set for it. Both roles open the same door. */
-const CLASS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
-  id: 'class',
-  label: 'My Class',
-  icon: 'user',
-  title: 'My Class',
-  subtitle: 'Set work, hand it in, and see what the class actually got wrong.',
-};
-
-/** Owner-only section, appended to the nav only once the admin probe succeeds. */
-const ADMIN_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
-  id: 'admin',
-  label: 'Admin',
-  icon: 'wrench',
-  title: 'Admin',
-  subtitle: 'Orders, revenue, access grants and Solo records.',
-};
-
-/** Owner-only account directory: FREE/PRO, presence, roles and renames. */
-const ADMIN_ACCOUNTS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
-  id: 'accounts',
-  label: 'Account management',
-  icon: 'user',
-  title: 'Account management',
-  subtitle: 'Every account, FREE vs PRO, who is online and who can open the tools.',
-};
+/** Decorative sample round — only the numbers live here; the words come from the dictionary. */
+const SAMPLE_ROUND = { word: 'Lighthouse', timer: '0:38', progress: 40 };
 
 const INPUT_CLASS =
   'w-full rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] px-4 py-3 text-sm text-[var(--wn-12)] outline-none transition placeholder:text-[var(--wn-8)] focus:border-[var(--wa-5)] focus:ring-2 focus:ring-[var(--wa-4)]';
@@ -253,8 +171,9 @@ const useCountUp = (target: number, durationMs = 1100): number => {
 };
 
 const StatValue: React.FC<{ value: number; className?: string }> = ({ value, className }) => {
+  const locale = useLocale();
   const shown = useCountUp(value);
-  return <p className={className}>{shown.toLocaleString()}</p>;
+  return <p className={className}>{shown.toLocaleString(locale)}</p>;
 };
 
 const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) => (
@@ -266,6 +185,12 @@ const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) 
 
 export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onStartDaily, onOpenTeacher, onOpenAssignment, classRefreshKey = 0, onUnlock, onRefreshAccount }) => {
   const { user, profile, loading, getIdToken, updateDisplayName } = useAuth();
+  const t = useT('dashboard');
+  const common = useT('common');
+  const errors = useT('errors');
+  // Dates follow the chosen interface language, not the browser's, so a Vietnamese page
+  // never shows "Mon, Tue" in the middle of it.
+  const locale = useLocale();
   const [section, setSection] = useState<SectionId>('games');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [admin, setAdmin] = useState<AdminOverview | null>(null);
@@ -326,14 +251,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const showTools = toolsVisible(toolGate);
 
   const navSections = useMemo(() => {
-    const items = [...SECTIONS];
+    // Labels and subtitles come from the dictionary, so switching language re-renders the
+    // whole rail — the section ids never change, only the words around them.
+    const items: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string }[] = [
+      { id: 'games', label: t.nav.games, icon: 'gamepad', ...t.sections.games },
+      { id: 'progress', label: t.nav.progress, icon: 'chart', ...t.sections.progress },
+      { id: 'account', label: t.nav.account, icon: 'user', ...t.sections.account },
+    ];
     // Class sits next to the tools: both are the teaching side of the portal. The tab
     // is listed even when signed out on purpose — that shelf is where a brand-new
     // student is told to sign in, so hiding it would hide the only door into a class.
-    items.splice(1, 0, CLASS_SECTION);
-    if (showTools) items.splice(1, 0, TOOLS_SECTION);
-    return admin ? [...items, ADMIN_SECTION, ADMIN_ACCOUNTS_SECTION] : items;
-  }, [admin, showTools]);
+    items.splice(1, 0, { id: 'class', label: t.nav.class, icon: 'user', ...t.sections.class });
+    if (showTools) {
+      items.splice(1, 0, { id: 'tools', label: t.nav.tools, icon: 'wrench', ...t.sections.tools });
+    }
+    if (admin) {
+      items.push({ id: 'admin', label: t.nav.admin, icon: 'wrench', ...t.sections.admin });
+      items.push({ id: 'accounts', label: t.nav.accounts, icon: 'user', ...t.sections.accounts });
+    }
+    return items;
+  }, [admin, showTools, t]);
   // A section can disappear while it is open (sign-out, revoked admin, the tool gate
   // closing); fall back to Games.
   const current =
@@ -390,10 +327,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     try {
       const result = await grantAccess(token, email);
       setGrantEmail('');
-      setAdminNotice(`Granted to ${result.email} · ${result.licenseKey}`);
+      setAdminNotice(t.admin.grantDone(result.email, result.licenseKey));
       await loadAdmin();
     } catch (err) {
-      setAdminNotice(err instanceof Error ? err.message : 'Could not grant access.');
+      setAdminNotice(describeError(errors, err, t.admin.grantFailed));
     } finally {
       setAdminBusy(false);
     }
@@ -401,17 +338,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
   const handleRevoke = async (licenseKey: string) => {
     if (adminBusy) return;
-    if (!(await confirmDialog(`Revoke ${licenseKey}? The licence stops unlocking immediately.`, { confirmLabel: 'Revoke' }))) return;
+    if (!(await confirmDialog(t.admin.revokeAsk(licenseKey), { confirmLabel: t.admin.revokeLabel }))) return;
     const token = await getIdToken();
     if (!token) return;
     setAdminBusy(true);
     setAdminNotice('');
     try {
       await revokeAccess(token, licenseKey);
-      setAdminNotice(`Revoked ${licenseKey}.`);
+      setAdminNotice(t.admin.revoked(licenseKey));
       await loadAdmin();
     } catch (err) {
-      setAdminNotice(err instanceof Error ? err.message : 'Could not revoke that licence.');
+      setAdminNotice(describeError(errors, err, t.admin.revokeFailed));
     } finally {
       setAdminBusy(false);
     }
@@ -422,10 +359,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const handleReconcile = async (code: string) => {
     if (adminBusy) return;
     if (
-      !(await confirmDialog(
-        `Mark ${code} as paid and issue its licence? Only do this once the money is in the bank.`,
-        { confirmLabel: 'Mark as paid' },
-      ))
+      !(await confirmDialog(t.admin.reconcileAsk(code), { confirmLabel: t.admin.reconcileLabel }))
     )
       return;
     const token = await getIdToken();
@@ -436,12 +370,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       const result = await reconcileOrder(token, code);
       setAdminNotice(
         result.alreadyPaid
-          ? `${code} was already paid.`
-          : `Marked ${code} as paid · ${result.licenseKey}`,
+          ? t.admin.alreadyPaid(code)
+          : t.admin.reconcileDone(code, result.licenseKey),
       );
       await loadAdmin();
     } catch (err) {
-      setAdminNotice(err instanceof Error ? err.message : 'Could not update that order.');
+      setAdminNotice(describeError(errors, err, t.admin.reconcileFailed));
     } finally {
       setAdminBusy(false);
     }
@@ -457,9 +391,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     setNameBusy(true);
     try {
       await updateDisplayName(nameDraft);
-      toast('Display name updated.', 'success');
+      toast(t.account.updated, 'success');
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not update your name.', 'error');
+      toast(describeError(errors, err, t.account.updateFailed), 'error');
     } finally {
       setNameBusy(false);
     }
@@ -474,25 +408,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     (order) => order.status === 'pending' || order.status === 'expired',
   );
 
-  const renderGames = () => (
+  const renderGames = () => {
+    const homeStats = [
+      { label: t.games.stats.words, value: WORD_COUNT },
+      { label: t.games.stats.packs, value: PACK_COUNT },
+      { label: t.games.stats.modes, value: GAME_MODE_COUNT },
+    ];
+    const homeChips = [
+      t.games.chips.levels,
+      t.games.chips.words(WORD_COUNT.toLocaleString(locale)),
+      t.games.chips.passAndPlay,
+      t.games.chips.offline,
+    ];
+
+    return (
     <div className="flex flex-col gap-5 lg:h-full">
       {/* The one nudge on this screen: the daily is the only run everybody shares, so it
           is worth a banner until it has been played today. */}
       {!dailyDoneToday && (
         <section
           className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--wa-5)] bg-[var(--wa-2)] p-4 sm:flex-row sm:items-center sm:justify-between"
-          aria-label="Today's Challenge"
+          aria-label={t.games.dailyAria}
         >
           <div className="flex items-start gap-3">
             <span className="text-2xl" aria-hidden="true">
               🌅
             </span>
             <div>
-              <p className="text-sm font-bold text-[var(--wn-12)]">Today’s Challenge is waiting</p>
+              <p className="text-sm font-bold text-[var(--wn-12)]">{t.games.dailyTitle}</p>
               <p className="mt-0.5 text-xs leading-relaxed text-[var(--wn-10)]">
                 {(progress?.dailyStreak ?? 0) > 0
-                  ? `🔥 ${progress?.dailyStreak}-day streak — keep it alive. Same ladder for everyone, about 90 seconds.`
-                  : 'Same ladder for everyone. One run a day, about 90 seconds.'}
+                  ? t.games.dailyStreak(progress?.dailyStreak ?? 0)
+                  : t.games.dailyFresh}
               </p>
             </div>
           </div>
@@ -502,7 +449,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             className="wc-btn wc-btn-primary shrink-0"
           >
             <Icon name="play" size={16} />
-            Play today’s
+            {t.games.playToday}
           </button>
         </section>
       )}
@@ -512,13 +459,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <div className="grid gap-6 md:grid-cols-[1.05fr_0.95fr] md:items-center">
           <div>
             <h2 className="max-w-lg text-2xl font-bold leading-tight text-[var(--wn-12)]">
-              {greetingName
-                ? `Welcome back, ${greetingName}.`
-                : 'The word game your class shouts over.'}
+              {greetingName ? t.games.welcomeBack(greetingName) : t.games.heroTitle}
             </h2>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-[var(--wn-10)]">
-              One player describes the word; everyone else guesses before the timer runs out. Pass
-              one screen around the room — the crew needs no accounts and no extra devices.
+              {t.games.heroBody}
             </p>
 
             <div className="mt-5 flex items-center gap-3">
@@ -528,20 +472,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 className="wc-btn wc-btn-primary flex-1 sm:flex-none sm:px-8"
               >
                 <Icon name="play" size={16} />
-                {isUnlocked ? 'Play full version' : 'Play free demo'}
+                {isUnlocked ? t.games.playFull : t.games.playDemo}
               </button>
               {isUnlocked ? (
                 <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--wa-11)]">
                   <Icon name="unlock" size={18} />
-                  Full version
+                  {t.games.fullVersion}
                 </span>
               ) : (
                 <button
                   type="button"
                   onClick={onUnlock}
                   className="wc-icon-btn"
-                  aria-label="Unlock full version"
-                  title="Unlock full version"
+                  aria-label={t.games.unlockFull}
+                  title={t.games.unlockFull}
                 >
                   <Icon name="lock" size={20} />
                 </button>
@@ -550,8 +494,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 type="button"
                 onClick={() => setShowSoloBoard(true)}
                 className="wc-icon-btn"
-                aria-label="Open the Solo leaderboard"
-                title="Solo leaderboard"
+                aria-label={t.games.leaderboardAria}
+                title={t.games.leaderboard}
               >
                 <Icon name="trophy" size={20} />
               </button>
@@ -563,7 +507,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-[var(--wa-11)]">
                 <span className="wc-live-dot" />
-                Describe this word
+                {t.games.describe}
               </span>
               <span className="text-sm font-semibold tabular-nums text-[var(--wn-9)]">
                 {SAMPLE_ROUND.timer}
@@ -571,7 +515,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             </div>
 
             <p className="wc-round-word">{SAMPLE_ROUND.word}</p>
-            <p className="wc-round-clue">“{SAMPLE_ROUND.clue}”</p>
+            <p className="wc-round-clue">“{t.games.sampleClue}”</p>
 
             <div className="flex items-center gap-3">
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--wn-3)]">
@@ -581,7 +525,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 />
               </div>
               <span className="shrink-0 text-xs font-medium text-[var(--wn-9)]">
-                {SAMPLE_ROUND.round}
+                {t.games.sampleRound}
               </span>
             </div>
           </div>
@@ -597,8 +541,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       </Suspense>
 
       {/* Proof, not decoration: real counts straight from the word data. */}
-      <section className="wc-stats lg:shrink-0" aria-label="What is in the box">
-        {HOME_STATS.map((stat) => (
+      <section className="wc-stats lg:shrink-0" aria-label={t.games.statsAria}>
+        {homeStats.map((stat) => (
           <div key={stat.label} className="wc-stat">
             <StatValue
               value={stat.value}
@@ -625,7 +569,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="text-xl font-bold text-[var(--wn-12)]">{game.name}</h3>
-                    <p className="mt-1 text-xs text-[var(--wn-9)]">{game.meta}</p>
+                    <p className="mt-1 text-xs text-[var(--wn-9)]">{t.games.game.meta}</p>
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold ${
@@ -634,14 +578,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                         : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
                     }`}
                   >
-                    {isUnlocked ? 'Full version' : 'Free demo'}
+                    {isUnlocked ? t.games.fullVersion : t.games.freeDemo}
                   </span>
                 </div>
 
-                <p className="mt-3 flex-1 text-sm leading-relaxed text-[var(--wn-10)]">{game.tagline}</p>
+                <p className="mt-3 flex-1 text-sm leading-relaxed text-[var(--wn-10)]">
+                  {t.games.game.tagline}
+                </p>
 
                 <ul className="mt-4 flex flex-wrap gap-2">
-                  {HOME_CHIPS.map((chip) => (
+                  {homeChips.map((chip) => (
                     <li
                       key={chip}
                       className="rounded-full border border-[var(--wn-4)] px-2.5 py-1 text-[0.7rem] font-medium text-[var(--wn-10)]"
@@ -658,7 +604,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                   className="wc-btn wc-btn-secondary mt-4 w-full"
                 >
                   <Icon name="play" size={16} />
-                  Play
+                  {t.games.play}
                 </button>
               </div>
             </div>
@@ -667,7 +613,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
         {/* Why it holds up in a real classroom */}
         <div className="grid content-start gap-4 sm:grid-cols-3 lg:grid-cols-1 lg:content-center lg:gap-5">
-          {HOME_PERKS.map((perk) => (
+          {t.games.perks.map((perk) => (
             <div key={perk.title} className="border-t border-[var(--wn-4)] pt-3">
               <p className="text-sm font-semibold text-[var(--wn-12)]">{perk.title}</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--wn-9)]">{perk.body}</p>
@@ -676,7 +622,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   /**
    * The tool shelf. One card per tool; the gate decides whether it opens, asks for a
@@ -693,21 +640,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           </span>
           <div>
             <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
-              {CHECK_VOCABULARY.slot}
+              {t.tools.definition.slot}
             </p>
             <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">
-              {CHECK_VOCABULARY.name}
+              {t.tools.definition.name}
             </h3>
             <p className="mt-1 max-w-prose text-sm leading-relaxed text-[var(--wn-10)]">
-              {needsPayment
-                ? 'This tool is part of the full version. Unlock it once and it keeps working offline on this device.'
-                : 'This tool is for teacher accounts. Ask an admin to mark your account as a teacher in Account management.'}
+              {needsPayment ? t.tools.lockedPayment : t.tools.lockedRole}
             </p>
           </div>
           {needsPayment && (
             <button type="button" onClick={onUnlock} className="wc-btn wc-btn-primary">
               <Icon name="unlock" size={16} />
-              Unlock full version
+              {t.tools.unlockFull}
             </button>
           )}
         </div>
@@ -716,23 +661,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
     return (
       <div className="flex flex-col gap-4">
-        <section className="wc-card overflow-hidden" aria-label={CHECK_VOCABULARY.name}>
+        <section className="wc-card overflow-hidden" aria-label={t.tools.definition.name}>
           <div className="flex items-start gap-4 p-5">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--r-md)] bg-[var(--wa-2)] text-[var(--wa-11)]">
               <Icon name={CHECK_VOCABULARY.icon} size={22} />
             </span>
             <div className="min-w-0">
               <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
-                {CHECK_VOCABULARY.slot}
+                {t.tools.definition.slot}
               </p>
               <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">
-                {CHECK_VOCABULARY.name}
+                {t.tools.definition.name}
               </h3>
               <p className="mt-1 text-sm leading-relaxed text-[var(--wn-10)]">
-                {CHECK_VOCABULARY.summary}
+                {t.tools.definition.summary}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {CHECK_VOCABULARY.meta.map((item) => (
+                {t.tools.definition.meta.map((item) => (
                   <span
                     key={item}
                     className="rounded-full border border-[var(--wn-4)] px-2.5 py-1 text-[0.7rem] font-medium text-[var(--wn-10)]"
@@ -746,18 +691,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           <div className="flex flex-col gap-3 border-t border-[var(--wn-4)] p-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-[var(--wn-9)]">
               {toolGate.mode === 'open'
-                ? `Free for everyone until ${TOOL_FREE_UNTIL_LABEL}.`
+                ? t.tools.footerFree(toolFreeUntilLabel(locale))
                 : toolGate.mode === 'paid'
-                  ? 'Included in the full version.'
-                  : 'Included with a teacher account.'}
+                  ? t.tools.footerPaid
+                  : t.tools.footerRole}
             </p>
             <button type="button" onClick={onOpenTeacher} className="wc-btn wc-btn-primary">
               <Icon name="play" size={16} />
-              Open {CHECK_VOCABULARY.slot}
+              {t.tools.open(t.tools.definition.slot)}
             </button>
           </div>
         </section>
-        <p className="text-xs text-[var(--wn-9)]">More tools will appear on this shelf.</p>
+        <p className="text-xs text-[var(--wn-9)]">{t.tools.more}</p>
       </div>
     );
   };
@@ -776,10 +721,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       return (
         <div className="wc-card flex flex-col items-center gap-3 p-8 text-center">
           <Icon name="user" size={30} className="text-[var(--wn-10)]" />
-          <p className="max-w-sm text-sm text-[var(--wn-10)]">
-            Sign in to join your class. Your teacher either adds this email or gives you a
-            six-letter class code — the work shows up here either way.
-          </p>
+          <p className="max-w-sm text-sm text-[var(--wn-10)]">{t.class.signIn}</p>
           <LoginButton />
         </div>
       );
@@ -803,19 +745,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             </span>
             <div className="min-w-0">
               <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
-                Teacher console
+                {t.class.teacherConsole}
               </p>
-              <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">My Class</h3>
+              <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">{t.sections.class.title}</h3>
               <p className="mt-1 max-w-prose text-sm leading-relaxed text-[var(--wn-10)]">
-                Opening classes and setting work is part of the full version. Your students
-                always join for free — the licence pays for the console, never for the
-                classroom.
+                {t.class.locked}
               </p>
             </div>
           </div>
           <button type="button" onClick={onUnlock} className="wc-btn wc-btn-primary self-start">
             <Icon name="unlock" size={16} />
-            Unlock full version
+            {t.class.unlockFull}
           </button>
         </div>
       );
@@ -826,7 +766,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         fallback={
           <div className="wc-card flex items-center justify-center p-8" role="status" aria-live="polite">
             <span className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--wn-4)] border-t-electric-blue" />
-            <span className="sr-only">Loading…</span>
+            <span className="sr-only">{common.loading}</span>
           </div>
         }
       >
@@ -834,8 +774,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           <div className="flex flex-col gap-4">
             <p className="text-xs text-[var(--wn-9)]">
               {consoleAccess.mode === 'open'
-                ? `Free for teachers until ${CLASS_FREE_UNTIL_LABEL}. Students stay free after that.`
-                : 'Included in the full version. Your students join free.'}
+                ? t.class.footerFree(classFreeUntilLabel(locale))
+                : t.class.footerPaid}
             </p>
             <ClassTeacherPanel viewer={viewer} refreshKey={classRefreshKey} />
           </div>
@@ -851,9 +791,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       return (
         <div className="wc-card flex flex-col items-center gap-3 p-8 text-center">
           <Icon name="chart" size={30} className="text-[var(--wn-10)]" />
-          <p className="text-sm text-[var(--wn-10)]">
-            Sign in to sync your rounds and scores across devices.
-          </p>
+          <p className="text-sm text-[var(--wn-10)]">{t.progress.signIn}</p>
           <LoginButton />
         </div>
       );
@@ -862,11 +800,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
           {/* The streak leads: it is the one counter that measures coming back, not playing. */}
-          <StatCard label="Day streak" value={progress?.playStreak ?? 0} />
-          <StatCard label="Rounds played" value={progress?.roundsPlayed ?? 0} />
-          <StatCard label="Best score" value={progress?.bestScore ?? 0} />
-          <StatCard label="Words guessed" value={progress?.wordsGuessed ?? 0} />
-          <StatCard label="Best streak" value={progress?.bestStreak ?? 0} />
+          <StatCard label={t.progress.stats.streak} value={progress?.playStreak ?? 0} />
+          <StatCard label={t.progress.stats.rounds} value={progress?.roundsPlayed ?? 0} />
+          <StatCard label={t.progress.stats.best} value={progress?.bestScore ?? 0} />
+          <StatCard label={t.progress.stats.guessed} value={progress?.wordsGuessed ?? 0} />
+          <StatCard label={t.progress.stats.bestStreak} value={progress?.bestStreak ?? 0} />
         </div>
 
         {/* The daily habit: streak, freezes and the week at a glance. This is the screen
@@ -874,10 +812,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <div className="wc-card p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-bold text-[var(--wn-12)]">🌅 Daily challenge</p>
+              <p className="text-sm font-bold text-[var(--wn-12)]">{t.progress.dailyTitle}</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--wn-9)]">
-                One seeded ladder a day — the same words for every player. A missed day is
-                covered by a freeze, up to {DAILY_FREEZES_PER_MONTH} a month.
+                {t.progress.dailyBody(DAILY_FREEZES_PER_MONTH)}
               </p>
             </div>
             <button
@@ -886,7 +823,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               className="wc-btn wc-btn-secondary wc-btn-sm shrink-0"
             >
               <Icon name="play" size={14} />
-              {dailyDoneToday ? 'Play again' : 'Play today'}
+              {dailyDoneToday ? t.progress.playAgain : t.progress.playToday}
             </button>
           </div>
 
@@ -895,17 +832,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">
                 {progress?.dailyStreak ?? 0}
               </p>
-              <p className="text-[0.65rem] text-[var(--wn-9)]">Day streak</p>
+              <p className="text-[0.65rem] text-[var(--wn-9)]">{t.progress.dayStreak}</p>
             </div>
             <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-2">
               <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">
                 {dailyBest}
               </p>
-              <p className="text-[0.65rem] text-[var(--wn-9)]">Best streak</p>
+              <p className="text-[0.65rem] text-[var(--wn-9)]">{t.progress.bestStreak}</p>
             </div>
             <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-2">
               <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">{freezesLeft}</p>
-              <p className="text-[0.65rem] text-[var(--wn-9)]">Freezes left</p>
+              <p className="text-[0.65rem] text-[var(--wn-9)]">{t.progress.freezesLeft}</p>
             </div>
           </div>
 
@@ -913,28 +850,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {dailyBadge.current && (
               <span className="rounded-full border border-[var(--wa-7)] bg-[var(--wa-3)] px-2.5 py-1 text-[0.7rem] font-bold text-[var(--wa-11)]">
-                {dailyBadge.current.emoji} {dailyBadge.current.label}
+                {dailyBadge.current.emoji}{' '}
+                {t.progress.badges[dailyBadge.current.label] ?? dailyBadge.current.label}
               </span>
             )}
             <p className="text-[0.7rem] text-[var(--wn-9)]">
               {dailyBadge.next
-                ? `${dailyBadge.next.at - dailyBest} more day${
-                    dailyBadge.next.at - dailyBest === 1 ? '' : 's'
-                  } to ${dailyBadge.next.emoji} ${dailyBadge.next.label}`
-                : 'Every badge unlocked — legendary.'}
+                ? t.progress.badgeNext(
+                    dailyBadge.next.at - dailyBest,
+                    dailyBadge.next.emoji,
+                    t.progress.badges[dailyBadge.next.label] ?? dailyBadge.next.label,
+                  )
+                : t.progress.badgeAll}
             </p>
           </div>
 
           <div className="mt-4">
             <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-[var(--wn-9)]">
-              Last 7 days
+              {t.progress.last7}
             </p>
             {dailyHistory === null ? (
-              <p className="mt-2 animate-subtlePulse text-xs text-[var(--wn-9)]">Loading…</p>
+              <p className="mt-2 animate-subtlePulse text-xs text-[var(--wn-9)]">{common.loading}</p>
             ) : dailyHistory.every((row) => row.score === null) ? (
-              <p className="mt-2 text-xs text-[var(--wn-9)]">
-                No daily runs in the last 7 days. Today is a good day to start.
-              </p>
+              <p className="mt-2 text-xs text-[var(--wn-9)]">{t.progress.noRuns}</p>
             ) : (
               <div className="mt-2 flex items-end gap-1.5">
                 {[...dailyHistory].reverse().map((row, index, week) => {
@@ -942,14 +880,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                   const peak = Math.max(1, ...week.map((item) => item.score ?? 0));
                   const height =
                     row.score === null ? 4 : Math.max(8, Math.round((row.score / peak) * 56));
-                  const label = new Date(`${row.period}T00:00:00`).toLocaleDateString(undefined, {
+                  const label = new Date(`${row.period}T00:00:00`).toLocaleDateString(locale, {
                     weekday: 'short',
                   });
                   return (
                     <div
                       key={row.period}
                       className="flex min-w-0 flex-1 flex-col items-center gap-1"
-                      title={`${label}: ${row.score === null ? 'no run' : row.score.toLocaleString()}`}
+                      title={`${label}: ${row.score === null ? t.progress.noRun : row.score.toLocaleString(locale)}`}
                     >
                       <span
                         className={`w-full rounded-t ${
@@ -991,10 +929,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-            {user ? profile?.displayName || user.displayName || 'Signed in' : 'Not signed in'}
+            {user ? profile?.displayName || user.displayName || t.account.signedIn : t.account.notSignedIn}
           </p>
           <p className="truncate text-xs text-[var(--wn-9)]">
-            {user ? user.email : 'Playing as a guest on this device.'}
+            {user ? user.email : t.account.guest}
           </p>
         </div>
       </div>
@@ -1003,14 +941,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <>
           <div className="my-5 h-px bg-[var(--wn-4)]" />
 
-          <p className="text-sm font-semibold text-[var(--wn-12)]">Display name</p>
+          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.account.displayName}</p>
           <p className="mt-1 text-xs text-[var(--wn-9)]">
-            This is the name shown on the Solo leaderboards. You can change it once every 30 days;
-            contact the admin if you need it sooner.
+            {t.account.displayNameBody}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <label htmlFor="accountDisplayName" className="sr-only">
-              Display name
+              {t.account.displayName}
             </label>
             <input
               id="accountDisplayName"
@@ -1021,7 +958,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               onChange={(event) => setNameDraft(event.target.value)}
               disabled={Boolean(renameLockedUntil) || nameBusy}
               className={INPUT_CLASS}
-              placeholder="Your name"
+              placeholder={t.account.yourName}
             />
             <button
               type="button"
@@ -1034,14 +971,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               }
               className="wc-btn wc-btn-primary shrink-0"
             >
-              {nameBusy ? 'Saving…' : 'Save name'}
+              {nameBusy ? common.saving : t.account.saveName}
             </button>
           </div>
           {renameLockedUntil && (
             <p className="mt-2 text-xs text-[var(--wn-10)]">
-              You can change your name again on{' '}
-              {new Date(renameLockedUntil).toLocaleDateString()}. Contact the admin if you need it
-              sooner.
+              {t.account.cooldown(new Date(renameLockedUntil).toLocaleDateString(locale))}
             </p>
           )}
         </>
@@ -1051,9 +986,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-[var(--wn-12)]">This device</p>
+          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.account.thisDevice}</p>
           <p className="text-xs text-[var(--wn-9)]">
-            {isUnlocked ? 'Full version unlocked.' : 'Running the free demo.'}
+            {isUnlocked ? t.account.unlocked : t.account.demo}
           </p>
         </div>
         {!isUnlocked && (
@@ -1061,8 +996,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             type="button"
             onClick={onUnlock}
             className="wc-icon-btn"
-            aria-label="Unlock full version"
-            title="Unlock full version"
+            aria-label={t.games.unlockFull}
+            title={t.games.unlockFull}
           >
             <Icon name="lock" size={20} />
           </button>
@@ -1073,7 +1008,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <>
           <div className="my-5 h-px bg-[var(--wn-4)]" />
 
-          <p className="text-sm font-semibold text-[var(--wn-12)]">Your purchases</p>
+          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.account.purchases}</p>
           <ul className="mt-3 space-y-3">
             {entitlements.map((item) => (
               <li key={item.productId} className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
@@ -1081,11 +1016,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-[var(--wn-12)]">{item.name}</p>
                     <p className="text-xs text-[var(--wn-9)]">
-                      {item.paidAt ? `Purchased ${new Date(item.paidAt).toLocaleDateString()}` : 'Purchased'}
+                      {item.paidAt
+                        ? t.account.purchasedOn(new Date(item.paidAt).toLocaleDateString(locale))
+                        : t.account.purchased}
                     </p>
                   </div>
                   <span className="shrink-0 rounded-full bg-[var(--wa-2)] px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-[var(--wa-11)]">
-                    Owned
+                    {t.account.owned}
                   </span>
                 </div>
 
@@ -1098,7 +1035,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                     onClick={() => void copyKey(item.licenseKey)}
                     className="wc-btn wc-btn-secondary wc-btn-sm shrink-0"
                   >
-                    {copiedKey === item.licenseKey ? 'Copied' : 'Copy'}
+                    {copiedKey === item.licenseKey ? common.copied : common.copy}
                   </button>
                 </div>
               </li>
@@ -1112,7 +1049,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           <div className="my-5 h-px bg-[var(--wn-4)]" />
 
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-[var(--wn-12)]">Pending transfers</p>
+            <p className="text-sm font-semibold text-[var(--wn-12)]">{t.account.pending}</p>
             <button
               type="button"
               onClick={() => {
@@ -1121,11 +1058,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               }}
               className="wc-btn wc-btn-secondary wc-btn-sm"
             >
-              Refresh
+              {t.account.refresh}
             </button>
           </div>
           <p className="mt-1 text-xs text-[var(--wn-9)]">
-            Transfers we have not matched to an order yet. Keep the code below for support.
+            {t.account.pendingBody}
           </p>
           <ul className="mt-3 space-y-3">
             {pendingOrders.map((order) => (
@@ -1136,12 +1073,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                       {order.productName}
                     </p>
                     <p className="text-xs text-[var(--wn-9)]">
-                      {order.status === 'expired' ? 'Expired' : 'Awaiting transfer'} ·{' '}
-                      {formatPrice(order.amount)} · {new Date(order.createdAt).toLocaleDateString()}
+                      {order.status === 'expired' ? t.account.expired : t.account.awaiting} ·{' '}
+                      {formatPrice(order.amount)} · {new Date(order.createdAt).toLocaleDateString(locale)}
                     </p>
                   </div>
                   <span className="shrink-0 rounded-full bg-[var(--wn-3)] px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-[var(--wn-9)]">
-                    {order.status}
+                    {t.account.status[order.status] ?? order.status}
                   </span>
                 </div>
 
@@ -1154,7 +1091,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                     onClick={() => void copyKey(order.code)}
                     className="wc-btn wc-btn-secondary wc-btn-sm shrink-0"
                   >
-                    {copiedKey === order.code ? 'Copied' : 'Copy'}
+                    {copiedKey === order.code ? common.copied : common.copy}
                   </button>
                 </div>
               </li>
@@ -1177,23 +1114,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
           <div className="wc-card p-4">
             <p className="text-2xl font-bold text-[var(--wn-12)]">{formatPrice(admin.stats.revenue)}</p>
             <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-[var(--wn-9)]">
-              Revenue
+              {t.admin.revenue}
             </p>
           </div>
-          <StatCard label="Paid orders" value={admin.stats.paidCount} />
-          <StatCard label="Granted" value={admin.stats.grantedCount} />
-          <StatCard label="Pending" value={admin.stats.pendingCount} />
+          <StatCard label={t.admin.paidOrders} value={admin.stats.paidCount} />
+          <StatCard label={t.admin.granted} value={admin.stats.grantedCount} />
+          <StatCard label={t.admin.pending} value={admin.stats.pendingCount} />
         </div>
 
         <div className="wc-card p-5">
-          <p className="text-sm font-semibold text-[var(--wn-12)]">Grant access</p>
+          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.admin.grant}</p>
           <p className="mt-1 text-xs text-[var(--wn-9)]">
-            Issues a lifetime licence to an email without a payment. The account picks it up the next time
-            it signs in on any device.
+            {t.admin.grantBody}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <label htmlFor="adminGrantEmail" className="sr-only">
-              Email to grant access
+              {t.admin.grant}
             </label>
             <input
               id="adminGrantEmail"
@@ -1201,7 +1137,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               autoComplete="off"
               value={grantEmail}
               onChange={(event) => setGrantEmail(event.target.value)}
-              placeholder="student@example.com"
+              placeholder={t.admin.grantPlaceholder}
               className={INPUT_CLASS}
             />
             <button
@@ -1210,7 +1146,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               disabled={adminBusy || !grantEmail.trim()}
               className="wc-btn wc-btn-primary shrink-0"
             >
-              {adminBusy ? 'Working…' : 'Grant'}
+              {adminBusy ? t.admin.working : t.admin.grantButton}
             </button>
           </div>
           {adminNotice && (
@@ -1222,18 +1158,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
         <div className="wc-card p-5">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-[var(--wn-12)]">Recent orders</p>
+            <p className="text-sm font-semibold text-[var(--wn-12)]">{t.admin.recentOrders}</p>
             <button
               type="button"
               onClick={() => void loadAdmin()}
               className="wc-btn wc-btn-secondary wc-btn-sm"
             >
-              Refresh
+              {t.admin.refresh}
             </button>
           </div>
 
           {admin.orders.length === 0 ? (
-            <p className="mt-3 text-xs text-[var(--wn-9)]">No orders yet.</p>
+            <p className="mt-3 text-xs text-[var(--wn-9)]">{t.admin.noOrders}</p>
           ) : (
             <ul className="mt-3 space-y-3">
               {admin.orders.map((order) => (
@@ -1241,10 +1177,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-                        {order.email || 'Unknown account'}
+                        {order.email || t.admin.unknown}
                       </p>
                       <p className="truncate text-xs text-[var(--wn-9)]">
-                        {order.productName} · {order.code} · {new Date(order.createdAt).toLocaleString()}
+                        {order.productName} · {order.code} · {new Date(order.createdAt).toLocaleString(locale)}
                       </p>
                       {order.licenseKey && (
                         <code className="mt-1 block truncate text-xs text-[var(--wn-10)]">
@@ -1260,7 +1196,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                             : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
                         }`}
                       >
-                        {order.status}
+                        {t.account.status[order.status] ?? order.status}
                       </span>
                       <p className="mt-1 text-xs text-[var(--wn-9)]">{formatPrice(order.amount)}</p>
                     </div>
@@ -1273,7 +1209,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                       disabled={adminBusy}
                       className="wc-btn wc-btn-secondary wc-btn-sm mt-3"
                     >
-                      Revoke
+                      {t.admin.revoke}
                     </button>
                   )}
 
@@ -1284,7 +1220,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                       disabled={adminBusy}
                       className="wc-btn wc-btn-secondary wc-btn-sm mt-3"
                     >
-                      Mark as paid
+                      {t.admin.markPaid}
                     </button>
                   )}
                 </li>
@@ -1307,15 +1243,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             W
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold tracking-wide text-[var(--wn-12)]">WordCrew</p>
-            <p className="truncate text-[0.65rem] uppercase tracking-[0.2em] text-[var(--wn-9)]">Portal</p>
+            <p className="truncate text-sm font-bold tracking-wide text-[var(--wn-12)]">{t.brand.product}</p>
+            <p className="truncate text-[0.65rem] uppercase tracking-[0.2em] text-[var(--wn-9)]">{t.brand.portal}</p>
           </div>
         </div>
 
         <div className="wc-nav-fade">
           <nav
             className="flex gap-1 overflow-x-auto pr-6 md:flex-col md:overflow-visible md:pr-0"
-            aria-label="Dashboard sections"
+            aria-label={t.navAria}
           >
             {navSections.map((item) => (
               <button
@@ -1345,6 +1281,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             <p className="truncate text-xs text-[var(--wn-9)]">{active.subtitle}</p>
           </div>
           <div className="flex items-center gap-2">
+            <LanguageToggle />
             <ThemeToggle />
             <div className="md:hidden">
               <LoginButton />

@@ -12,6 +12,9 @@ import {
   type SoloBoard,
   type SoloScoreEntry,
 } from '../services/soloLeaderboard';
+import { useT } from '../i18n/useT';
+import { trackText } from '../i18n/tracks';
+import { useLocale } from '../i18n/useLocale';
 
 interface SoloResultsScreenProps {
   track: SoloTrack;
@@ -55,6 +58,11 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   onPlayAgain,
   onHome,
 }) => {
+  const t = useT('solo');
+  const common = useT('common');
+  const gameTracks = useT('game').setup.tracks;
+  const trackName = trackText(gameTracks, track).name;
+  const locale = useLocale();
   const shownScore = useCountUp(result.score);
   const [board, setBoard] = useState<SoloBoard | null>(null);
   const [loadingBoard, setLoadingBoard] = useState(Boolean(userId));
@@ -110,26 +118,26 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
   return (
     <div className="flex h-full min-h-0 flex-col items-center gap-3 overflow-y-auto py-2 text-light-text animate-fadeInScaleUp">
       <h2 className="shrink-0 text-center text-2xl font-bold text-electric-blue font-heading sm:text-3xl">
-        {isDaily ? "Challenge complete 🌅" : 'Run Over 🎯'}
+        {isDaily ? t.results.titleDaily : t.results.title}
       </h2>
       <p className="shrink-0 text-center text-sm text-muted-text">
-        {track.emoji} {track.name} · reached {shortLevel(result.levelReached)}
+        {track.emoji} {trackName} · {t.results.reached(shortLevel(result.levelReached))}
       </p>
 
       <p className="shrink-0 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-muted-text">
-        Final score
+        {t.results.finalScore}
       </p>
       <p className="font-heading text-6xl font-extrabold text-neon-green sm:text-7xl">
-        {shownScore.toLocaleString()}
+        {shownScore.toLocaleString(locale)}
       </p>
       {isNewBest && (
         <span className="rounded-full border border-warning-yellow/50 bg-warning-yellow/10 px-3 py-1 text-xs font-bold text-warning-yellow">
-          ⭐ New personal best!
+          {t.results.newBest}
         </span>
       )}
       {isDaily && userId && streak > 0 && (
         <span className="rounded-full border border-danger-red/40 bg-danger-red/10 px-3 py-1 text-xs font-bold text-danger-red">
-          🔥 {streak}-day streak — play tomorrow to keep it
+          {t.results.streak(streak)}
         </span>
       )}
       {isDaily && userId && badge && (
@@ -141,28 +149,28 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
           }`}
         >
           {badgeUnlockedNow
-            ? `🎉 ${badge.emoji} ${badge.label} badge unlocked`
-            : `${badge.emoji} ${badge.label} · best ${bestStreak} days`}
+            ? t.results.badgeUnlocked(badge.emoji, t.badges[badge.label] ?? badge.label)
+            : t.results.badgeBest(badge.emoji, t.badges[badge.label] ?? badge.label, bestStreak)}
         </span>
       )}
       {isDaily && userId && dailyOutcome && dailyOutcome.freezesSpent > 0 && (
         <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-3 py-1 text-xs font-bold text-electric-blue">
-          ❄️ Streak freeze used — {dailyOutcome.freezesLeft} left this month
+          {t.results.freezeUsed(dailyOutcome.freezesLeft)}
         </span>
       )}
 
       <div className="grid w-full shrink-0 grid-cols-3 gap-2 text-center">
         <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
           <p className="text-lg font-bold text-light-text">{result.wordsGuessed}</p>
-          <p className="text-[0.65rem] text-muted-text">Words guessed</p>
+          <p className="text-[0.65rem] text-muted-text">{t.results.wordsGuessed}</p>
         </div>
         <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
           <p className="text-lg font-bold text-danger-red">{result.bestStreak}</p>
-          <p className="text-[0.65rem] text-muted-text">Best streak</p>
+          <p className="text-[0.65rem] text-muted-text">{t.results.bestStreak}</p>
         </div>
         <div className="rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] p-2">
           <p className="text-lg font-bold text-neon-green">{accuracy}%</p>
-          <p className="text-[0.65rem] text-muted-text">Accuracy</p>
+          <p className="text-[0.65rem] text-muted-text">{t.results.accuracy}</p>
         </div>
       </div>
 
@@ -170,10 +178,10 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
       {missed.length > 0 && (
         <div className="w-full shrink-0 rounded-[var(--r-lg)] border border-warning-yellow/30 bg-[var(--surface-1)] p-3">
           <p className="mb-1 text-center text-xs font-semibold uppercase tracking-widest text-warning-yellow">
-            📌 Words to review
+            {t.results.reviewTitle}
           </p>
           <p className="mb-2 text-center text-[0.7rem] text-muted-text">
-            Anchored on this device — they come back in your next runs until they stick.
+            {t.results.reviewBody}
           </p>
           <ul className="space-y-1">
             {missed.map((item) => (
@@ -197,16 +205,16 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
       {/* Leaderboard */}
       <div className="w-full shrink-0 rounded-[var(--r-lg)] border border-electric-blue/30 bg-[var(--surface-1)] p-3">
         <p className="mb-2 text-center text-xs font-semibold uppercase tracking-widest text-electric-blue">
-          🏆 {track.name} leaderboard
+          {t.results.trackBoard(trackName)}
         </p>
         <p className="-mt-1 mb-2 text-center text-[0.65rem] text-muted-text">
-          {isDaily ? 'Today only — a fresh board tomorrow.' : 'This month — a fresh board on the 1st.'}
+          {isDaily ? t.results.periodDaily : t.results.periodMonth}
         </p>
 
         {!userId ? (
           <div className="text-center">
             <p className="text-xs text-muted-text">
-              Sign in to save your score and race other players.
+              {t.results.signInPrompt}
             </p>
             <button
               type="button"
@@ -214,14 +222,14 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
               className="futuristic-button mt-2 inline-flex items-center justify-center gap-1.5 rounded-lg border border-neon-green/50 bg-neon-green/10 px-4 py-2 text-xs font-semibold text-neon-green hover:bg-neon-green/20"
             >
               <Icon name="user" size={15} />
-              Sign in
+              {common.signIn}
             </button>
           </div>
         ) : loadingBoard ? (
-          <p className="animate-subtlePulse text-center text-xs text-muted-text">Loading…</p>
+          <p className="animate-subtlePulse text-center text-xs text-muted-text">{common.loading}</p>
         ) : !board || board.rows.length === 0 ? (
           <p className="text-center text-xs text-muted-text">
-            {board ? 'No scores yet — you’re first!' : 'Leaderboard is unavailable right now.'}
+            {board ? t.results.noScores : t.results.unavailable}
           </p>
         ) : (
           <>
@@ -238,9 +246,9 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
                     <span className="w-5 shrink-0 text-center font-bold text-warning-yellow">
                       {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                     </span>
-                    <span className="min-w-0 flex-1 truncate">{row.name}{isMe ? ' (you)' : ''}</span>
+                    <span className="min-w-0 flex-1 truncate">{row.name}{isMe ? t.youSuffix : ''}</span>
                     <span className="shrink-0 font-bold tabular-nums text-light-text">
-                      {row.score.toLocaleString()}
+                      {row.score.toLocaleString(locale)}
                     </span>
                   </li>
                 );
@@ -248,7 +256,9 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
             </ol>
             {rankOutsideTop && (
               <p className="mt-2 text-center text-xs font-semibold text-warning-yellow">
-                You’re #{board.rank} of {board.total} this {isDaily ? 'day' : 'month'}.
+                {isDaily
+                  ? t.results.rankDay(board.rank as number, board.total)
+                  : t.results.rankMonth(board.rank as number, board.total)}
               </p>
             )}
           </>
@@ -261,21 +271,21 @@ export const SoloResultsScreen: React.FC<SoloResultsScreenProps> = ({
           onClick={onHome}
           className="futuristic-button w-full rounded-lg border border-cyber-purple/60 bg-cyber-purple/40 px-6 py-2.5 text-sm font-semibold text-light-text/90 hover:bg-cyber-purple/60"
         >
-          Home
+          {t.results.home}
         </button>
         <button
           type="button"
           onClick={onPlayAgain}
           className="futuristic-button w-full flex-grow rounded-[var(--r-md)] min-h-[44px] bg-neon-green px-8 py-2.5 text-base font-bold text-dark-metal hover:bg-emerald-400"
         >
-          ▶ Play again
+          {t.results.playAgain}
         </button>
       </div>
 
       <AuthDialog
         isOpen={showAuth}
         onClose={() => setShowAuth(false)}
-        reason="Sign in to save your solo scores and join the leaderboard."
+        reason={t.signInReason}
       />
     </div>
   );

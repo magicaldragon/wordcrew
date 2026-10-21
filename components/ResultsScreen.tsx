@@ -3,6 +3,8 @@ import { GameMode } from '../types'; // Import GameMode
 import { UnlockDialog } from './UnlockDialog';
 import { Icon } from './Icon';
 import type { UnlockOutcome } from '../services/payments';
+import { useT } from '../i18n/useT';
+import { renderEmphasis } from '../i18n/renderEmphasis';
 
 interface ResultsScreenProps {
   baseScore?: number;
@@ -17,107 +19,28 @@ interface ResultsScreenProps {
   demoRounds?: number;
 }
 
-const complimentTiers = {
-  tier0: { // 0 or less
-    emoji: "😔",
-    messages: [
-      "No words guessed correctly. Better luck next time!",
-      "A fresh start awaits! Try again?",
-      "Every expert was once a beginner. Keep going!",
-      "Zero points? The only way is up!",
-      "Don't worry, even a blank slate can become a masterpiece!",
-    ],
-  },
-  tier1: { // 1 - 499
-    emoji: "👍",
-    messages: [
-      "Good start! Keep practicing!",
-      "You're just getting warmed up!",
-      "A promising beginning! More rounds?",
-      "Nice first steps into the game!",
-      "Keep at it, you're building momentum!",
-    ],
-  },
-  tier2: { // 500 - 999
-    emoji: "😊",
-    messages: [
-      "Nice job! You're getting good at this.",
-      "Solid effort! You're improving!",
-      "That was a good round. Keep it up!",
-      "You're definitely on the right track!",
-      "Getting the hang of it, I see!",
-    ],
-  },
-  tier3: { // 1000 - 1999
-    emoji: "🎉",
-    messages: [
-      "Great score! You're a fantastic guesser!",
-      "Impressive! You've got some skills!",
-      "Wow, over 1000 points! Well done!",
-      "That's a solid performance!",
-      "You're making this look easy!",
-    ],
-  },
-  tier4: { // 2000 - 3499
-    emoji: "🚀",
-    messages: [
-      "Amazing work! You've got serious skills!",
-      "Over 2000! You're soaring!",
-      "That's some top-tier guessing!",
-      "Truly fantastic! Keep this energy!",
-      "You're a natural at this game!",
-    ],
-  },
-  tier5: { // 3500 - 4999
-    emoji: "🔥",
-    messages: [
-      "Outstanding! You're on fire!",
-      "Phenomenal score! Absolutely crushing it!",
-      "You're blazing through these words!",
-      "Remarkable! That was a masterclass!",
-      "Is it hot in here, or is it just your score?",
-    ],
-  },
-  tier6: { // 5000 - 6999
-    emoji: "🏆✨",
-    messages: [
-      "Incredible! You're a WordCrew champion!",
-      "Legendary status almost unlocked!",
-      "Masterful performance! Truly top-tier!",
-      "That score is breathtaking! Well played!",
-      "You're in a league of your own!",
-    ],
-  },
-  tier7: { // 7000+
-    emoji: "🌟👑",
-    messages: [
-      "WordCrew GOD! Simply unmatched!",
-      "UNBELIEVABLE! You've conquered the game!",
-      "Perfection! A score for the history books!",
-      "Is there anything you can't guess? True legend!",
-      "You didn't just play, you DOMINATED!",
-    ],
-  },
-};
+type ComplimentTier = { emoji: string; messages: readonly string[] };
+type ComplimentTiers = Record<`tier${0 | 1 | 2 | 3 | 4 | 5 | 6 | 7}`, ComplimentTier>;
 
-const getRandomMessage = (messages: string[]): string => {
+const getRandomMessage = (messages: readonly string[]): string => {
   return messages[Math.floor(Math.random() * messages.length)];
 };
 
-const getComplimentForScore = (score: number) => {
+const getComplimentForScore = (score: number, tiers: ComplimentTiers) => {
   let tier;
-  if (score <= 0) tier = complimentTiers.tier0;
-  else if (score < 500) tier = complimentTiers.tier1;
-  else if (score < 1000) tier = complimentTiers.tier2;
-  else if (score < 2000) tier = complimentTiers.tier3;
-  else if (score < 3500) tier = complimentTiers.tier4;
-  else if (score < 5000) tier = complimentTiers.tier5;
-  else if (score < 7000) tier = complimentTiers.tier6;
-  else tier = complimentTiers.tier7;
+  if (score <= 0) tier = tiers.tier0;
+  else if (score < 500) tier = tiers.tier1;
+  else if (score < 1000) tier = tiers.tier2;
+  else if (score < 2000) tier = tiers.tier3;
+  else if (score < 3500) tier = tiers.tier4;
+  else if (score < 5000) tier = tiers.tier5;
+  else if (score < 7000) tier = tiers.tier6;
+  else tier = tiers.tier7;
   return { message: getRandomMessage(tier.messages), emoji: tier.emoji };
 };
 
 const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore' | 'timeBonus' | 'finalScore'>>> = ({ baseScore, timeBonus, finalScore }) => {
+  const t = useT('game');
   const [displayedScore, setDisplayedScore] = useState(baseScore);
   const [showTimeBonusText, setShowTimeBonusText] = useState(false);
   const [scoreAnimationKey, setScoreAnimationKey] = useState(0); 
@@ -132,7 +55,7 @@ const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore
       cancelAnimationFrame(animationFrameIdRef.current);
     }
 
-    setCompliment(getComplimentForScore(finalScore));
+    setCompliment(getComplimentForScore(finalScore, t.results.compliments));
 
     if (timeBonus > 0) {
       setScoreAnimationKey(0); 
@@ -177,13 +100,13 @@ const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore
       setDisplayedScore(finalScore); 
       setScoreAnimationKey(key => key + 1); 
     }
-  }, [baseScore, timeBonus, finalScore]);
+  }, [baseScore, timeBonus, finalScore, t.results.compliments]);
 
   return (
     <>
-      <h2 className="text-3xl sm:text-4xl font-heading font-bold text-electric-blue results-screen-title">Game Over! <span role="img" aria-label="result emoji">{compliment.emoji}</span></h2>
+      <h2 className="text-3xl sm:text-4xl font-heading font-bold text-electric-blue results-screen-title">{t.results.gameOver} <span role="img" aria-label={t.results.resultEmojiAria}>{compliment.emoji}</span></h2>
       <div className="text-center w-full">
-        <p className="text-xl sm:text-2xl text-muted-text score-breakdown">Your Score:</p>
+        <p className="text-xl sm:text-2xl text-muted-text score-breakdown">{t.results.yourScore}</p>
         <p 
           key={scoreAnimationKey} 
           className={`text-6xl sm:text-7xl font-extrabold font-heading text-neon-green my-2 sm:my-3 final-score ${scoreAnimationKey > 0 ? 'animate-pulseOnce' : ''}`}
@@ -193,7 +116,7 @@ const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore
 
         {showTimeBonusText && timeBonus > 0 && (
           <p className="text-lg sm:text-xl text-neon-green animate-fadeInScaleUp score-breakdown">
-            Time Bonus: +{timeBonus}
+            {t.results.timeBonus(timeBonus)}
           </p>
         )}
         
@@ -205,15 +128,16 @@ const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore
 
 
 const TeamResults: React.FC<Required<Pick<ResultsScreenProps, 'teamAScore' | 'teamBScore'>>> = ({ teamAScore, teamBScore }) => {
-  const winner = teamAScore > teamBScore ? 'Team A' : (teamBScore > teamAScore ? 'Team B' : 'Draw');
+  const t = useT('game');
+  const winner = teamAScore > teamBScore ? 'A' : (teamBScore > teamAScore ? 'B' : 'draw');
   const winningScore = Math.max(teamAScore, teamBScore);
-  const compliment = getComplimentForScore(winner === 'Draw' ? (teamAScore + teamBScore) / 2 : winningScore);
+  const compliment = getComplimentForScore(winner === 'draw' ? (teamAScore + teamBScore) / 2 : winningScore, t.results.compliments);
 
   const getWinnerText = () => {
-    if (winner === 'Draw') {
-      return "It's a Draw! 🤝";
+    if (winner === 'draw') {
+      return t.results.draw;
     }
-    return `${winner} Wins! ${compliment.emoji}`;
+    return t.results.win(winner === 'A' ? t.results.teamA : t.results.teamB, compliment.emoji);
   };
 
   return (
@@ -223,13 +147,13 @@ const TeamResults: React.FC<Required<Pick<ResultsScreenProps, 'teamAScore' | 'te
       </h2>
       <div className="w-full grid grid-cols-2 gap-4 my-2 sm:my-3 px-2 sm:px-4">
         <div className="text-center p-2 rounded-lg border-2 border-cyan-400/50 bg-cyan-400/10">
-            <p className="text-lg sm:text-xl text-cyan-300 score-breakdown">Team A</p>
+            <p className="text-lg sm:text-xl text-cyan-300 score-breakdown">{t.results.teamA}</p>
             <p className="text-4xl sm:text-5xl font-bold font-heading text-light-text animate-pulseOnce">
                 {teamAScore}
             </p>
         </div>
         <div className="text-center p-2 rounded-lg border-2 border-orange-400/50 bg-orange-400/10">
-            <p className="text-lg sm:text-xl text-orange-300 score-breakdown">Team B</p>
+            <p className="text-lg sm:text-xl text-orange-300 score-breakdown">{t.results.teamB}</p>
             <p className="text-4xl sm:text-5xl font-bold font-heading text-light-text animate-pulseOnce">
                 {teamBScore}
             </p>
@@ -256,6 +180,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
   demoRounds = 0,
 }) => {
 
+  const t = useT('game');
   const [showUnlockDialog, setShowUnlockDialog] = useState<boolean>(false);
 
   const handleHomeClick = useCallback(() => {
@@ -281,9 +206,9 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
         type="button"
         onClick={handleHomeClick}
         className="bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2.5 sm:py-3 px-6 sm:px-8 rounded-[var(--r-md)] min-h-[44px] futuristic-button text-base sm:text-lg mt-2 sm:mt-3 home-button"
-        aria-label="Back to home"
+        aria-label={t.results.homeAria}
       >
-        Home
+        {t.results.home}
       </button>
 
       {/* Conversion touchpoint: offered at the emotional peak, right after the score.
@@ -292,14 +217,13 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
         <div className="w-full max-w-sm rounded-[var(--r-lg)] border border-warning-yellow/40 bg-warning-yellow/10 p-3 text-center animate-fadeInScaleUp">
           <p className="font-heading text-sm font-bold tracking-wide text-warning-yellow">
             {demoRounds >= 2
-              ? `🔥 ${demoRounds} rounds — ready for more?`
-              : '🔥 That was only the demo'}
+              ? t.results.demoRounds(demoRounds)
+              : t.results.demoOnly}
           </p>
           <p className="mt-1 font-sans text-xs text-muted-text">
             {demoRounds >= 2
-              ? <>Hell 💀 and 4 more word packs are one code away.</>
-              : <>Unlock <strong className="text-light-text">Hell 💀</strong> and{' '}
-                  <strong className="text-light-text">4 more word packs</strong>.</>}
+              ? <>{t.results.demoPitchRounds}</>
+              : <>{renderEmphasis(t.results.demoPitchUnlock)}</>}
           </p>
           <button
             type="button"
@@ -307,7 +231,7 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
             className="futuristic-button mt-2 inline-flex w-full items-center justify-center gap-2 rounded-[var(--r-md)] min-h-[44px] bg-warning-yellow px-4 py-2 font-bold text-dark-metal hover:bg-amber-400"
           >
             <Icon name="unlock" size={18} />
-            Unlock Full Version
+            {t.results.unlockCta}
           </button>
         </div>
       )}

@@ -15,6 +15,7 @@ import {
 } from '../constants';
 import { getVietnameseMeaning } from '../vietnameseMeanings';
 import { resolveEnglishSynonym } from '../services/synonyms';
+import { useT } from '../i18n/useT';
 
 type WordDisplayStatus = 'default' | 'correct' | 'skipped'; 
 type Team = 'A' | 'B';
@@ -63,6 +64,7 @@ interface WordCardProps {
 }
 
 const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColorClass, isWordVisible, meaningHint }) => {
+  const t = useT('game');
   const getCardStyling = () => { 
     switch (status) { 
       case 'correct':
@@ -193,7 +195,7 @@ const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, 
       )}
       {!isWordVisible && (
         <p className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] sm:text-xs text-light-text/50 tracking-wide select-none pointer-events-none">
-          Hold SPACE or the card to reveal
+          {t.play.revealHint}
         </p>
       )}
     </div>
@@ -304,6 +306,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     onMusicVolumeChange,
     onEffectsVolumeChange,
 }) => {
+  const t = useT('game');
   const isTeamMode = settings.gameMode === GameMode.TEAM;
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [shuffledWords, setShuffledWords] = useState<string[]>([]); 
@@ -651,7 +654,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setIsRushHourActiveState(true);
     setRushHourEndTime(Date.now() + RUSH_HOUR_DURATION_SECONDS * 1000);
     playSound(customRushHourActivationSound || SINGLE_SOUND_EFFECTS.RUSH_HOUR_ACTIVATED, effectsVolumeRef.current);
-    triggerGameMessage("💎 RUSH HOUR !", 'rushHour', RUSH_HOUR_DURATION_SECONDS * 1000);
+    triggerGameMessage(t.play.rushHour, 'rushHour', RUSH_HOUR_DURATION_SECONDS * 1000);
 
     let musicToPlay: string | null = null;
     const rushMusicSource = customRushHourMusicLoop?.data || SINGLE_SOUND_EFFECTS.RUSH_HOUR_MUSIC_LOOP;
@@ -775,7 +778,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       if (newStreak >= COMBO_ACTIVATION_THRESHOLD) {
         if (!isComboActive) {
              playSound(customPowerupCollectedSound || SINGLE_SOUND_EFFECTS.POWERUP_COLLECTED, effectsVolume); 
-             triggerGameMessage(`COMBO ${newStreak}x ACTIVE!`, 'comboActivate');
+             triggerGameMessage(t.play.comboActive(newStreak), 'comboActivate');
         }
         setIsComboActive(true);
         awardedPointsThisTurn += COMBO_POINT_BONUS;
@@ -785,7 +788,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           setGameTimeLeft(newTime);
           setComboTimeBonusesAppliedThisGame(prev => prev + 1);
           playSound(customPowerupTimeFreezeSound || SINGLE_SOUND_EFFECTS.POWERUP_TIME_FREEZE, effectsVolume); 
-          triggerGameMessage(`+${COMBO_TIME_BONUS_SECONDS} SECONDS!`, 'timeBonus');
+          triggerGameMessage(t.play.timeBonus(COMBO_TIME_BONUS_SECONDS), 'timeBonus');
         }
       }
       // Announcer callouts land exactly on the ladder rungs. The lines are pre-rendered
@@ -823,13 +826,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         setIsTimerFrozen(true); 
         setTimeout(() => setIsTimerFrozen(false), POWERUP_TIME_FREEZE_SECONDS * 1000); 
         playSound(customPowerupTimeFreezeSound || SINGLE_SOUND_EFFECTS.POWERUP_TIME_FREEZE, effectsVolume);
-        triggerGameMessage(`❄️ TIME FREEZE! +${POWERUP_TIME_FREEZE_SECONDS}s`, 'powerUpFeedback');
+        triggerGameMessage(t.play.timeFreeze(POWERUP_TIME_FREEZE_SECONDS), 'powerUpFeedback');
       }
       if (newStreak >= 5 && newStreak % 10 === 5 && newStreak > lastSkipFreebieComboMilestone) {
         setSkipFreebiesAvailable(prev => prev + 1); 
         setLastSkipFreebieComboMilestone(newStreak);
         playSound(customPowerupCollectedSound || SINGLE_SOUND_EFFECTS.POWERUP_COLLECTED, effectsVolume);
-        triggerGameMessage("↪️ SKIP FREEBIE EARNED!", 'powerUpFeedback');
+        triggerGameMessage(t.play.skipFreebieEarned, 'powerUpFeedback');
       }
       
       // Normal Mode earns Rush Hour from score milestones. Hell Mode instead triggers it
@@ -847,7 +850,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         if (skipFreebiesAvailable > 0) {
             setSkipFreebiesAvailable(prev => prev - 1);
             playSound(customPowerupSkipFreebieUsedSound || SINGLE_SOUND_EFFECTS.POWERUP_SKIP_FREEBIE_USED, effectsVolume);
-            triggerGameMessage("↪️ SKIP FREEBIE USED!", 'powerUpFeedback');
+            triggerGameMessage(t.play.skipFreebieUsed, 'powerUpFeedback');
         } else if (remainingSkipsHellMode > 0) {
           setRemainingSkipsHellMode(prev => prev - 1);
           let penalty = HELL_MODE_SKIP_PENALTY;
@@ -869,7 +872,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         if (skipFreebiesAvailable > 0) {
           setSkipFreebiesAvailable(prev => prev - 1); 
           playSound(customPowerupSkipFreebieUsedSound || SINGLE_SOUND_EFFECTS.POWERUP_SKIP_FREEBIE_USED, effectsVolume);
-          triggerGameMessage("↪️ SKIP FREEBIE USED!", 'powerUpFeedback');
+          triggerGameMessage(t.play.skipFreebieUsed, 'powerUpFeedback');
         } else {
           setCurrentComboStreak(0); 
           setIsComboActive(false);
@@ -1022,14 +1025,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               setRushHourEndTime(null);
               setActiveMusicOverrideRef.current(null); 
               onSetRushHourActiveVisuals(false);
-              triggerGameMessage("RUSH HOUR OVER!", 'rushHourOver', 3500); 
+              triggerGameMessage(t.play.rushHourOver, 'rushHourOver', 3500); 
           } else {
               const timer = setTimeout(() => {
                   setIsRushHourActiveState(false);
                   setRushHourEndTime(null);
                   setActiveMusicOverrideRef.current(null); 
                   onSetRushHourActiveVisuals(false);
-                  triggerGameMessage("RUSH HOUR OVER!", 'rushHourOver', 3500);
+                  triggerGameMessage(t.play.rushHourOver, 'rushHourOver', 3500);
               }, remainingRushTime);
               return () => clearTimeout(timer);
           }
@@ -1305,24 +1308,27 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   // ... (Team Mode functions)
   // == Team Mode Specific Functions ==
   const handleBoxChoice = useCallback((team: Team) => {
+    // Held under a local name because the effect `apply` callbacks take a team argument
+    // that also happens to be called `t`.
+    const copy = t.play.boxEffects;
     const effects = [
-      { id: 'ADD_50', description: '+50 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 50})) },
-      { id: 'ADD_100', description: '+100 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 100})) },
-      { id: 'ADD_200', description: '+200 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 200})) },
-      { id: 'SUB_50', description: '-50 Points!', apply: (t: Team) => setTeamScores(p => ({...p, [t]: Math.max(0, p[t] - 50)})) },
-      { id: 'PERMA_BONUS_10', description: '+10 Points Per Correct Word!', apply: (t: Team) => setPermanentBuffs(p => ({...p, [t]: {...p[t], extraPointsPerWord: p[t].extraPointsPerWord + 10 }})) },
-      { id: 'SWAP_SCORES', description: 'Scores Swapped!', apply: () => setTeamScores(s => ({ A: s.B, B: s.A })) },
-      { id: 'STEAL_20', description: "Steal 20% of Opponent's Points!", apply: (t: Team) => {
+      { id: 'ADD_50', description: copy.add50, apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 50})) },
+      { id: 'ADD_100', description: copy.add100, apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 100})) },
+      { id: 'ADD_200', description: copy.add200, apply: (t: Team) => setTeamScores(p => ({...p, [t]: p[t] + 200})) },
+      { id: 'SUB_50', description: copy.sub50, apply: (t: Team) => setTeamScores(p => ({...p, [t]: Math.max(0, p[t] - 50)})) },
+      { id: 'PERMA_BONUS_10', description: copy.permaBonus, apply: (t: Team) => setPermanentBuffs(p => ({...p, [t]: {...p[t], extraPointsPerWord: p[t].extraPointsPerWord + 10 }})) },
+      { id: 'SWAP_SCORES', description: copy.swapScores, apply: () => setTeamScores(s => ({ A: s.B, B: s.A })) },
+      { id: 'STEAL_20', description: copy.steal, apply: (t: Team) => {
           const opponent = t === 'A' ? 'B' : 'A';
           const stolen = Math.floor(teamScores[opponent] * 0.2);
           setTeamScores(s => ({ ...s, [t]: s[t] + stolen, [opponent]: Math.max(0, s[opponent] - stolen) }));
       }},
-      { id: 'OPP_SKIP_BONUS', description: "+30 Pts When Opponent Skips!", apply: (t: Team) => setPermanentBuffs(p => ({...p, [t]: {...p[t], pointsFromOpponentSkip: p[t].pointsFromOpponentSkip + 30 }})) },
+      { id: 'OPP_SKIP_BONUS', description: copy.opponentSkip, apply: (t: Team) => setPermanentBuffs(p => ({...p, [t]: {...p[t], pointsFromOpponentSkip: p[t].pointsFromOpponentSkip + 30 }})) },
     ];
     
     // Add "Perish Together" if conditions met
     if (teamScores.A > 1000 || teamScores.B > 1000) {
-        effects.push({ id: 'PERISH_TOGETHER', description: 'PERISH TOGETHER!', apply: () => setTeamScores({ A: 0, B: 0 }) });
+        effects.push({ id: 'PERISH_TOGETHER', description: copy.perishTogether, apply: () => setTeamScores({ A: 0, B: 0 }) });
     }
 
     const chosenEffect = effects[Math.floor(Math.random() * effects.length)];
@@ -1379,8 +1385,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       type="button"
       onClick={openPauseMenu}
       className="futuristic-button absolute right-1 top-1 z-30 flex h-11 w-11 items-center justify-center rounded-lg border border-electric-blue/40 bg-dark-metal/80 text-lg text-light-text hover:bg-cyber-purple/50"
-      aria-label="Pause game"
-      title="Pause (Esc)"
+      aria-label={t.play.pauseAria}
+      title={t.play.pauseTitle}
     >
       ⏸️
     </button>
@@ -1393,11 +1399,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-dark-metal/95 p-4 animate-fadeInScaleUp"
           role="dialog"
           aria-modal="true"
-          aria-label="Game paused"
+          aria-label={t.play.pausedAria}
         >
-          <h2 className="font-heading text-3xl font-bold text-electric-blue">Paused</h2>
+          <h2 className="font-heading text-3xl font-bold text-electric-blue">{t.play.paused}</h2>
           <div className="w-full max-w-xs rounded-lg border border-cyber-purple/40 bg-dark-metal/60 p-3">
-            <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-electric-blue">Sound</p>
+            <p className="mb-2 text-left text-xs font-semibold uppercase tracking-wider text-electric-blue">{t.setup.settings.soundLabel}</p>
             <VolumeControls
               idPrefix="pause"
               musicVolume={musicVolume}
@@ -1412,17 +1418,17 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               onClick={closePauseMenu}
               className="futuristic-button w-full rounded-[var(--r-md)] bg-neon-green px-4 py-2.5 font-bold text-dark-metal hover:bg-emerald-400"
             >
-              ▶️ Resume
+              {t.play.resume}
             </button>
             <button
               type="button"
               onClick={requestEndGame}
               className="futuristic-button w-full rounded-lg bg-cyber-purple/70 px-4 py-2.5 font-semibold text-light-text hover:bg-cyber-purple"
             >
-              ⏹️ End Game &amp; See Score
+              {t.play.endGameSeeScore}
             </button>
           </div>
-          <p className="text-xs text-muted-text">Press Esc to resume</p>
+          <p className="text-xs text-muted-text">{t.play.escToResume}</p>
         </div>
       )}
 
@@ -1431,14 +1437,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Confirm ending the game"
+          aria-label={t.play.endConfirmAria}
         >
           <div className="w-full max-w-sm rounded-xl border border-warning-yellow/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
-            <p className="font-heading text-lg font-bold text-warning-yellow">End the game now?</p>
+            <p className="font-heading text-lg font-bold text-warning-yellow">{t.play.endConfirmTitle}</p>
             <p className="mt-1 text-sm text-muted-text">
               {isTeamMode
-                ? 'The current team scores will go to the results screen.'
-                : 'Your current score will go to the results screen.'}
+                ? t.play.endConfirmTeam
+                : t.play.endConfirmSingle}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
@@ -1446,14 +1452,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 onClick={cancelEndGame}
                 className="futuristic-button rounded-lg bg-dark-metal px-4 py-2 text-sm text-light-text hover:bg-cyber-purple/30"
               >
-                Cancel
+                {t.play.cancel}
               </button>
               <button
                 type="button"
                 onClick={confirmEndGame}
                 className="futuristic-button rounded-[var(--r-md)] bg-danger-red px-4 py-2 text-sm font-bold text-light-text hover:bg-red-400"
               >
-                End Game
+                {t.play.endGame}
               </button>
             </div>
           </div>
@@ -1476,8 +1482,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 <div className="absolute inset-0 bg-dark-metal/90 z-40 flex flex-col items-center justify-center animate-fadeInScaleUp" role="dialog" aria-modal="true">
                     {!revealedEffect ? (
                         <>
-                            <h2 className="text-2xl sm:text-3xl font-heading mb-2">Team <span className={surpriseBoxInfo.team === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{surpriseBoxInfo.team}</span> hit a milestone!</h2>
-                            <p className="text-lg sm:text-xl text-muted-text mb-6">Choose a surprise box!</p>
+                            <h2 className="text-2xl sm:text-3xl font-heading mb-2"><span className={surpriseBoxInfo.team === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{t.play.teamMilestone(surpriseBoxInfo.team)}</span></h2>
+                            <p className="text-lg sm:text-xl text-muted-text mb-6">{t.play.chooseBox}</p>
                             <div className="flex gap-4">
                                 {[1, 2, 3].map(i => (
                                     <button key={i} onClick={() => handleBoxChoice(surpriseBoxInfo.team)} className="text-5xl sm:text-6xl p-6 sm:p-8 bg-cyber-purple rounded-lg shadow-lg animate-subtlePulse hover:scale-110 transition-transform futuristic-button">
@@ -1488,7 +1494,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                         </>
                     ) : (
                         <div className="text-center p-4 animate-stamp-effect">
-                            <h2 className="text-xl sm:text-2xl font-heading mb-4 text-warning-yellow">You got:</h2>
+                            <h2 className="text-xl sm:text-2xl font-heading mb-4 text-warning-yellow">{t.play.youGot}</h2>
                             <p className="text-5xl sm:text-6xl font-bold bg-black/30 p-4 rounded-lg animate-pulseOnce">{revealedEffect.description}</p>
                         </div>
                     )}
@@ -1498,27 +1504,27 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             {/* Top Row: Scores and Timer */}
             <div className={`w-full grid grid-cols-3 items-center gap-2 flex-shrink-0 ${showGameUI ? 'pr-12' : ''}`}>
                 <div ref={teamAScoreBoxRef} className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamAClasses}`}>
-                    <p className="text-base sm:text-lg font-semibold text-cyan-300">Team A</p>
+                    <p className="text-base sm:text-lg font-semibold text-cyan-300">{t.play.teamA}</p>
                     <p className="text-3xl sm:text-4xl font-bold font-heading">{teamScores.A}</p>
                 </div>
                 <div className="text-center">
                     {showGameUI && <CircularTimer timeLeft={turnTimeLeft} totalTime={settings.timePerWord ?? 20} isFrozen={false} isRushHour={false} size={70} strokeWidth={6} />}
                 </div>
                 <div ref={teamBScoreBoxRef} className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamBClasses}`}>
-                    <p className="text-base sm:text-lg font-semibold text-orange-300">Team B</p>
+                    <p className="text-base sm:text-lg font-semibold text-orange-300">{t.play.teamB}</p>
                     <p className="text-3xl sm:text-4xl font-bold font-heading">{teamScores.B}</p>
                 </div>
             </div>
             
              {/* Turn Indicator */}
             <div className="h-8 flex items-center justify-center w-full relative">
-                {showGameUI && !isPaused && <p className="text-2xl sm:text-3xl font-bold animate-fadeInScaleUp">Team <span className={currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{currentTurn}</span>'s Turn!</p>}
+                {showGameUI && !isPaused && <p className="text-2xl sm:text-3xl font-bold animate-fadeInScaleUp"><span className={currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{t.play.teamTurn(currentTurn)}</span></p>}
             </div>
             
              {/* Word Counter */}
             {showGameUI && (
               <div className="h-6 flex items-center justify-center w-full text-sm sm:text-base text-muted-text -mt-1 flex-shrink-0">
-                  Word {Math.min(currentWordIndex + 1, shuffledWords.length)} of {shuffledWords.length}
+                  {t.play.wordOf(Math.min(currentWordIndex + 1, shuffledWords.length), shuffledWords.length)}
               </div>
             )}
 
@@ -1551,7 +1557,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                         />
                     </div>
                 ) : showGameUI && !wordForCardDisplay ? ( 
-                    <p className="text-center text-lg sm:text-xl text-muted-text animate-subtlePulse">Calculating Score...</p>
+                    <p className="text-center text-lg sm:text-xl text-muted-text animate-subtlePulse">{t.play.calculating}</p>
                 ) : null}
             </div>
 
@@ -1560,17 +1566,17 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 <div className="w-full flex-shrink-0 mt-auto pt-2">
                     <div className="grid grid-cols-2 gap-2 sm:gap-2.5 w-full gamescreen-buttons">
                         <button ref={correctButtonRef} type="button" onClick={handleCorrect} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="inline-flex w-full items-center justify-center gap-1.5 bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg">
-                            CORRECT
+                            {t.play.correct}
                             <Icon name="check" size={18} />
                         </button>
                         <button ref={skipButtonRef} type="button" onClick={handleSkip} disabled={!wordForCardDisplay || turnTimeLeft <= 0 || isProcessingWord || isPaused} className="inline-flex w-full items-center justify-center gap-1.5 bg-warning-yellow hover:bg-amber-400 text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg">
-                            SKIP
+                            {t.play.skip}
                             <Icon name="close" size={18} />
                         </button>
                     </div>
                      <div className="w-full mt-1.5 sm:mt-2 gamescreen-buttons">
                         <button type="button" onClick={requestEndGame} disabled={!wordForCardDisplay || isProcessingWord || isPaused} className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg">
-                            End Game & See Score
+                            {t.play.endGameButton}
                         </button>
                     </div>
                 </div>
@@ -1601,13 +1607,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       {pauseOverlays}
       {isDemo && (
         <span className="pointer-events-none absolute right-14 top-2 z-20 rounded bg-cyber-purple/25 px-1.5 py-0.5 font-sans text-[0.6rem] uppercase tracking-widest text-light-text/40">
-          Demo
+          {t.play.demo}
         </span>
       )}
       {/* Top Row: Points and Timer */}
       <div className={`w-full flex justify-between items-center px-1 sm:px-1.5 gap-2 flex-shrink-0 ${rushHourBounceClass} ${showGameUI ? 'pr-12' : ''}`}>
         <div className="text-base sm:text-lg font-semibold text-neon-green text-left relative flex-1 score-display">
-          POINTS: <span className="text-xl sm:text-2xl font-bold">{currentScore}</span>
+          {t.play.points} <span className="text-xl sm:text-2xl font-bold">{currentScore}</span>
         </div>
 
         {settings.gameMode === GameMode.HELL && showGameUI ? (
@@ -1618,7 +1624,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 aria-valuenow={gameTimeLeft}
                 aria-valuemin={0}
                 aria-valuemax={settings.totalTimeLimit}
-                aria-label="Game time remaining"
+                aria-label={t.play.timeRemainingAria}
                 >
                 <div
                     className={`h-full rounded-full transition-all duration-200 ease-linear ${
@@ -1630,13 +1636,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     style={{ width: `${Math.max(0, (gameTimeLeft / settings.totalTimeLimit) * 100)}%` }}
                 ></div>
                 </div>
-                <p className="text-xs text-center mt-0.5 text-muted-text">Time</p>
+                <p className="text-xs text-center mt-0.5 text-muted-text">{t.play.timeLabel}</p>
             </div>
             ) : showGameUI && settings.gameMode === GameMode.NORMAL ? (
                 <div className="flex-1"></div>
             ) : ( 
             <div className="text-base sm:text-lg font-semibold text-right flex-1 text-electric-blue opacity-0"> 
-                TIME: <span className="text-xl sm:text-2xl font-bold">{formatTime(gameTimeLeft)}</span>
+                {t.play.timeLabelLong} <span className="text-xl sm:text-2xl font-bold">{formatTime(gameTimeLeft)}</span>
             </div>
         )}
       </div>
@@ -1644,9 +1650,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       {settings.gameMode === GameMode.NORMAL && showGameUI && (
         <div className={`flex justify-center items-center my-1 flex-shrink-0 ${rushHourBounceClass}`}>
             {isTimerFrozen && (
-                <div className="timer-frozen-display mr-2" aria-label="Timer Frozen">
+                <div className="timer-frozen-display mr-2" aria-label={t.play.timerFrozenAria}>
                     <Icon name="snowflake" size={18} className="text-cyan-400" />
-                    <span className="ml-1 text-xs font-semibold text-light-text hidden sm:inline">FROZEN</span>
+                    <span className="ml-1 text-xs font-semibold text-light-text hidden sm:inline">{t.play.frozen}</span>
                 </div>
             )}
             <div className={`py-1 px-3 sm:py-2 sm:px-4 rounded-lg border-2 shadow-lg ${getTimerBorderColor()}`}>
@@ -1659,16 +1665,16 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       
       {showGameUI && (
          <div className={`flex justify-between items-center w-full text-xs sm:text-sm text-muted-text mb-0.5 px-1 sm:px-1.5 flex-shrink-0 score-display ${rushHourBounceClass}`}>
-            <span>Word {Math.min(currentWordIndex + 1, shuffledWords.length)} of {shuffledWords.length}</span>
+            <span>{t.play.wordOf(Math.min(currentWordIndex + 1, shuffledWords.length), shuffledWords.length)}</span>
             <div className="flex items-center space-x-1.5 sm:space-x-2">
                 {skipFreebiesAvailable > 0 && (
-                  <span className="inline-flex items-center gap-1 text-lg sm:text-xl text-yellow-400" title={`Skip Freebies: ${skipFreebiesAvailable}`}>
+                  <span className="inline-flex items-center gap-1 text-lg sm:text-xl text-yellow-400" title={t.play.skipFreebiesTitle(skipFreebiesAvailable)}>
                     <Icon name="skip" size={18} /> x{skipFreebiesAvailable}
                   </span>
                 )}
                 {currentComboStreak > 0 && (
                     <span className={`font-bold ${isComboActive ? 'text-orange-400' : 'text-muted-text'}`}>
-                        🔥 Combo: x{currentComboStreak}
+                        {t.play.combo(currentComboStreak)}
                     </span>
                 )}
             </div>
@@ -1682,7 +1688,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 key={i}
                 className={`text-2xl sm:text-3xl transition-colors duration-300 ${i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? 'text-muted-text/40' : 'text-danger-red animate-subtlePulse'}`}
                 role="img"
-                aria-label={i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? "Used Skip Heart" : "Available Skip Heart"}
+                aria-label={i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? t.play.usedSkipHeart : t.play.availableSkipHeart}
             >
                 {i < HELL_MODE_INITIAL_SKIPS - remainingSkipsHellMode ? '🖤' : '❤️'}
             </span>
@@ -1739,13 +1745,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               >
                 <span className="text-warning-yellow text-base sm:text-lg drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" aria-hidden="true">🌟</span>
                 <span className="ml-1 text-xs sm:text-sm font-bold text-warning-yellow uppercase tracking-wider drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
-                  Lucky x{luckyWordMultipliers.get(currentWordIndex)}!
+                  {t.play.lucky(luckyWordMultipliers.get(currentWordIndex) ?? 1)}
                 </span>
               </div>
             )}
           </div>
         ) : showGameUI && !wordForCardDisplay ? ( 
-          <p className="text-center text-lg sm:text-xl text-muted-text animate-subtlePulse">Calculating Score...</p>
+          <p className="text-center text-lg sm:text-xl text-muted-text animate-subtlePulse">{t.play.calculating}</p>
         ) : null }
       </div>
       
@@ -1761,11 +1767,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         >
           {catAnimationType === 'happy' ? (
             <div className="text-4xl sm:text-5xl p-1.5 sm:p-2 bg-green-500/80 rounded-full shadow-lg transform scale-75 sm:scale-100">
-              <span role="img" aria-label="Happy cheering emoji">🥳</span><span className="inline-block transform translate-y-[-2px] ml-0.5 sm:ml-1">👍</span>
+              <span role="img" aria-label={t.play.happyEmojiAria}>🥳</span><span className="inline-block transform translate-y-[-2px] ml-0.5 sm:ml-1">👍</span>
             </div>
           ) : (
             <div className="text-4xl sm:text-5xl p-1.5 sm:p-2 bg-red-500/80 rounded-full shadow-lg transform scale-75 sm:scale-100">
-              <span role="img" aria-label="Sad emoji">😥</span>
+              <span role="img" aria-label={t.play.sadEmojiAria}>😥</span>
               <span className="inline-block py-0.5 px-1 sm:px-1.5 text-xl sm:text-2xl bg-white text-danger-red border-2 border-danger-red ml-0.5 sm:ml-1 rounded font-bold align-middle">X</span>
             </div>
           )}
@@ -1793,9 +1799,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 onClick={handleCorrect}
                 disabled={!wordForCardDisplay || gameTimeLeft <= 0 || isProcessingWord || !!wordTextAnimation}
                 className="inline-flex w-full items-center justify-center gap-1.5 bg-neon-green hover:bg-emerald-400 text-dark-metal font-bold py-2 sm:py-2.5 px-3 sm:px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg"
-                aria-label="Correct guess (Left Arrow)"
+                aria-label={t.play.correctAria}
                 >
-                CORRECT <Icon name="check" size={18} />
+                {t.play.correct} <Icon name="check" size={18} />
                 </button>
             </div>
             <div className="flex flex-col items-center">
@@ -1809,9 +1815,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     ? 'bg-[var(--surface-2)] text-muted-text cursor-not-allowed opacity-80 border border-[var(--hairline)]'
                     : 'bg-warning-yellow hover:bg-amber-400 text-dark-metal'
                 }`}
-                aria-label="Pass word (Right Arrow)"
+                aria-label={t.play.passAria}
                 >
-                SKIP {isHellModeSkipDisabled ? <Icon name="ban" size={18} className="text-danger-red" /> : <Icon name="close" size={18} />}
+                {t.play.skip} {isHellModeSkipDisabled ? <Icon name="ban" size={18} className="text-danger-red" /> : <Icon name="close" size={18} />}
                 </button>
             </div>
             </div>
@@ -1821,9 +1827,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     onClick={requestEndGame}
                     disabled={!wordForCardDisplay || gameTimeLeft <= 0 || isProcessingWord || !!wordTextAnimation}
                     className="w-full bg-cyber-purple/60 hover:bg-cyber-purple/80 border border-cyber-purple/80 text-light-text/90 font-semibold py-2 sm:py-2.5 px-4 rounded-[var(--r-md)] futuristic-button text-base sm:text-lg"
-                    aria-label="End game and see score"
+                    aria-label={t.play.endGameAria}
                 >
-                    End Game & See Score
+                    {t.play.endGameButton}
                 </button>
             </div>
         </div>

@@ -1,0 +1,50 @@
+/**
+ * Shared vocabulary for every screen.
+ *
+ * Each area of the app owns a namespace file (dashboard, myClass, game, …) so two people
+ * — or two agents — can work on different screens without touching the same file. Keys
+ * that almost every screen needs live here instead.
+ */
+export const common = {
+  cancel: 'Cancel',
+  close: 'Close',
+  confirm: 'Confirm',
+  dismiss: 'Dismiss',
+  save: 'Save',
+  saving: 'Saving…',
+  delete: 'Delete',
+  remove: 'Remove',
+  edit: 'Edit',
+  add: 'Add',
+  back: 'Back',
+  next: 'Next',
+  continue: 'Continue',
+  done: 'Done',
+  open: 'Open',
+  start: 'Start',
+  loading: 'Loading…',
+  tryAgain: 'Try again',
+  copy: 'Copy',
+  copied: 'Copied',
+  optional: 'Optional',
+  yes: 'Yes',
+  no: 'No',
+  signIn: 'Sign in',
+  signOut: 'Sign out',
+  free: 'Free',
+  pro: 'Pro',
+  teacher: 'Teacher',
+  admin: 'Admin',
+  student: 'Student',
+  word: 'word',
+  words: 'words',
+  minute: 'min',
+  points: 'points',
+  today: 'Today',
+  hearWord: (word: string) => `Hear "${word}"`,
+  switchLanguage: 'Switch language',
+  switchToVietnamese: 'Switch to Vietnamese',
+  switchToEnglish: 'Switch to English',
+  switchToLight: 'Switch to light mode',
+  switchToDark: 'Switch to dark mode',
+};

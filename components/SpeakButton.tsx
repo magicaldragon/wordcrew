@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
 import { speak, speechSupported } from '../services/speech';
 
 interface SpeakButtonProps {
@@ -21,8 +22,9 @@ export const SpeakButton: React.FC<SpeakButtonProps> = ({
   iconSize = 18,
   className = '',
 }) => {
+  const t = useT('common');
   if (!speechSupported()) return null;
-  const text = label ?? `Hear "${word}"`;
+  const text = label ?? t.hearWord(word);
   return (
     <button
       type="button"

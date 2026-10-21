@@ -58,12 +58,17 @@ export const TOOL_GATE: { mode: ToolAccessMode; freeUntil: string } = {
   freeUntil: '2026-11-30T23:59:59+07:00',
 };
 
-/** The deadline as it prints in the UI — derived, so the date lives in exactly one place. */
-export const TOOL_FREE_UNTIL_LABEL = new Date(TOOL_GATE.freeUntil).toLocaleDateString('en-GB', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-});
+/**
+ * The deadline as it prints in the UI — derived, so the date lives in exactly one place.
+ * Takes the reader's locale: an English page says "30 November 2026", a Vietnamese one
+ * "30 tháng 11, 2026".
+ */
+export const toolFreeUntilLabel = (locale: string): string =>
+  new Date(TOOL_GATE.freeUntil).toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 
 /**
  * The mode actually in force. The launch window only ever closes an 'open' gate; a manual

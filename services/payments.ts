@@ -6,6 +6,8 @@
  * degrade to "buying is unavailable right now".
  */
 
+import { AppError } from './apiError';
+
 export interface Product {
   id: string;
   name: string;
@@ -44,10 +46,11 @@ export interface OrderState {
 }
 
 /**
- * What the dialogs report back to the app after the player submits a code. `message`
- * carries the human-readable reason when `ok` is false.
+ * What the dialogs report back to the app after the player submits a code. When `ok` is
+ * false, `code` names the reason and the dialog translates it — the server's English
+ * sentence never reaches a Vietnamese reader.
  */
-export type UnlockOutcome = { ok: boolean; message?: string };
+export type UnlockOutcome = { ok: boolean; code?: string };
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`/api${path}`, {
@@ -56,11 +59,9 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string'
-        ? (payload as { error: string }).error
-        : 'Something went wrong. Please try again.';
-    throw new Error(message);
+    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+    const message = typeof record.error === 'string' ? record.error : 'Something went wrong. Please try again.';
+    throw new AppError(typeof record.code === 'string' ? record.code : 'generic', message);
   }
   return payload as T;
 };
@@ -253,13 +254,10 @@ export const verifyLicenseKey = async (key: string): Promise<UnlockOutcome> => {
     if (response.ok && record.valid === true) return { ok: true };
     return {
       ok: false,
-      message:
-        typeof record.error === 'string'
-          ? record.error
-          : 'Licence key not found. Check the key from your purchase email.',
+      code: typeof record.code === 'string' ? record.code : 'licenceNotFound',
     };
   } catch {
-    return { ok: false, message: 'Could not reach the licence server. Check your connection.' };
+    return { ok: false, code: 'networkError' };
   }
 };
 

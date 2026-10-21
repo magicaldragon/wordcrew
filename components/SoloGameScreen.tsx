@@ -37,6 +37,9 @@ import { Icon } from './Icon';
 import { SpeakButton } from './SpeakButton';
 import { stopSpeaking } from '../services/speech';
 import { cloudSpeechSupported, listenOnce, type CloudListen } from '../services/asr';
+import { useT } from '../i18n/useT';
+import { trackText } from '../i18n/tracks';
+import { useLocale } from '../i18n/useLocale';
 
 interface SoloGameScreenProps {
   track: SoloTrack;
@@ -131,6 +134,7 @@ const useSpeechInput = (
   onFinal: (text: string, alternatives: string[]) => void,
   autoListenRef: React.MutableRefObject<boolean>,
 ): SpeechInput => {
+  const t = useT('solo');
   const Ctor =
     typeof window !== 'undefined'
       ? ((window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any })
@@ -226,22 +230,22 @@ const useSpeechInput = (
       }
       if (result.kind === 'mic-blocked') {
         manualStopRef.current = true;
-        setError('Microphone access was blocked — allow it or type instead.');
+        setError(t.game.speech.micBlocked);
         return;
       }
       if (result.kind === 'network') {
-        setError('Couldn’t reach the recogniser — try again, or type your answer.');
+        setError(t.game.speech.recogniserUnreachable);
         return;
       }
       if (result.kind === 'limited') {
         manualStopRef.current = true;
-        setError('Voice answers are resting for now — type your answer instead.');
+        setError(t.game.speech.voiceResting);
         return;
       }
       // Nothing was recognised in the clip. Hands-free simply listens again, exactly as a
       // silent browser session does, and without costing a heart.
       if (!autoListenRef.current) {
-        setError('Didn’t catch that — try again.');
+        setError(t.game.speech.notCaught);
         return;
       }
       if (autoRestartsRef.current < SPEECH_MAX_AUTO_RESTARTS) {
@@ -251,7 +255,7 @@ const useSpeechInput = (
         }, restartDelay());
       }
     });
-  }, [teardown, autoListenRef, restartDelay]);
+  }, [teardown, autoListenRef, restartDelay, t]);
 
   // `onend` needs to reopen the mic for hands-free mode, so the starter lives in a ref
   // to avoid a declaration cycle. `user` starts a fresh restart budget; hands-free
@@ -280,7 +284,7 @@ const useSpeechInput = (
       try {
         rec = new Ctor();
       } catch {
-        setError('Could not start the microphone.');
+        setError(t.game.speech.micStartFailed);
         return;
       }
       recRef.current = rec;
@@ -341,11 +345,11 @@ const useSpeechInput = (
         const code = event?.error || '';
         if (code === 'not-allowed' || code === 'service-not-allowed') {
           manualStopRef.current = true;
-          setError('Microphone access was blocked — allow it or type instead.');
+          setError(t.game.speech.micBlocked);
         } else if (code === 'network') {
-          setError('Network hiccup — try again or type your answer.');
+          setError(t.game.speech.network);
         } else if (code === 'no-speech' && !autoListenRef.current) {
-          setError('Didn’t catch that — try again.');
+          setError(t.game.speech.notCaught);
         }
         setListening(false);
       };
@@ -370,7 +374,7 @@ const useSpeechInput = (
         rec.start();
       } catch {
         recRef.current = null;
-        setError('Could not start the microphone.');
+        setError(t.game.speech.micStartFailed);
         return;
       }
 
@@ -387,13 +391,13 @@ const useSpeechInput = (
           }
           teardown();
           setListening(false);
-          setError('Voice input is not responding on this device — type the word instead.');
+          setError(t.game.speech.unresponsive);
         });
       };
 
       watchdogRef.current = window.setTimeout(checkStarted, SPEECH_START_WATCHDOG_MS);
     },
-    [Ctor, teardown, autoListenRef, cloudTier, beginCloud, restartDelay],
+    [Ctor, teardown, autoListenRef, cloudTier, beginCloud, restartDelay, t],
   );
 
   beginRef.current = begin;
@@ -475,6 +479,9 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   onEnd,
   onExit,
 }) => {
+  const t = useT('solo');
+  const gameTracks = useT('game').setup.tracks;
+  const locale = useLocale();
   // Endless word source, drawn from the track's bands on a weighted schedule that drifts
   // from easy to hard. Two things bend the source: Today's Challenge seeds the shuffle
   // from the day id, so every player meets the same words in the same order; a normal run
@@ -668,7 +675,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         const bandIndex = track.levels.indexOf(nextWord.level);
         if (bandIndex > maxBandRef.current) {
           maxBandRef.current = bandIndex;
-          showBanner(`⬆️ Level up — ${shortLevel(nextWord.level)}`);
+          showBanner(t.game.levelUp(shortLevel(nextWord.level)));
         }
         levelRef.current = nextWord.level;
         resolvedRef.current = false;
@@ -692,7 +699,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         setWrong(null);
       }, delay);
     },
-    [endGame, showBanner, track.levels, style],
+    [endGame, showBanner, track.levels, style, t],
   );
 
   const handleCorrect = useCallback(
@@ -760,12 +767,12 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   // is deducted, and the clock is the only cost. It still gets a visible sign though —
   // a red pulse, a shake, and the part of the word that did land.
   const handleWrong = useCallback(
-    (message = 'Not quite — try again.', hint = '') => {
+    (message = t.game.wrongTryAgain, hint = '') => {
       if (resolvedRef.current || phaseRef.current !== 'guessing') return;
       setInput('');
       showWrong(message, hint);
     },
-    [showWrong],
+    [showWrong, t],
   );
 
   const handleTimeout = useCallback(() => {
@@ -826,7 +833,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         const heard = candidates[0] ?? '';
         const mask = heard ? buildSpellingHint(target, heard) ?? '' : '';
         handleWrong(
-          heard ? `Heard “${heard}” — try again.` : 'Didn’t catch that — try again.',
+          heard ? t.game.heardWrong(heard) : t.game.speech.notCaught,
           mask,
         );
         // Hands-free: re-arm the mic so the player can simply try again. With a
@@ -931,7 +938,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     }
     // Stay on the word: the clock, not the attempt, is what costs a heart. The mask
     // shows which letters landed, so a near miss points at its own fix.
-    handleWrong('Not quite — check the spelling.', buildSpellingHint(answer, value) ?? '');
+    handleWrong(t.game.wrongSpelling, buildSpellingHint(answer, value) ?? '');
   };
 
   const lastHeartIndex = stats.hearts - 1;
@@ -942,18 +949,18 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       {/* Top bar: score · track / streak · clock */}
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="min-w-[4.5rem]">
-          <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-text">Score</p>
-          <p className="text-xl font-bold tabular-nums text-neon-green sm:text-2xl">{stats.score.toLocaleString()}</p>
+          <p className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-text">{t.game.score}</p>
+          <p className="text-xl font-bold tabular-nums text-neon-green sm:text-2xl">{stats.score.toLocaleString(locale)}</p>
           {stats.streak >= 2 && (
-            <p className="mt-0.5 text-[0.7rem] font-semibold text-danger-red">🔥 {stats.streak} in a row</p>
+            <p className="mt-0.5 text-[0.7rem] font-semibold text-danger-red">{t.game.streak(stats.streak)}</p>
           )}
         </div>
         <div className="min-w-0 flex-1 text-center">
           <p className="truncate text-xs font-semibold text-muted-text">
-            {track.emoji} {track.name} · {shortLevel(current.level)} · Word {wordNo}
+            {track.emoji} {trackText(gameTracks, track).name} · {shortLevel(current.level)} · {t.game.wordNumber(wordNo)}
           </p>
           <p className="mt-0.5 text-[0.7rem] text-muted-text/70">
-            {style === 'describe' ? '🎧 Listen & guess' : '🇻🇳 Meaning & spell'} · {timeLimit}s
+            {style === 'describe' ? t.game.styleDescribe : t.game.styleMeaning} · {t.game.clock(timeLimit)}
           </p>
         </div>
         <div className="flex min-w-[4.5rem] justify-end">
@@ -969,7 +976,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       </div>
 
       {/* Hearts */}
-      <div className="flex w-full shrink-0 items-center gap-0.5 text-sm" aria-label={`${stats.hearts} of ${SOLO_START_HEARTS} hearts left`}>
+      <div className="flex w-full shrink-0 items-center gap-0.5 text-sm" aria-label={t.game.heartsAria(stats.hearts, SOLO_START_HEARTS)}>
         {Array.from({ length: SOLO_START_HEARTS }).map((_, i) => (
           <span key={i} className={i <= lastHeartIndex ? 'text-base' : 'text-base opacity-25 grayscale'} aria-hidden="true">
             ❤️
@@ -1018,7 +1025,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           ))}
         </div>
         <p className="text-[0.7rem] uppercase tracking-widest text-muted-text/70">
-          {totalLetters} letters
+          {t.game.letters(totalLetters)}
         </p>
 
         {/* The clue itself. Describe mode opens with the English situation only; the
@@ -1031,7 +1038,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                 {hint && (
                   <SpeakButton
                     word={rung >= 1 ? `${hint.defs[0]}. ${hint.defs[1]}` : hint.defs[0]}
-                    label="Hear the clue"
+                    label={t.game.hearClue}
                     className="mt-1"
                   />
                 )}
@@ -1061,7 +1068,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                       disabled={phase !== 'guessing'}
                       className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-electric-blue/50 bg-electric-blue/10 px-4 py-2 text-xs font-semibold text-electric-blue hover:bg-electric-blue/20 disabled:opacity-40"
                     >
-                      💡 Hint
+                      {t.game.hint}
                     </button>
                   )}
                   {rung < 2 && vietnamese && (
@@ -1071,27 +1078,27 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                       disabled={phase !== 'guessing'}
                       className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-xs font-semibold text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
                     >
-                      🇻🇳 Meaning
+                      {t.game.meaning}
                     </button>
                   )}
                 </div>
               ) : null}
             </div>
           ) : hintLoading ? (
-            <p className="animate-subtlePulse text-lg text-muted-text">Loading clue…</p>
+            <p className="animate-subtlePulse text-lg text-muted-text">{t.game.loadingClue}</p>
           ) : (
-            <p className="px-2 font-heading text-lg font-bold text-muted-text">🤔 No clue yet — trust the letters</p>
+            <p className="px-2 font-heading text-lg font-bold text-muted-text">{t.game.noClue}</p>
           )
         ) : (
           <p className="px-2 font-heading text-2xl font-bold leading-tight text-neon-green sm:text-3xl">
-            {vietnamese ? `🇻🇳 ${vietnamese}` : '🤔 No translation yet — trust the letters'}
+            {vietnamese ? `🇻🇳 ${vietnamese}` : t.game.noTranslation}
           </p>
         )}
 
         {phase === 'revealed' && (
           <div className="mt-1 flex animate-fadeInScaleUp items-center justify-center gap-2">
             <p className="font-heading text-xl font-bold text-danger-red sm:text-2xl">
-              Answer: {answer}
+              {t.game.answer(answer)}
             </p>
             {/* Hear it once it is on screen — the cheapest way to make a miss stick. */}
             <SpeakButton word={answer} />
@@ -1141,11 +1148,17 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               if (event.key === 'Enter' && !overlayOpen) onCheck();
             }}
             disabled={phase !== 'guessing' || overlayOpen}
-            placeholder={speech.transcribing ? 'Checking…' : speech.listening ? 'Listening…' : 'Type the word…'}
+            placeholder={
+              speech.transcribing
+                ? t.game.placeholderChecking
+                : speech.listening
+                  ? t.game.placeholderListening
+                  : t.game.placeholderType
+            }
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
-            aria-label="Your answer"
+            aria-label={t.game.inputAria}
             className={`min-w-0 flex-1 rounded-xl border-2 bg-dark-metal px-4 py-3 text-center text-lg font-semibold outline-none transition placeholder:text-muted-text/60 focus:border-electric-blue disabled:opacity-70 ${
               phase === 'correct'
                 ? 'border-neon-green text-neon-green'
@@ -1160,12 +1173,12 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             disabled={!speech.supported || phase !== 'guessing' || overlayOpen || speech.transcribing}
             title={
               speech.listening
-                ? 'Listening — tap to stop'
+                ? t.game.micStopTitle
                 : speech.supported
-                  ? 'Answer by voice'
-                  : 'Voice input needs Chrome, Edge or Safari'
+                  ? t.game.micStartTitle
+                  : t.game.micNeedsBrowserTitle
             }
-            aria-label={speech.listening ? 'Stop listening' : 'Answer by voice'}
+            aria-label={speech.listening ? t.game.micStopAria : t.game.micStartAria}
             aria-pressed={speech.listening}
             className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-xl transition disabled:opacity-40 ${
               speech.listening
@@ -1185,8 +1198,8 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               aria-pressed={autoListen}
               title={
                 autoListen
-                  ? 'Hands-free is on — tap to turn it off'
-                  : 'Hands-free: the mic reopens on every word, so you never tap'
+                  ? t.game.autoOnTitle
+                  : t.game.autoOffTitle
               }
               className={`flex h-auto min-w-[3.4rem] items-center justify-center rounded-[var(--r-md)] border-2 text-[0.65rem] font-bold uppercase tracking-wider transition disabled:opacity-40 ${
                 autoListen
@@ -1194,7 +1207,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                   : 'border-cyber-purple/50 bg-transparent text-cyber-purple hover:bg-cyber-purple/10'
               }`}
             >
-              Auto
+              {t.game.auto}
             </button>
           )}
           <button
@@ -1203,7 +1216,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
             disabled={!input.trim() || phase !== 'guessing' || overlayOpen}
             className="futuristic-button shrink-0 rounded-[var(--r-md)] bg-neon-green px-5 py-3 text-sm font-bold text-dark-metal hover:bg-emerald-400 disabled:opacity-40"
           >
-            Check
+            {t.game.check}
           </button>
         </div>
 
@@ -1219,29 +1232,29 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               <span className="truncate font-bold text-danger-red">❌ {wrong.message}</span>
               {wrong.hint && (
                 <span className="truncate font-mono text-[0.72rem] tracking-[0.16em] text-light-text">
-                  Try again: {prettifyMask(wrong.hint)}
+                  {t.game.retryMask(prettifyMask(wrong.hint))}
                 </span>
               )}
             </div>
           ) : !speech.supported ? (
             <span className="text-muted-text/70">
               {typeof window !== 'undefined' && !window.isSecureContext
-                ? '🎤 Voice needs a secure page (https://) — type the word instead.'
-                : '🎤 Voice isn’t available in this browser on this device — type the word instead.'}
+                ? t.game.insecureHint
+                : t.game.unsupportedHint}
             </span>
           ) : speech.error ? (
             <span role="status" className="truncate text-warning-yellow">{speech.error}</span>
           ) : speech.transcribing ? (
-            <span className="text-electric-blue">Checking what we heard…</span>
+            <span className="text-electric-blue">{t.game.checkingHeard}</span>
           ) : speech.listening ? (
             <span className="truncate text-electric-blue">
-              {speech.interim ? `“${speech.interim}”` : 'Listening…'}
+              {speech.interim ? `“${speech.interim}”` : t.game.listening}
             </span>
           ) : (
             <span className="text-muted-text/70">
               {autoListen
-                ? 'Hands-free on — the mic reopens on each word'
-                : 'Enter to check · 🎤 to speak · Auto for hands-free'}
+                ? t.game.handsFreeOn
+                : t.game.inputHelp}
             </span>
           )}
         </div>
@@ -1254,7 +1267,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           disabled={overlayOpen || phase === 'correct'}
           className="futuristic-button rounded-lg border border-cyber-purple/50 bg-cyber-purple/30 px-4 py-2 text-xs font-semibold text-light-text/80 hover:bg-cyber-purple/50 disabled:opacity-40"
         >
-          Quit
+          {t.game.quit}
         </button>
         <button
           type="button"
@@ -1262,7 +1275,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           disabled={phase !== 'guessing' || overlayOpen}
           className="futuristic-button flex-grow rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-xs font-semibold text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
         >
-          {skipCostsHeart ? 'Skip word → (−1 ❤️)' : `Skip word → (${stats.freeSkips} free)`}
+          {skipCostsHeart ? t.game.skipCostsHeart : t.game.skipFree(stats.freeSkips)}
         </button>
       </div>
 
@@ -1285,17 +1298,17 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Run paused"
+          aria-label={t.game.pausedAria}
         >
           <div className="w-full max-w-sm rounded-xl border border-electric-blue/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
-            <p className="font-heading text-lg font-bold text-electric-blue">Paused</p>
-            <p className="mt-1 text-sm text-muted-text">The clock is stopped while you are away.</p>
+            <p className="font-heading text-lg font-bold text-electric-blue">{t.game.paused}</p>
+            <p className="mt-1 text-sm text-muted-text">{t.game.pausedBody}</p>
             <button
               type="button"
               onClick={() => setAutoPaused(false)}
               className="futuristic-button mt-4 w-full rounded-[var(--r-md)] bg-neon-green px-4 py-2.5 font-bold text-dark-metal hover:bg-emerald-400"
             >
-              ▶️ Resume
+              {t.game.resume}
             </button>
           </div>
         </div>
@@ -1306,12 +1319,12 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
           className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Confirm quitting the run"
+          aria-label={t.game.quitAria}
         >
           <div className="w-full max-w-sm rounded-xl border border-warning-yellow/50 bg-dark-metal p-4 text-center animate-fadeInScaleUp">
-            <p className="font-heading text-lg font-bold text-warning-yellow">Quit this run?</p>
+            <p className="font-heading text-lg font-bold text-warning-yellow">{t.game.quitTitle}</p>
             <p className="mt-1 text-sm text-muted-text">
-              Your score of <strong className="text-light-text">{stats.score.toLocaleString()}</strong> will be lost.
+              {t.game.quitLost(stats.score.toLocaleString(locale))}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
@@ -1319,14 +1332,14 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                 onClick={() => setConfirmQuit(false)}
                 className="futuristic-button rounded-[var(--r-md)] bg-neon-green px-4 py-2.5 font-bold text-dark-metal hover:bg-emerald-400"
               >
-                Keep playing
+                {t.game.keepPlaying}
               </button>
               <button
                 type="button"
                 onClick={onExit}
                 className="futuristic-button rounded-[var(--r-md)] border border-cyber-purple/60 bg-cyber-purple/40 px-4 py-2.5 font-semibold text-light-text hover:bg-cyber-purple/60"
               >
-                Quit run
+                {t.game.quitRun}
               </button>
             </div>
           </div>

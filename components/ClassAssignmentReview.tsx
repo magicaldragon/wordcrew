@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
+import { useT } from '../i18n/useT';
+import { useLocale } from '../i18n/useLocale';
 import {
   assignmentStats,
   gradeSubmission,
@@ -19,15 +21,6 @@ interface ClassAssignmentReviewProps {
   onBack: () => void;
 }
 
-const KIND_LABEL: Record<ClassAssignment['kind'], string> = {
-  vocabulary: 'Word set',
-  quiz: 'Multiple choice',
-  writing: 'Writing',
-};
-
-const formatDate = (ms: number): string =>
-  new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-
 /**
  * One assignment, seen from the teacher's side: who has done it, what the class got wrong,
  * and — for writing — the place where a human score is entered. The vocabulary report is
@@ -42,8 +35,20 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
   onRefresh,
   onBack,
 }) => {
+  const t = useT('myClass');
+  const common = useT('common');
+  const locale = useLocale();
+
   const [openId, setOpenId] = useState<string | null>(null);
   const [grading, setGrading] = useState<{ id: string; score: number; feedback: string } | null>(null);
+
+  const formatDate = (ms: number): string =>
+    new Date(ms).toLocaleString(locale, {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
   const rows = useMemo(() => {
     const mine = submissions.filter((item) => item.assignmentId === assignment.id);
@@ -68,25 +73,24 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
         feedback: grading.feedback,
         passScore: assignment.passScore,
       });
-      toast('Score saved.', 'success');
+      toast(t.review.scoreSaved, 'success');
       setGrading(null);
       await onRefresh();
     } catch {
-      toast('Could not save that score.', 'error');
+      toast(t.review.saveFailed, 'error');
     }
   };
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <button type="button" onClick={onBack} className="wc-icon-btn" aria-label="Back to the class">
+        <button type="button" onClick={onBack} className="wc-icon-btn" aria-label={t.review.backAria}>
           <Icon name="arrowLeft" size={16} />
         </button>
         <div className="min-w-0 text-center">
           <h3 className="truncate text-base font-bold text-[var(--wn-12)]">{assignment.title}</h3>
           <p className="text-xs text-[var(--wn-9)]">
-            {KIND_LABEL[assignment.kind]}
-            {assignment.passScore !== null ? ` · pass ${assignment.passScore}%` : ' · you grade this'}
+            {t.review.headerMeta(t.kinds[assignment.kind], assignment.passScore)}
           </p>
         </div>
         <span className="w-11" />
@@ -97,22 +101,28 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
           <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">
             {stats.submitted}/{members.length}
           </p>
-          <p className="text-[0.6rem] uppercase tracking-wider text-[var(--wn-9)]">Submitted</p>
+          <p className="text-[0.6rem] uppercase tracking-wider text-[var(--wn-9)]">
+            {t.review.submitted}
+          </p>
         </div>
         <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-2 text-center">
           <p className="text-lg font-bold tabular-nums text-neon-green">{stats.passed}</p>
-          <p className="text-[0.6rem] uppercase tracking-wider text-[var(--wn-9)]">Passed</p>
+          <p className="text-[0.6rem] uppercase tracking-wider text-[var(--wn-9)]">
+            {t.review.passed}
+          </p>
         </div>
         <div className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-2 text-center">
           <p className="text-lg font-bold tabular-nums text-[var(--wn-12)]">{stats.average}%</p>
-          <p className="text-[0.6rem] uppercase tracking-wider text-[var(--wn-9)]">Average</p>
+          <p className="text-[0.6rem] uppercase tracking-wider text-[var(--wn-9)]">
+            {t.review.average}
+          </p>
         </div>
       </div>
 
       {weak.length > 0 && (
         <section className="rounded-[var(--r-md)] border border-warning-yellow/40 bg-warning-yellow/5 p-3">
           <p className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-warning-yellow">
-            Words to reteach
+            {t.review.wordsToReteach}
           </p>
           <ul className="mt-2 flex flex-col gap-1.5">
             {weak.map((word) => (
@@ -122,7 +132,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                   <span className="text-[var(--wn-9)]"> · {word.gloss}</span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-[var(--wn-9)]">
-                  {word.missed}/{word.attempts} missed
+                  {t.review.missed(word.missed, word.attempts)}
                 </span>
               </li>
             ))}
@@ -132,7 +142,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
 
       <div className="flex flex-col gap-2">
         {rows.length === 0 && (
-          <p className="text-sm text-[var(--wn-9)]">Add students to the class before assigning work.</p>
+          <p className="text-sm text-[var(--wn-9)]">{t.review.noStudents}</p>
         )}
         {rows.map(({ member, submission }) => {
           const expanded = openId === member.email;
@@ -160,12 +170,12 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                       }`}
                     >
                       {submission.kind === 'writing' && !submission.graded
-                        ? 'To grade'
+                        ? t.review.toGrade
                         : `${submission.score}%`}
                     </span>
                   ) : (
                     <span className="rounded-full bg-[var(--wn-3)] px-2 py-0.5 text-[0.65rem] font-bold text-[var(--wn-9)]">
-                      {member.status === 'active' ? 'Not done' : 'Invited'}
+                      {member.status === 'active' ? t.review.notDone : t.review.invited}
                     </span>
                   )}
                 </span>
@@ -174,7 +184,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
               {expanded && submission && (
                 <div className="flex flex-col gap-2 border-t border-[var(--wn-4)] px-3 py-2">
                   <p className="text-xs text-[var(--wn-9)]">
-                    Attempt {submission.attempts} · {formatDate(submission.submittedAt)}
+                    {t.review.attemptLine(submission.attempts, formatDate(submission.submittedAt))}
                   </p>
 
                   {submission.kind === 'vocabulary' && (
@@ -186,7 +196,11 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                             <span className="text-[var(--wn-8)]"> · {answer.gloss}</span>
                           </span>
                           <span className="shrink-0 text-[var(--wn-9)]">
-                            {answer.correct ? '✓' : answer.guess ? `wrote “${answer.guess}”` : 'blank'}
+                            {answer.correct
+                              ? '✓'
+                              : answer.guess
+                                ? t.review.wrote(answer.guess)
+                                : t.review.blank}
                           </span>
                         </li>
                       ))}
@@ -204,8 +218,10 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                               {index + 1}. {question.prompt}
                             </span>
                             <span className="block text-[var(--wn-9)]">
-                              {picked >= 0 ? `picked: ${question.choices[picked]}` : 'skipped'}
-                              {!right && ` · answer: ${question.choices[question.answer]}`}
+                              {t.review.quizAnswer(
+                                picked >= 0 ? question.choices[picked] : null,
+                                right ? null : question.choices[question.answer],
+                              )}
                             </span>
                           </li>
                         );
@@ -216,12 +232,12 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                   {submission.kind === 'writing' && (
                     <div className="flex flex-col gap-2">
                       <p className="whitespace-pre-wrap rounded-md bg-[var(--wn-2)] p-2 text-sm text-[var(--wn-11)]">
-                        {submission.detail.text || '(empty)'}
+                        {submission.detail.text || t.review.emptyText}
                       </p>
                       {submission.graded ? (
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <span className="text-neon-green">
-                            {submission.score}% {submission.passed ? '· passed' : ''}
+                            {t.review.gradedLine(submission.score, submission.passed)}
                           </span>
                           <span className="truncate text-[var(--wn-9)]">{submission.feedback}</span>
                         </div>
@@ -229,7 +245,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                       {grading?.id === submission.id ? (
                         <div className="flex flex-col gap-2">
                           <label className="flex items-center gap-2 text-xs text-[var(--wn-9)]">
-                            Score
+                            {t.review.scoreLabel}
                             <input
                               type="number"
                               min={0}
@@ -245,7 +261,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                             value={grading.feedback}
                             onChange={(event) => setGrading({ ...grading, feedback: event.target.value })}
                             rows={2}
-                            placeholder="What to fix next time…"
+                            placeholder={t.review.feedbackPlaceholder}
                             className="futuristic-input w-full px-3 py-2 text-sm"
                           />
                           <div className="flex gap-2">
@@ -254,14 +270,14 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                               onClick={() => setGrading(null)}
                               className="wc-btn wc-btn-secondary min-h-[44px] flex-1"
                             >
-                              Cancel
+                              {common.cancel}
                             </button>
                             <button
                               type="button"
                               onClick={() => void saveGrade()}
                               className="wc-btn wc-btn-primary min-h-[44px] flex-1"
                             >
-                              Save score
+                              {t.review.saveScore}
                             </button>
                           </div>
                         </div>
@@ -277,7 +293,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                           }
                           className="wc-btn wc-btn-secondary min-h-[44px]"
                         >
-                          {submission.graded ? 'Change score' : 'Grade this'}
+                          {submission.graded ? t.review.changeScore : t.review.gradeThis}
                         </button>
                       )}
                     </div>

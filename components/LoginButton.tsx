@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthDialog } from './AuthDialog';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
 
 interface LoginButtonProps {
   /** `pill` for the top bar, `block` for the sidebar footer. */
@@ -23,6 +24,8 @@ const initialsOf = (label: string): string =>
  */
 export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) => {
   const { user, profile, loading, signOutUser } = useAuth();
+  const t = useT('auth');
+  const common = useT('common');
   const [showDialog, setShowDialog] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -36,7 +39,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [showMenu]);
 
-  const label = profile?.displayName?.trim() || user?.displayName || user?.email || 'Account';
+  const label = profile?.displayName?.trim() || user?.displayName || user?.email || t.account.defaultLabel;
   const block = variant === 'block';
   const baseClass = block ? 'wc-nav-item' : 'rounded-full border border-[var(--wn-4)] bg-[var(--wn-2)] px-3 py-1.5';
   const interactionClass = block ? '' : 'transition hover:border-[var(--wn-5)] hover:bg-[var(--wn-3)]';
@@ -54,7 +57,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
           className={`${baseClass} ${interactionClass} inline-flex items-center gap-2 text-sm font-semibold text-[var(--wn-11)]`}
         >
           <Icon name="user" size={18} />
-          Sign in
+          {common.signIn}
         </button>
         <AuthDialog isOpen={showDialog} onClose={() => setShowDialog(false)} />
       </>
@@ -87,7 +90,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
         >
           <div className="px-3 py-2">
             <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-              {profile?.displayName || user.displayName || 'Signed in'}
+              {profile?.displayName || user.displayName || t.account.signedInLabel}
             </p>
             <p className="truncate text-xs text-[var(--wn-9)]">{user.email}</p>
           </div>
@@ -102,7 +105,7 @@ export const LoginButton: React.FC<LoginButtonProps> = ({ variant = 'pill' }) =>
             className="wc-nav-item"
           >
             <Icon name="arrowLeft" size={18} />
-            Sign out
+            {common.signOut}
           </button>
         </div>
       )}

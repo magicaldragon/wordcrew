@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
+import { useT } from '../i18n/useT';
 import {
   MAX_ASSIGNMENT_WORDS,
   MAX_QUIZ_QUESTIONS,
@@ -24,12 +25,6 @@ interface ClassAssignmentEditorProps {
   onCreate: (input: NewAssignment) => Promise<void>;
 }
 
-const KIND_TABS: { id: ClassKind; label: string; icon: 'type' | 'list' | 'pencil'; hint: string }[] = [
-  { id: 'vocabulary', label: 'Word set', icon: 'type', hint: 'Vietnamese prompt, English answer. Scored automatically.' },
-  { id: 'quiz', label: 'Multiple choice', icon: 'list', hint: 'Four options per question. Order is shuffled for every student.' },
-  { id: 'writing', label: 'Writing', icon: 'pencil', hint: 'A prompt and a word floor. You grade it.' },
-];
-
 const emptyQuestion = (): QuizQuestion => ({ prompt: '', choices: ['', '', '', ''], answer: 0 });
 
 /** End of the chosen day, local time — a due date of "today" still means today. */
@@ -44,6 +39,20 @@ const dueDateToMs = (value: string): number | null => {
  * and differ only in the body, so a teacher learns the screen once.
  */
 export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ onCancel, onCreate }) => {
+  const t = useT('myClass');
+  const common = useT('common');
+
+  const kindTabs: { id: ClassKind; label: string; icon: 'type' | 'list' | 'pencil'; hint: string }[] = [
+    {
+      id: 'vocabulary',
+      label: t.kinds.vocabulary,
+      icon: 'type',
+      hint: t.editor.kindHints.vocabulary,
+    },
+    { id: 'quiz', label: t.kinds.quiz, icon: 'list', hint: t.editor.kindHints.quiz },
+    { id: 'writing', label: t.kinds.writing, icon: 'pencil', hint: t.editor.kindHints.writing },
+  ];
+
   const [kind, setKind] = useState<ClassKind>('vocabulary');
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -89,16 +98,16 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
   const readyQuestions = questions.filter(validQuestion);
 
   const problem = (): string | null => {
-    if (!title.trim()) return 'Give the assignment a title.';
+    if (!title.trim()) return t.editor.problems.title;
     if (kind === 'vocabulary') {
-      if (words.length < 3) return 'A word set needs at least three words.';
-      if (words.some((word) => !word.gloss.trim())) return 'Every word needs a meaning before you assign it.';
-      if (source === 'deck' && !deckId) return 'Pick one of your saved decks.';
+      if (words.length < 3) return t.editor.problems.tooFewWords;
+      if (words.some((word) => !word.gloss.trim())) return t.editor.problems.missingMeaning;
+      if (source === 'deck' && !deckId) return t.editor.problems.pickDeck;
     }
     if (kind === 'quiz') {
-      if (!readyQuestions.length) return 'Add at least one question with four options.';
+      if (!readyQuestions.length) return t.editor.problems.noQuestions;
     }
-    if (kind === 'writing' && !prompt.trim()) return 'Write the prompt students will answer.';
+    if (kind === 'writing' && !prompt.trim()) return t.editor.problems.noPrompt;
     return null;
   };
 
@@ -147,15 +156,15 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <button type="button" onClick={onCancel} className="wc-icon-btn" aria-label="Back to the class">
+        <button type="button" onClick={onCancel} className="wc-icon-btn" aria-label={t.editor.backAria}>
           <Icon name="arrowLeft" size={16} />
         </button>
-        <h3 className="text-base font-bold text-[var(--wn-12)]">New assignment</h3>
+        <h3 className="text-base font-bold text-[var(--wn-12)]">{t.editor.title}</h3>
         <span className="w-11" />
       </div>
 
-      <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Assignment type">
-        {KIND_TABS.map((tab) => (
+      <div className="grid grid-cols-3 gap-2" role="tablist" aria-label={t.editor.typeAria}>
+        {kindTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -173,34 +182,41 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
           </button>
         ))}
       </div>
-      <p className="-mt-2 text-xs text-[var(--wn-9)]">{KIND_TABS.find((tab) => tab.id === kind)?.hint}</p>
+      <p className="-mt-2 text-xs text-[var(--wn-9)]">{kindTabs.find((tab) => tab.id === kind)?.hint}</p>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">Title</span>
+        <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
+          {t.editor.titleLabel}
+        </span>
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder={kind === 'writing' ? 'A letter to a friend' : 'Unit 4 revision'}
+          placeholder={
+            kind === 'writing' ? t.editor.titlePlaceholderWriting : t.editor.titlePlaceholder
+          }
           className="futuristic-input min-h-[44px] w-full px-3 text-sm"
         />
       </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
-          Note for students <span className="normal-case text-[var(--wn-8)]">(optional)</span>
+          {t.editor.noteLabel}{' '}
+          <span className="normal-case text-[var(--wn-8)]">{t.editor.optional}</span>
         </span>
         <textarea
           value={instructions}
           onChange={(event) => setInstructions(event.target.value)}
           rows={2}
-          placeholder="Do this before Friday. No dictionary."
+          placeholder={t.editor.notePlaceholder}
           className="futuristic-input w-full px-3 py-2 text-sm"
         />
       </label>
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">Due</span>
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
+            {t.editor.dueLabel}
+          </span>
           <input
             type="date"
             value={due}
@@ -211,7 +227,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
         {kind !== 'writing' ? (
           <label className="flex flex-col gap-1">
             <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
-              Pass line · {passScore}%
+              {t.editor.passLineLabel(passScore)}
             </span>
             <input
               type="range"
@@ -221,12 +237,14 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
               value={passScore}
               onChange={(event) => setPassScore(Number(event.target.value))}
               className="h-11 w-full accent-neon-green"
-              aria-label="Pass line"
+              aria-label={t.editor.passLineAria}
             />
           </label>
         ) : (
           <label className="flex flex-col gap-1">
-            <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">Min words</span>
+            <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
+              {t.editor.minWordsLabel}
+            </span>
             <input
               type="number"
               min={20}
@@ -244,9 +262,9 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
         <div className="flex flex-col gap-3 rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
           <div className="flex gap-1.5">
             {([
-              ['level', 'By level'],
-              ['deck', 'My decks'],
-              ['paste', 'Paste list'],
+              ['level', t.editor.source.level],
+              ['deck', t.editor.source.deck],
+              ['paste', t.editor.source.paste],
             ] as const).map(([id, label]) => (
               <button
                 key={id}
@@ -304,19 +322,17 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
                 value={deckId}
                 onChange={(event) => setDeckId(event.target.value)}
                 className="futuristic-input min-h-[44px] w-full px-3 text-sm"
-                aria-label="Saved deck"
+                aria-label={t.editor.deckAria}
               >
-                <option value="">Pick a deck…</option>
+                <option value="">{t.editor.deckPlaceholder}</option>
                 {decks.map((deck) => (
                   <option key={deck.id} value={deck.id}>
-                    {deck.name} · {deck.words.length} words
+                    {t.editor.deckOption(deck.name, deck.words.length)}
                   </option>
                 ))}
               </select>
             ) : (
-              <p className="text-xs text-[var(--wn-9)]">
-                No decks yet. Build one in Teaching tools → Check Vocabulary → My decks.
-              </p>
+              <p className="text-xs text-[var(--wn-9)]">{t.editor.noDecks}</p>
             )
           )}
 
@@ -326,20 +342,20 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
                 value={pasted}
                 onChange={(event) => setPasted(event.target.value)}
                 rows={5}
-                placeholder={'apple\tquả táo\nborrow\tvay, mượn\nfurniture\tnội thất'}
+                placeholder={t.editor.pastePlaceholder}
                 className="futuristic-input w-full px-3 py-2 font-mono text-xs"
               />
               <p className="text-xs text-[var(--wn-9)]">
-                {pastedWords.length} words
-                {pastedWarnings.size > 0 && ` · ${pastedWarnings.size} need a look`}
-                {pastedWords.length > MAX_ASSIGNMENT_WORDS && ` · first ${MAX_ASSIGNMENT_WORDS} will be used`}
+                {t.editor.pasteSummary(
+                  pastedWords.length,
+                  pastedWarnings.size,
+                  MAX_ASSIGNMENT_WORDS,
+                )}
               </p>
             </div>
           )}
 
-          <p className="text-xs text-[var(--wn-9)]">
-            {words.length} words in this set · Vietnamese prompt, English answer.
-          </p>
+          <p className="text-xs text-[var(--wn-9)]">{t.editor.setSummary(words.length)}</p>
         </div>
       )}
 
@@ -349,14 +365,14 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
             <div key={index} className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--wn-9)]">
-                  Question {index + 1}
+                  {t.editor.question(index + 1)}
                 </span>
                 {questions.length > 1 && (
                   <button
                     type="button"
                     onClick={() => setQuestions((prev) => prev.filter((_, at) => at !== index))}
                     className="wc-icon-btn h-9 w-9"
-                    aria-label={`Remove question ${index + 1}`}
+                    aria-label={t.editor.removeQuestionAria(index + 1)}
                   >
                     <Icon name="close" size={14} />
                   </button>
@@ -365,7 +381,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
               <input
                 value={question.prompt}
                 onChange={(event) => updateQuestion(index, { prompt: event.target.value })}
-                placeholder="Choose the word that means “to lend”"
+                placeholder={t.editor.questionPlaceholder}
                 className="futuristic-input min-h-[44px] w-full px-3 text-sm"
               />
               <div className="flex flex-col gap-1.5">
@@ -374,7 +390,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
                     <button
                       type="button"
                       onClick={() => updateQuestion(index, { answer: choiceIndex })}
-                      aria-label={`Mark option ${choiceIndex + 1} as correct`}
+                      aria-label={t.editor.correctOptionAria(choiceIndex + 1)}
                       aria-pressed={question.answer === choiceIndex}
                       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
                         question.answer === choiceIndex
@@ -387,7 +403,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
                     <input
                       value={choice}
                       onChange={(event) => updateChoice(index, choiceIndex, event.target.value)}
-                      placeholder={`Option ${String.fromCharCode(65 + choiceIndex)}`}
+                      placeholder={t.editor.optionPlaceholder(String.fromCharCode(65 + choiceIndex))}
                       className="futuristic-input min-h-[44px] w-full px-3 text-sm"
                     />
                   </div>
@@ -402,7 +418,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
               className="wc-btn wc-btn-secondary min-h-[44px]"
             >
               <Icon name="plus" size={16} />
-              Add question
+              {t.editor.addQuestion}
             </button>
           )}
         </div>
@@ -410,12 +426,14 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
 
       {kind === 'writing' && (
         <div className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">Prompt</span>
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
+            {t.editor.promptLabel}
+          </span>
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             rows={4}
-            placeholder="Write 80–100 words to a friend about your last holiday. Use the past simple."
+            placeholder={t.editor.promptPlaceholder}
             className="futuristic-input w-full px-3 py-2 text-sm"
           />
         </div>
@@ -423,7 +441,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
 
       <div className="flex flex-col gap-2 border-t border-[var(--wn-4)] pt-3 sm:flex-row sm:justify-end">
         <button type="button" onClick={onCancel} className="wc-btn wc-btn-secondary min-h-[44px]">
-          Cancel
+          {common.cancel}
         </button>
         <button
           type="button"
@@ -431,7 +449,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
           disabled={busy}
           className="wc-btn wc-btn-primary min-h-[44px] disabled:opacity-50"
         >
-          {busy ? 'Assigning…' : 'Assign to class'}
+          {busy ? t.editor.assigning : t.editor.assign}
         </button>
       </div>
     </div>

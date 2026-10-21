@@ -34,6 +34,10 @@ import {
 import { DAILY_TRACK, SOLO_TRACKS, type SoloTrack } from '../services/solo';
 import { toast } from './Feedback';
 import { Icon } from './Icon';
+import { useT } from '../i18n/useT';
+import { trackText } from '../i18n/tracks';
+import { useLocale } from '../i18n/useLocale';
+import type { Dictionary } from '../i18n/types';
 
 /** A tab is considered live while its heartbeat is this fresh. */
 const ONLINE_WINDOW_MS = 3 * 60 * 1000;
@@ -50,14 +54,18 @@ const toMillis = (value: unknown): number | null => {
   return null;
 };
 
-const relativeTime = (ms: number | null): string => {
-  if (!ms) return 'Never';
+const relativeTime = (
+  ms: number | null,
+  t: Dictionary['admin']['relative'],
+  locale: string,
+): string => {
+  if (!ms) return t.never;
   const diff = Date.now() - ms;
-  if (diff < 60_000) return 'Just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} h ago`;
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} d ago`;
-  return new Date(ms).toLocaleDateString();
+  if (diff < 60_000) return t.justNow;
+  if (diff < 3_600_000) return t.minutesAgo(Math.floor(diff / 60_000));
+  if (diff < 86_400_000) return t.hoursAgo(Math.floor(diff / 3_600_000));
+  if (diff < 7 * 86_400_000) return t.daysAgo(Math.floor(diff / 86_400_000));
+  return new Date(ms).toLocaleDateString(locale);
 };
 
 const initialsOf = (label: string): string =>
@@ -88,28 +96,26 @@ interface AccountRow extends DirectoryRow {
 
 type TierFilter = 'all' | 'free' | 'pro';
 
-const FILTERS: { id: TierFilter; label: string }[] = [
-  { id: 'all', label: 'All accounts' },
-  { id: 'free', label: 'FREE' },
-  { id: 'pro', label: 'PRO' },
-];
-
-const TierBadge: React.FC<{ pro: boolean }> = ({ pro }) => (
-  <span
-    className={`shrink-0 rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider ${
-      pro
-        ? 'bg-[var(--wa-2)] text-[var(--wa-11)]'
-        : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
-    }`}
-  >
-    {pro ? 'PRO' : 'FREE'}
-  </span>
-);
+const TierBadge: React.FC<{ pro: boolean }> = ({ pro }) => {
+  const t = useT('admin');
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider ${
+        pro
+          ? 'bg-[var(--wa-2)] text-[var(--wa-11)]'
+          : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
+      }`}
+    >
+      {pro ? t.badges.pro : t.badges.free}
+    </span>
+  );
+};
 
 const RoleBadge: React.FC<{ role: UserRole; isSelf: boolean }> = ({ role, isSelf }) => {
+  const t = useT('admin');
   // The signed-in admin is a teacher by definition, so the row says so even before the
   // `role` field is written.
-  const label = isSelf ? 'ADMIN' : role === 'teacher' ? 'TEACHER' : 'STUDENT';
+  const label = isSelf ? t.badges.admin : role === 'teacher' ? t.badges.teacher : t.badges.student;
   const tone = isSelf
     ? 'bg-cyber-purple/20 text-cyber-purple'
     : role === 'teacher'
@@ -124,6 +130,9 @@ const RoleBadge: React.FC<{ role: UserRole; isSelf: boolean }> = ({ role, isSelf
 
 export const AdminAccountsPanel: React.FC = () => {
   const { user, getIdToken } = useAuth();
+  const t = useT('admin');
+  const common = useT('common');
+  const locale = useLocale();
   const [directory, setDirectory] = useState<DirectoryRow[]>([]);
   const [access, setAccess] = useState<AdminAccountAccess[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,9 +174,7 @@ export const AdminAccountsPanel: React.FC = () => {
       },
       () => {
         setLoading(false);
-        setError(
-          'Could not read the account directory. Check that the admin email in firestore.rules matches ADMIN_EMAILS.',
-        );
+        setError(t.directory.loadFailed);
       },
     );
   }, []);
@@ -240,7 +247,7 @@ export const AdminAccountsPanel: React.FC = () => {
     if (!db || saving) return;
     const name = draft.trim().replace(/\s+/g, ' ');
     if (name.length < DISPLAY_NAME_MIN || name.length > DISPLAY_NAME_MAX) {
-      toast(`Names need ${DISPLAY_NAME_MIN}–${DISPLAY_NAME_MAX} characters.`, 'error');
+      toast(t.directory.nameLength(DISPLAY_NAME_MIN, DISPLAY_NAME_MAX), 'error');
       return;
     }
     setSaving(true);
@@ -251,10 +258,10 @@ export const AdminAccountsPanel: React.FC = () => {
       });
       // The player's current-period board rows follow the admin rename too.
       void refreshSoloDisplayName(row.uid, name);
-      toast(`Renamed ${row.email || row.uid} to ${name}.`, 'success');
+      toast(t.directory.renamed(row.email || row.uid, name), 'success');
       setEditingUid(null);
     } catch {
-      toast('Could not rename that account. The admin rules may not be deployed yet.', 'error');
+      toast(t.directory.renameFailed, 'error');
     } finally {
       setSaving(false);
     }
@@ -275,63 +282,64 @@ export const AdminAccountsPanel: React.FC = () => {
         roleUpdatedAt: serverTimestamp(),
       });
       toast(
-        next === 'teacher'
-          ? `${label} can open the tools now.`
-          : `${label} is back to a student.`,
+        next === 'teacher' ? t.directory.promoted(label) : t.directory.demoted(label),
         'success',
       );
     } catch {
-      toast('Could not change that role. Check that the admin email is in the Firestore rules.', 'error');
+      toast(t.directory.roleFailed, 'error');
     } finally {
       setRoleBusy(null);
     }
   };
+
+  const filters: { id: TierFilter; label: string }[] = [
+    { id: 'all', label: t.directory.filters.all },
+    { id: 'free', label: t.directory.filters.free },
+    { id: 'pro', label: t.directory.filters.pro },
+  ];
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="wc-card p-4">
           <p className="text-2xl font-bold tabular-nums text-[var(--wn-12)]">{stats.total}</p>
-          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">Accounts</p>
+          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">{t.stats.accounts}</p>
         </div>
         <div className="wc-card p-4">
           <p className="text-2xl font-bold tabular-nums text-[var(--wa-11)]">{stats.pro}</p>
-          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">PRO</p>
+          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">{t.stats.pro}</p>
         </div>
         <div className="wc-card p-4">
           <p className="text-2xl font-bold tabular-nums text-[var(--wn-12)]">{stats.free}</p>
-          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">FREE</p>
+          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">{t.stats.free}</p>
         </div>
         <div className="wc-card p-4">
           <p className="flex items-center gap-2 text-2xl font-bold tabular-nums text-[var(--wn-12)]">
             {stats.online > 0 && <span className="wc-live-dot" aria-hidden="true" />}
             {stats.online}
           </p>
-          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">Online now</p>
+          <p className="mt-1 text-xs font-medium text-[var(--wn-9)]">{t.stats.onlineNow}</p>
         </div>
       </div>
 
       <div className="wc-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-[var(--wn-12)]">Accounts</p>
-            <p className="mt-1 text-xs text-[var(--wn-9)]">
-              FREE upgrades to PRO automatically once a paid order is matched to the account
-              (uid or verified email).
-            </p>
+            <p className="text-sm font-semibold text-[var(--wn-12)]">{t.directory.title}</p>
+            <p className="mt-1 text-xs text-[var(--wn-9)]">{t.directory.subtitle}</p>
           </div>
           <button
             type="button"
             onClick={() => void loadAccess()}
             className="wc-btn wc-btn-secondary wc-btn-sm"
           >
-            {accessLoading ? 'Refreshing…' : 'Refresh PRO'}
+            {accessLoading ? t.directory.refreshing : t.directory.refresh}
           </button>
         </div>
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter accounts">
-            {FILTERS.map((item) => (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t.directory.filterAria}>
+            {filters.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -345,14 +353,14 @@ export const AdminAccountsPanel: React.FC = () => {
           </div>
           <div className="sm:ml-auto sm:w-64">
             <label htmlFor="adminAccountSearch" className="sr-only">
-              Search accounts
+              {t.directory.searchLabel}
             </label>
             <input
               id="adminAccountSearch"
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search name or email…"
+              placeholder={t.directory.searchPlaceholder}
               className={INPUT_CLASS}
             />
           </div>
@@ -365,9 +373,9 @@ export const AdminAccountsPanel: React.FC = () => {
         )}
 
         {loading ? (
-          <p className="mt-4 animate-subtlePulse text-xs text-[var(--wn-9)]">Loading accounts…</p>
+          <p className="mt-4 animate-subtlePulse text-xs text-[var(--wn-9)]">{t.directory.loading}</p>
         ) : visible.length === 0 ? (
-          <p className="mt-4 text-xs text-[var(--wn-9)]">No accounts match this view.</p>
+          <p className="mt-4 text-xs text-[var(--wn-9)]">{t.directory.empty}</p>
         ) : (
           <ul className="mt-4 space-y-2">
             {visible.map((row) => {
@@ -397,7 +405,7 @@ export const AdminAccountsPanel: React.FC = () => {
                             value={draft}
                             maxLength={DISPLAY_NAME_MAX}
                             onChange={(event) => setDraft(event.target.value)}
-                            aria-label={`Display name for ${row.email || row.uid}`}
+                            aria-label={t.directory.displayNameAria(row.email || row.uid)}
                             className={INPUT_CLASS}
                             autoFocus
                           />
@@ -408,41 +416,49 @@ export const AdminAccountsPanel: React.FC = () => {
                               disabled={saving}
                               className="wc-btn wc-btn-primary wc-btn-sm"
                             >
-                              {saving ? 'Saving…' : 'Save'}
+                              {saving ? common.saving : common.save}
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingUid(null)}
                               className="wc-btn wc-btn-secondary wc-btn-sm"
                             >
-                              Cancel
+                              {common.cancel}
                             </button>
                           </div>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
                           <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-                            {row.displayName || '(no display name)'}
+                            {row.displayName || t.directory.noDisplayName}
                           </p>
                           <TierBadge pro={row.pro} />
                           <RoleBadge role={row.role} isSelf={isSelf} />
                           {row.online && (
                             <span className="inline-flex shrink-0 items-center gap-1 text-[0.65rem] font-semibold text-[var(--wa-11)]">
                               <span className="wc-live-dot" aria-hidden="true" />
-                              Online
+                              {t.directory.online}
                             </span>
                           )}
                         </div>
                       )}
 
                       <p className="mt-0.5 truncate text-xs text-[var(--wn-9)]">
-                        {row.email || 'No email on file'}
+                        {row.email || t.directory.noEmail}
                       </p>
                       <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[0.7rem] text-[var(--wn-8)]">
-                        <span>Last seen: {relativeTime(row.lastSeenAt)}</span>
-                        <span>Last login: {relativeTime(row.lastLoginAt)}</span>
-                        <span>Joined: {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : 'Unknown'}</span>
-                        {row.pro && <span>PRO since: {relativeTime(row.proSince)}</span>}
+                        <span>{t.directory.lastSeen(relativeTime(row.lastSeenAt, t.relative, locale))}</span>
+                        <span>{t.directory.lastLogin(relativeTime(row.lastLoginAt, t.relative, locale))}</span>
+                        <span>
+                          {t.directory.joined(
+                            row.createdAt
+                              ? new Date(row.createdAt).toLocaleDateString(locale)
+                              : t.directory.unknown,
+                          )}
+                        </span>
+                        {row.pro && (
+                          <span>{t.directory.proSince(relativeTime(row.proSince, t.relative, locale))}</span>
+                        )}
                       </p>
                     </div>
 
@@ -458,23 +474,23 @@ export const AdminAccountsPanel: React.FC = () => {
                             className="min-h-[44px] shrink-0 rounded-md border border-[var(--wn-4)] px-2 text-[0.7rem] font-semibold text-[var(--wn-10)] transition-colors hover:border-neon-green/60 hover:text-neon-green disabled:opacity-60"
                             title={
                               row.role === 'teacher'
-                                ? 'Remove teacher tool access'
-                                : 'Give teacher tool access'
+                                ? t.directory.revokeToolsTitle
+                                : t.directory.grantToolsTitle
                             }
                           >
                             {roleBusy === row.uid
-                              ? 'Saving…'
+                              ? common.saving
                               : row.role === 'teacher'
-                                ? 'Make student'
-                                : 'Make teacher'}
+                                ? t.directory.makeStudent
+                                : t.directory.makeTeacher}
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={() => startEdit(row)}
                           className="wc-icon-btn shrink-0"
-                          aria-label={`Rename ${label}`}
-                          title="Rename this account"
+                          aria-label={t.directory.renameAria(label)}
+                          title={t.directory.renameTitle}
                         >
                           <Icon name="pencil" size={16} />
                         </button>
@@ -493,15 +509,18 @@ export const AdminAccountsPanel: React.FC = () => {
 
 const RECORD_BOARDS: SoloTrack[] = [...SOLO_TRACKS, DAILY_TRACK];
 
-const formatPeriod = (period: string): string => {
+const formatPeriod = (period: string, locale: string): string => {
   const match = /^(\d{4})-(\d{2})$/.exec(period);
   if (!match) return period;
   const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
-  return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  return date.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 };
 
 /** The archived Solo boards: every month that has scores, per track, read-only. */
 export const AdminMonthlyRecords: React.FC = () => {
+  const t = useT('admin');
+  const gameTracks = useT('game').setup.tracks;
+  const locale = useLocale();
   const [boardId, setBoardId] = useState(RECORD_BOARDS[0].id);
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string | null>(null);
@@ -510,6 +529,8 @@ export const AdminMonthlyRecords: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const isDaily = boardId === DAILY_TRACK.id;
+  const summaryPeriod = period ? formatPeriod(period, locale) : null;
+  const summaryPlayers = !loading && total > 0 ? total : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -549,29 +570,27 @@ export const AdminMonthlyRecords: React.FC = () => {
     <div className="wc-card p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-[var(--wn-12)]">Monthly records</p>
-          <p className="mt-1 text-xs text-[var(--wn-9)]">
-            Every finished month stays on file. Today&apos;s Challenge keeps a board per day.
-          </p>
+          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.monthly.title}</p>
+          <p className="mt-1 text-xs text-[var(--wn-9)]">{t.monthly.subtitle}</p>
         </div>
         {period && (
           <select
             value={period}
             onChange={(event) => setPeriod(event.target.value)}
-            aria-label="Choose a month"
+            aria-label={t.monthly.monthAria}
             className="shrink-0 rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--wn-11)] outline-none focus:border-[var(--wa-5)]"
           >
-            {periods.length === 0 && <option value={period}>{formatPeriod(period)}</option>}
+            {periods.length === 0 && <option value={period}>{formatPeriod(period, locale)}</option>}
             {periods.map((item) => (
               <option key={item} value={item}>
-                {isDaily ? item : formatPeriod(item)}
+                {isDaily ? item : formatPeriod(item, locale)}
               </option>
             ))}
           </select>
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Choose a board">
+      <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label={t.monthly.boardsAria}>
         {RECORD_BOARDS.map((item) => (
           <button
             key={item.id}
@@ -581,21 +600,21 @@ export const AdminMonthlyRecords: React.FC = () => {
             className={`wc-btn wc-btn-sm ${boardId === item.id ? 'wc-btn-primary' : 'wc-btn-ghost'}`}
           >
             <span aria-hidden="true">{item.emoji}</span>
-            {item.name}
+            {trackText(gameTracks, item).name}
           </button>
         ))}
       </div>
 
       <p className="mt-2 text-xs font-semibold text-[var(--wa-10)]">
-        {isDaily ? 'Daily board' : 'Monthly board'}
-        {period ? ` · ${formatPeriod(period)}` : ''}
-        {!loading && total > 0 ? ` · ${total} player${total === 1 ? '' : 's'}` : ''}
+        {isDaily
+          ? t.monthly.dailyBoard(summaryPeriod, summaryPlayers)
+          : t.monthly.monthlyBoard(summaryPeriod, summaryPlayers)}
       </p>
 
       {loading ? (
-        <p className="mt-3 animate-subtlePulse text-xs text-[var(--wn-9)]">Loading records…</p>
+        <p className="mt-3 animate-subtlePulse text-xs text-[var(--wn-9)]">{t.monthly.loading}</p>
       ) : rows.length === 0 ? (
-        <p className="mt-3 text-xs text-[var(--wn-9)]">No scores on this board yet.</p>
+        <p className="mt-3 text-xs text-[var(--wn-9)]">{t.monthly.empty}</p>
       ) : (
         <ol className="mt-3 space-y-1">
           {rows.map((row, index) => (
@@ -607,9 +626,11 @@ export const AdminMonthlyRecords: React.FC = () => {
                 {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
               </span>
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
-              <span className="shrink-0 text-xs text-[var(--wn-8)]">{row.wordsGuessed} words</span>
+              <span className="shrink-0 text-xs text-[var(--wn-8)]">
+                {t.monthly.words(row.wordsGuessed)}
+              </span>
               <span className="w-16 shrink-0 text-right font-bold tabular-nums text-[var(--wn-12)]">
-                {row.score.toLocaleString()}
+                {row.score.toLocaleString(locale)}
               </span>
             </li>
           ))}

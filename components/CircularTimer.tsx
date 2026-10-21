@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { useT } from '../i18n/useT';
 
 interface CircularTimerProps {
   timeLeft: number;
@@ -18,6 +19,7 @@ const CircularTimerBase: React.FC<CircularTimerProps> = ({
   size = 80, 
   strokeWidth = 7, 
 }) => {
+  const t = useT('game');
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   
@@ -58,11 +60,11 @@ const CircularTimerBase: React.FC<CircularTimerProps> = ({
       {isFrozen && (
         <div
           className="timer-frozen-display flex items-center" // Uses existing class for background/animation
-          aria-label="Timer Frozen"
+          aria-label={t.play.timerFrozenAria}
         >
           <span className="text-lg leading-none text-electric-blue" aria-hidden="true">❄️</span>
           <span className="ml-1 text-xs font-semibold text-light-text hidden sm:inline">
-            FROZEN
+            {t.play.frozen}
           </span>
         </div>
       )}
