@@ -43,6 +43,23 @@ rules_version = '2';
 //     Doc periods/{period} chỉ là dấu "kỳ này có người chơi" để dashboard liệt
 //     kê các tháng; nó được ghi kèm mỗi lần submit điểm.
 //
+//   classes/{classId}                       (My Class — giáo viên tạo)
+//     members/{emailKey}                    danh sách lớp, email viết thường
+//     assignments/{assignmentId}            bài giao: vocabulary | quiz | writing
+//     submissions/{assignmentId__uid}       bài nộp, mỗi học sinh một doc
+//   classCodes/{CODE}                       danh bạ mã lớp: code → classId, không gì khác
+//
+//     Quyền trong My Class suy ra TỪ DOC LỚP, không từ users/{uid} của ai:
+//       - Giáo viên chỉ chạm được lớp có teacherUid == uid của mình.
+//       - Học sinh đọc bài/ghi bài nộp chỉ khi email của mình nằm trong members và
+//         đã join (status = 'active'). Thêm email vào lớp KHÔNG mở quyền gì trên
+//         hồ sơ người dùng đó — giáo viên không đọc được users/{uid} của học sinh.
+//       - Admin đi qua nhánh isAdmin() như mọi nơi khác.
+//
+//     classCodes là danh bạ công khai trong phạm vi đã đăng nhập: biết mã thì tra
+//     ra classId, nhưng muốn đọc dữ liệu vẫn phải có email trong members. Không ai
+//     list được toàn bộ mã (chống thu thập code).
+//
 // ⚠️ ADMIN: sửa danh sách trong adminEmails() bên dưới cho khớp ĐÚNG giá trị
 //    secret ADMIN_EMAILS của Cloudflare Worker. Firestore rules không đọc được
 //    biến môi trường của Worker, nên danh sách này phải được chép tay. Email
@@ -75,6 +92,34 @@ service cloud.firestore {
       return isSignedIn()
         && request.auth.token.email is string
         && request.auth.token.email.lower() in adminEmails();
+    }
+
+    // Email đã chuẩn hoá của người đang đăng nhập — cũng chính là id của member doc.
+    // Tài khoản không có email (hiếm) trả về chuỗi rỗng nên mọi so sánh đều false.
+    function myEmail() {
+      return request.auth != null && request.auth.token.email is string
+        ? request.auth.token.email.lower()
+        : '';
+    }
+
+    function classDoc(classId) {
+      return get(/databases/$(database)/documents/classes/$(classId)).data;
+    }
+
+    // Giáo viên sở hữu lớp. Dùng get() nên trả false (thay vì lỗi) khi lớp không tồn tại.
+    function isClassTeacher(classId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/classes/$(classId))
+        && classDoc(classId).teacherUid == request.auth.uid;
+    }
+
+    // Học sinh đã join lớp: email nằm trong roster VÀ đã nhập mã (status active).
+    // Được add email nhưng chưa join thì chưa đọc được bài.
+    function isClassMember(classId) {
+      return isSignedIn()
+        && myEmail() != ''
+        && exists(/databases/$(database)/documents/classes/$(classId)/members/$(myEmail()))
+        && get(/databases/$(database)/documents/classes/$(classId)/members/$(myEmail())).data.status == 'active';
     }
 
     // ── Hồ sơ người dùng + counter tiến độ ───────────────────────────────
@@ -198,6 +243,183 @@ service cloud.firestore {
         && data.updatedAt is number
         && data.period is string
         && (data.period.size() == 7 || data.period.size() == 10);
+    }
+
+    // ── My Class: lớp học, bài giao, bài nộp ─────────────────────────────
+
+    match /classes/{classId} {
+      // Giáo viên sở hữu đọc lớp của mình; học sinh đã join đọc được lớp để biết tên
+      // và giáo viên. Danh sách lớp (dashboard giáo viên) dùng query
+      // where('teacherUid','==',uid) nên phải kiểm bằng field, không bằng get().
+      allow get: if isClassTeacher(classId) || isClassMember(classId) || isAdmin();
+      allow list: if isAdmin() || (isSignedIn() && resource.data.teacherUid == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && isValidClass(request.resource.data)
+        && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.teacherEmail == myEmail();
+
+      // Đổi tên lớp được; đổi chủ sở hữu thì không (quyền đi theo teacherUid).
+      allow update: if (isClassTeacher(classId) || isAdmin())
+        && isValidClass(request.resource.data)
+        && request.resource.data.teacherUid == resource.data.teacherUid;
+
+      allow delete: if isClassTeacher(classId) || isAdmin();
+
+      // ── Danh sách lớp (roster) ──
+      match /members/{memberEmail} {
+        // Học sinh đọc đúng dòng của mình (cần cho lúc join); giáo viên đọc cả roster.
+        allow get: if isClassTeacher(classId) || isAdmin() || memberEmail == myEmail();
+        allow list: if isClassTeacher(classId) || isAdmin();
+
+        // Giáo viên add email: trạng thái đầu tiên luôn là 'invited', uid còn trống.
+        allow create: if isClassTeacher(classId)
+          && isValidMember(request.resource.data)
+          && request.resource.data.email == memberEmail
+          && request.resource.data.status == 'invited'
+          && request.resource.data.uid == null
+          && request.resource.data.joinedAt == null;
+
+        // Giáo viên sửa được (đổi tên hiển thị). Học sinh chỉ được tự "kích hoạt"
+        // dòng của chính mình khi nhập đúng mã — và chỉ chạm 4 field đó thôi.
+        allow update: if isClassTeacher(classId)
+          || (memberEmail == myEmail()
+              && isSignedIn()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'name', 'status', 'joinedAt'])
+              && request.resource.data.email == resource.data.email
+              && request.resource.data.uid == request.auth.uid
+              && request.resource.data.status == 'active'
+              && request.resource.data.joinedAt is number);
+
+        allow delete: if isClassTeacher(classId) || isAdmin();
+      }
+
+      // ── Bài giao ──
+      match /assignments/{assignmentId} {
+        // Học sinh đã join đọc được bài; người được add email nhưng chưa join thì không.
+        allow get, list: if isClassTeacher(classId) || isClassMember(classId) || isAdmin();
+
+        allow create: if isClassTeacher(classId) && isValidAssignment(request.resource.data);
+        allow update: if isClassTeacher(classId) && isValidAssignment(request.resource.data);
+        allow delete: if isClassTeacher(classId) || isAdmin();
+      }
+
+      // ── Bài nộp ──
+      match /submissions/{submissionId} {
+        allow get: if isClassTeacher(classId) || isAdmin()
+          || (isClassMember(classId) && resource.data.uid == request.auth.uid);
+
+        // Học sinh chỉ list được bài của mình — rule dùng resource.data nên query
+        // bắt buộc phải có where('uid','==',uid) (xem fetchSubmissions).
+        allow list: if isClassTeacher(classId) || isAdmin()
+          || (isClassMember(classId) && resource.data.uid == request.auth.uid);
+
+        // Học sinh nộp bài: đúng uid của mình, đúng email của mình, và không tự
+        // đặt điểm/feedback của giáo viên.
+        allow create: if isClassMember(classId)
+          && isValidSubmission(request.resource.data)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.email == myEmail()
+          && request.resource.data.graded == false
+          && request.resource.data.feedback == '';
+
+        // Làm lại: điểm và trạng thái pass chỉ được tăng (client đã giữ max), còn
+        // field chấm bài thì bất động. Giáo viên chấm writing đi qua nhánh riêng.
+        allow update: if isClassTeacher(classId) || isAdmin()
+          || (isClassMember(classId)
+              && request.resource.data.uid == request.auth.uid
+              && resource.data.uid == request.auth.uid
+              && isValidSubmission(request.resource.data)
+              && request.resource.data.email == resource.data.email
+              && request.resource.data.score >= resource.data.score
+              && request.resource.data.graded == resource.data.graded
+              && request.resource.data.feedback == resource.data.feedback);
+
+        allow delete: if isClassTeacher(classId) || isAdmin();
+      }
+    }
+
+    // ── Mã lớp: danh bạ code → classId ───────────────────────────────────
+
+    match /classCodes/{code} {
+      // Biết mã thì tra được classId. Chỉ get, không list: không ai thu thập được
+      // toàn bộ mã đang tồn tại, và doc này không chứa gì ngoài classId.
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      // Chỉ giáo viên sở hữu lớp vừa tạo mới được đăng ký mã cho lớp đó — nếu không,
+      // người khác có thể ghi đè mã của lớp mình không sở hữu.
+      allow create: if isSignedIn()
+        && code.matches('^[A-HJ-NP-Z2-9]{6}$')
+        && request.resource.data.keys().hasAll(['classId', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['classId', 'createdAt'])
+        && request.resource.data.classId is string
+        && request.resource.data.createdAt is number
+        && exists(/databases/$(database)/documents/classes/$(request.resource.data.classId))
+        && classDoc(request.resource.data.classId).teacherUid == request.auth.uid;
+
+      // Xoá lớp đi kèm xoá mã (deleteClass xoá mã trước, nên lớp vẫn còn để kiểm).
+      allow delete: if isSignedIn()
+        && exists(/databases/$(database)/documents/classes/$(resource.data.classId))
+        && classDoc(resource.data.classId).teacherUid == request.auth.uid;
+
+      allow update: if false;
+    }
+
+    function isValidClass(data) {
+      return data.keys().hasAll(['name', 'joinCode', 'teacherUid', 'teacherEmail', 'teacherName', 'createdAt'])
+        && data.keys().hasOnly(['name', 'joinCode', 'teacherUid', 'teacherEmail', 'teacherName', 'createdAt'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 40
+        && data.joinCode is string && data.joinCode.size() == 6
+        && data.teacherUid is string
+        && data.teacherEmail is string
+        && data.teacherName is string && data.teacherName.size() <= 80
+        && data.createdAt is number;
+    }
+
+    function isValidMember(data) {
+      return data.keys().hasAll(['email', 'name', 'uid', 'status', 'addedAt', 'joinedAt'])
+        && data.keys().hasOnly(['email', 'name', 'uid', 'status', 'addedAt', 'joinedAt'])
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 320
+        && data.name is string && data.name.size() <= 80
+        && (data.uid == null || data.uid is string)
+        && (data.status == 'invited' || data.status == 'active')
+        && data.addedAt is number
+        && (data.joinedAt == null || data.joinedAt is number);
+    }
+
+    // Bài giao: chỉ cần đúng hình dạng và trần kích thước. Nội dung là của giáo viên
+    // nên không cần kiểm chặt hơn; cái cần chặn là payload khổng lồ.
+    function isValidAssignment(data) {
+      return data.keys().hasAll(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords'])
+        && data.keys().hasOnly(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords'])
+        && data.kind in ['vocabulary', 'quiz', 'writing']
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 120
+        && data.instructions is string && data.instructions.size() <= 2000
+        && data.createdAt is number
+        && (data.dueAt == null || data.dueAt is number)
+        && (data.passScore == null || (data.passScore is number && data.passScore >= 0 && data.passScore <= 100))
+        && data.words is list && data.words.size() <= 60
+        && data.questions is list && data.questions.size() <= 30
+        && data.prompt is string && data.prompt.size() <= 2000
+        && data.minWords is number && data.minWords >= 0 && data.minWords <= 400;
+    }
+
+    function isValidSubmission(data) {
+      return data.keys().hasAll(['assignmentId', 'uid', 'email', 'name', 'kind', 'score', 'passed', 'attempts', 'detail', 'submittedAt', 'graded', 'feedback'])
+        && data.keys().hasOnly(['assignmentId', 'uid', 'email', 'name', 'kind', 'score', 'passed', 'attempts', 'detail', 'submittedAt', 'graded', 'feedback'])
+        && data.assignmentId is string && data.assignmentId.size() <= 128
+        && data.uid is string
+        && data.email is string
+        && data.name is string && data.name.size() <= 80
+        && data.kind in ['vocabulary', 'quiz', 'writing']
+        && data.score is number && data.score >= 0 && data.score <= 100
+        && data.passed is bool
+        && data.attempts is number && data.attempts >= 1 && data.attempts <= 1000
+        && data.detail is map
+        && data.submittedAt is number
+        && data.graded is bool
+        && data.feedback is string && data.feedback.size() <= 2000;
     }
 
     // Mặc định chặn tất cả những thứ còn lại.

@@ -16,6 +16,7 @@ import {
   type TeacherSession,
 } from './services/teacherDeck';
 import { localDateId } from './services/periods';
+import type { ClassAssignment } from './services/classes';
 import { CHECK_VOCABULARY } from './services/tools';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
@@ -36,6 +37,11 @@ const SoloResultsScreen = lazy(() => import('./components/SoloResultsScreen').th
 const TeacherSetupScreen = lazy(() => import('./components/TeacherSetupScreen').then((m) => ({ default: m.TeacherSetupScreen })));
 const TeacherTestScreen = lazy(() => import('./components/TeacherTestScreen').then((m) => ({ default: m.TeacherTestScreen })));
 const TeacherReportScreen = lazy(() => import('./components/TeacherReportScreen').then((m) => ({ default: m.TeacherReportScreen })));
+// Homework runs are opened from the My Class shelf and only by students, so the whole
+// runner (it pulls in the vocabulary engine) stays out of the entry chunk.
+const ClassWorkScreen = lazy(() =>
+  import('./components/ClassWorkScreen').then((m) => ({ default: m.ClassWorkScreen })),
+);
 
 /** Neutral placeholder shown for the instant a split screen chunk is still loading. */
 const ScreenFallback: React.FC = () => (
@@ -166,6 +172,22 @@ const App: React.FC = () => {
   const [teacherAnswers, setTeacherAnswers] = useState<TeacherAnswer[] | null>(null);
   // Bumped per attempt so the test screen remounts with a clean index and input.
   const [teacherRunId, setTeacherRunId] = useState(0);
+
+  // == My Class state ==
+  // A homework run is a full-screen overlay rather than a view: the dashboard behind it
+  // keeps its class, roster and scroll position, so closing the run lands the student
+  // exactly where they left off. `classRefreshKey` makes the lists re-read their counts.
+  const [classWork, setClassWork] = useState<{ classId: string; assignment: ClassAssignment } | null>(null);
+  const [classRefreshKey, setClassRefreshKey] = useState(0);
+
+  const handleOpenAssignment = useCallback((classId: string, assignment: ClassAssignment) => {
+    setClassWork({ classId, assignment });
+  }, []);
+
+  const handleCloseAssignment = useCallback(() => {
+    setClassWork(null);
+    setClassRefreshKey((key) => key + 1);
+  }, []);
 
   const { user, profile, getIdToken } = useAuth();
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
@@ -1105,6 +1127,8 @@ const App: React.FC = () => {
           onPlayGame={handlePlayGame}
           onStartDaily={handleStartDaily}
           onOpenTeacher={handleOpenTeacher}
+          onOpenAssignment={handleOpenAssignment}
+          classRefreshKey={classRefreshKey}
           onUnlock={requestPurchase}
           onRefreshAccount={refreshEntitlements}
         />
@@ -1200,6 +1224,19 @@ const App: React.FC = () => {
           </div>
         </footer>
       </div>
+      )}
+
+      {/* Homework sits above the portal rather than replacing it, so the shelf behind
+          still holds the class the student came from. */}
+      {classWork && (
+        <Suspense fallback={<ScreenFallback />}>
+          <ClassWorkScreen
+            key={`${classWork.classId}:${classWork.assignment.id}`}
+            classId={classWork.classId}
+            assignment={classWork.assignment}
+            onClose={handleCloseAssignment}
+          />
+        </Suspense>
       )}
 
       {/* Portal-level dialogs: reachable from the dashboard and from a game. */}

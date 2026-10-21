@@ -34,11 +34,19 @@ import {
   toolAccess,
   toolsVisible,
 } from '../services/tools';
+import type { ClassAssignment } from '../services/classes';
 
 /** Loaded on demand — the leaderboard is opt-in, so it stays out of the entry chunk. */
 const SoloLeaderboardPanel = lazy(() => import('./SoloLeaderboardPanel'));
+/** Both class panels are Firestore-heavy and only one role ever opens either of them. */
+const ClassTeacherPanel = lazy(() =>
+  import('./ClassTeacherPanel').then((module) => ({ default: module.ClassTeacherPanel })),
+);
+const ClassStudentPanel = lazy(() =>
+  import('./ClassStudentPanel').then((module) => ({ default: module.ClassStudentPanel })),
+);
 
-type SectionId = 'games' | 'tools' | 'progress' | 'account' | 'admin' | 'accounts';
+type SectionId = 'games' | 'tools' | 'class' | 'progress' | 'account' | 'admin' | 'accounts';
 
 interface DashboardProps {
   /** True once a licence has been activated on this device. */
@@ -51,6 +59,10 @@ interface DashboardProps {
   onStartDaily: () => void;
   /** Open Tool 1: Check Vocabulary — level-locked tests and pasted decks, no leaderboard. */
   onOpenTeacher: () => void;
+  /** Open one assignment from My Class in the focused work screen. */
+  onOpenAssignment: (classId: string, assignment: ClassAssignment) => void;
+  /** Bumped when the work screen closes so the class lists re-read their counts. */
+  classRefreshKey?: number;
   /** Start the paid path — the app gates this behind sign-in. */
   onUnlock: () => void;
   /** Re-checks what the account owns — lets a freshly reconciled purchase unlock live. */
@@ -145,6 +157,15 @@ const TOOLS_SECTION: { id: SectionId; label: string; icon: IconName; title: stri
   icon: 'wrench',
   title: 'Teaching tools',
   subtitle: 'Classroom tools that sit beside the game — no scores, no leaderboards.',
+};
+
+/** The class shelf: a roster and the work set for it. Only ever opens for a signed-in user. */
+const CLASS_SECTION: { id: SectionId; label: string; icon: IconName; title: string; subtitle: string } = {
+  id: 'class',
+  label: 'My Class',
+  icon: 'user',
+  title: 'My Class',
+  subtitle: 'Assign work, collect it and read what the class actually got wrong.',
 };
 
 /** Owner-only section, appended to the nav only once the admin probe succeeds. */
@@ -242,7 +263,7 @@ const StatCard: React.FC<{ label: string; value: number }> = ({ label, value }) 
   </div>
 );
 
-export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onStartDaily, onOpenTeacher, onUnlock, onRefreshAccount }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, onPlayGame, onStartDaily, onOpenTeacher, onOpenAssignment, classRefreshKey = 0, onUnlock, onRefreshAccount }) => {
   const { user, profile, loading, getIdToken, updateDisplayName } = useAuth();
   const [section, setSection] = useState<SectionId>('games');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -305,6 +326,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
 
   const navSections = useMemo(() => {
     const items = [...SECTIONS];
+    // Class sits next to the tools: both are the teaching side of the portal. The tab
+    // is listed even when signed out on purpose — that shelf is where a brand-new
+    // student is told to sign in, so hiding it would hide the only door into a class.
+    items.splice(1, 0, CLASS_SECTION);
     if (showTools) items.splice(1, 0, TOOLS_SECTION);
     return admin ? [...items, ADMIN_SECTION, ADMIN_ACCOUNTS_SECTION] : items;
   }, [admin, showTools]);
@@ -733,6 +758,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </section>
         <p className="text-xs text-[var(--wn-9)]">More tools will appear on this shelf.</p>
       </div>
+    );
+  };
+
+  /**
+   * My Class. The role decides which half of the feature opens: a teacher gets the roster
+   * and the assignment console, a student gets the list of work and nothing about
+   * classmates. Signing in is the only requirement to see the tab, because the join form
+   * has to live somewhere a brand-new student can reach.
+   */
+  const renderClass = () => {
+    if (!user) {
+      return (
+        <div className="wc-card flex flex-col items-center gap-3 p-8 text-center">
+          <Icon name="user" size={30} className="text-[var(--wn-10)]" />
+          <p className="max-w-sm text-sm text-[var(--wn-10)]">
+            Sign in to join your class. Your teacher adds your email first, then gives you the
+            class code.
+          </p>
+          <LoginButton />
+        </div>
+      );
+    }
+
+    const viewer = {
+      uid: user.uid,
+      email: user.email ?? '',
+      name: profile?.displayName || user.displayName || user.email || 'Student',
+    };
+    // Admins count as teachers everywhere else, so the console opens for them too.
+    const isTeacher = profile?.role === 'teacher' || admin !== null;
+
+    return (
+      <Suspense
+        fallback={
+          <div className="wc-card flex items-center justify-center p-8" role="status" aria-live="polite">
+            <span className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--wn-4)] border-t-electric-blue" />
+            <span className="sr-only">Loading…</span>
+          </div>
+        }
+      >
+        {isTeacher ? (
+          <ClassTeacherPanel viewer={viewer} refreshKey={classRefreshKey} />
+        ) : (
+          <ClassStudentPanel viewer={viewer} onOpenAssignment={onOpenAssignment} refreshKey={classRefreshKey} />
+        )}
+      </Suspense>
     );
   };
 
@@ -1245,6 +1316,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <div className="wc-scroll min-h-0 flex-1 overflow-y-auto p-5 md:p-6">
           {current === 'games' && renderGames()}
           {current === 'tools' && renderTools()}
+          {current === 'class' && renderClass()}
           {current === 'progress' && renderProgress()}
           {current === 'account' && renderAccount()}
           {current === 'admin' && renderAdmin()}

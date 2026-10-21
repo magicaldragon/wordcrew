@@ -34,7 +34,9 @@ export type IconName =
   | 'chart'
   | 'wrench'
   | 'type'
-  | 'trophy';
+  | 'trophy'
+  | 'list'
+  | 'plus';
 
 interface IconProps {
   name: IconName;
@@ -187,6 +189,23 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
       <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
       <path d="M4 22h16" />
+    </>
+  ),
+  // Bulleted lines — a multiple-choice question list.
+  list: (
+    <>
+      <line x1="9" x2="20" y1="6" y2="6" />
+      <line x1="9" x2="20" y1="12" y2="12" />
+      <line x1="9" x2="20" y1="18" y2="18" />
+      <circle cx="4.5" cy="6" r="1" />
+      <circle cx="4.5" cy="12" r="1" />
+      <circle cx="4.5" cy="18" r="1" />
+    </>
+  ),
+  plus: (
+    <>
+      <line x1="12" x2="12" y1="5" y2="19" />
+      <line x1="5" x2="19" y1="12" y2="12" />
     </>
   ),
 };
