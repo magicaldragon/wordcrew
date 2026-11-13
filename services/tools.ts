@@ -22,9 +22,9 @@ export interface ToolDefinition {
 
 export const TOOLS: ToolDefinition[] = [
   {
-    id: 'check-vocabulary',
+    id: 'vocabulary-check',
     slot: 'Tool 1',
-    name: 'Check Vocabulary',
+    name: 'Vocabulary Check',
     summary:
       'Test one CEFR level, A1 to B2, or paste this week’s word list. Meanings are filled in for you to review, and the student gets a report instead of a score.',
     icon: 'type',
@@ -32,7 +32,7 @@ export const TOOLS: ToolDefinition[] = [
   },
 ];
 
-export const CHECK_VOCABULARY = TOOLS[0];
+export const VOCABULARY_CHECK = TOOLS[0];
 
 /**
  * The single dial that decides who may open a tool.

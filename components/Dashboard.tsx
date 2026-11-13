@@ -31,7 +31,7 @@ import { localDateId } from '../services/periods';
 import { DAILY_FREEZES_PER_MONTH, dailyMilestone } from '../services/dailyHabit';
 import { fetchMyDailyHistory, type DailyHistoryRow } from '../services/soloLeaderboard';
 import {
-  CHECK_VOCABULARY,
+  VOCABULARY_CHECK,
   toolFreeUntilLabel,
   toolAccess,
   toolsVisible,
@@ -62,7 +62,7 @@ interface DashboardProps {
   onPlayGame: () => void;
   /** Jump straight into Today's Challenge — the one run that is the same for everyone. */
   onStartDaily: () => void;
-  /** Open Tool 1: Check Vocabulary — level-locked tests and pasted decks, no leaderboard. */
+  /** Open Tool 1: Vocabulary Check — level-locked tests and pasted decks, no leaderboard. */
   onOpenTeacher: () => void;
   /** Open one assignment from My Class in the focused work screen. */
   onOpenAssignment: (classId: string, assignment: ClassAssignment) => void;
@@ -683,7 +683,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         <section className="wc-card overflow-hidden" aria-label={t.tools.definition.name}>
           <div className="flex items-start gap-4 p-5">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--r-md)] bg-[var(--wa-2)] text-[var(--wa-11)]">
-              <Icon name={CHECK_VOCABULARY.icon} size={22} />
+              <Icon name={VOCABULARY_CHECK.icon} size={22} />
             </span>
             <div className="min-w-0">
               <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">

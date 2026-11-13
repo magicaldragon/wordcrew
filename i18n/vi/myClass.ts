@@ -129,7 +129,6 @@ export const myClass: Dictionary['myClass'] = {
       return parts.join(' · ');
     },
     notSignedIn: 'Đăng nhập bằng email mà giáo viên đã thêm vào lớp để làm bài này.',
-    sessionSource: (words: number) => `${words} từ · bài tập trên lớp`,
 
     quiz: {
       counter: (current: number, total: number) => `Câu ${current} / ${total}`,
@@ -246,6 +245,14 @@ export const myClass: Dictionary['myClass'] = {
     attemptLine: (attempts: number, date: string) => `Lần ${attempts} · ${date}`,
     wrote: (guess: string) => `viết “${guess}”`,
     blank: 'bỏ trống',
+    effort: (attempts: number, hints: number, skipped: boolean) => {
+      const parts = [
+        attempts > 1 ? `lần ${attempts}` : '',
+        hints > 0 ? `${hints} gợi ý` : '',
+        skipped ? 'bỏ qua' : '',
+      ].filter(Boolean);
+      return parts.join(' · ');
+    },
     quizAnswer: (picked: string | null, correct: string | null) => {
       const head = picked === null ? 'bỏ qua' : `đã chọn: ${picked}`;
       return correct === null ? head : `${head} · đáp án: ${correct}`;

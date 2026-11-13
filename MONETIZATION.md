@@ -39,7 +39,7 @@ Bắt đầu giới hạn **phía giáo viên**, không đụng phía học sinh
 | Lớp của tôi | 1 lớp | Không giới hạn |
 | Học sinh / lớp | 40 | Không giới hạn |
 | Bài giao | 2 bài / tháng | Không giới hạn |
-| Tool 1 (Check Vocabulary) | 20 từ / bài | 300 từ / bài |
+| Tool 1 (Vocabulary Check) | 20 từ / bài | 300 từ / bài |
 | Tool 2 / Tool 3 (sắp có) | Không | Có |
 | Báo cáo lớp + "Words to reteach" | 7 ngày gần nhất | Toàn bộ lịch sử |
 | Game đầy đủ cho học sinh | Có | Có |

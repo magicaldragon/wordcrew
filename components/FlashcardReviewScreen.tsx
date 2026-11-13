@@ -4,13 +4,18 @@ import { SpeakButton } from './SpeakButton';
 import { useT } from '../i18n/useT';
 import { ipaOf, loadPronouncingDictionary } from '../services/ipa';
 import { warmWords } from '../services/tts';
-import { partOfSpeech, shuffledDeckWords, type TeacherDeck } from '../services/teacherDeck';
+import { partOfSpeech, shuffledDeckWords, TEACHER_TEST_MODES, type TeacherDeck, type TeacherTestMode } from '../services/teacherDeck';
 
 interface FlashcardReviewScreenProps {
   deck: TeacherDeck;
-  /** The deck is studied — move on to the graded pass. */
-  onStartTest: () => void;
+  /** The deck is studied — move on to the graded pass, in the chosen question style. */
+  onStartTest: (mode: TeacherTestMode) => void;
   onExit: () => void;
+  /**
+   * Homework sets this: the teacher already chose the question style on the assignment,
+   * so the student studies the cards but does not pick how the test asks them.
+   */
+  lockedMode?: TeacherTestMode;
 }
 
 /**
@@ -29,11 +34,15 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
   deck,
   onStartTest,
   onExit,
+  lockedMode,
 }) => {
   const t = useT('teacher');
   const [cards, setCards] = useState(() => shuffledDeckWords(deck.words));
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  // The test that follows can ask the same words three ways; the class picks before it starts.
+  const [pickedMode, setPickedMode] = useState<TeacherTestMode>('listen');
+  const mode = lockedMode ?? pickedMode;
   // Bumped once the pronunciation dictionary resolves; `ipaOf` reads a module-level
   // cache, so this counter is what makes the card re-render with its IPA line.
   const [ipaTick, setIpaTick] = useState(0);
@@ -169,7 +178,50 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
         </button>
       </div>
 
-      <button type="button" onClick={onStartTest} className="wc-btn wc-btn-primary min-h-[48px] w-full">
+      <div>
+        <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
+          {t.setup.modeTitle}
+        </p>
+        {lockedMode ? (
+          <p className="rounded-lg border-2 border-white/10 bg-dark-metal/40 px-2 py-2 text-center text-[0.7rem] font-bold text-electric-blue">
+            {t.setup.modes[lockedMode].label}
+            <span className="mt-0.5 block font-normal text-muted-text">
+              {t.setup.modes[lockedMode].hint}
+            </span>
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t.setup.modeTitle}>
+              {TEACHER_TEST_MODES.map((id) => {
+                const active = id === mode;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setPickedMode(id)}
+                    className={`min-h-[44px] rounded-lg border-2 px-2 text-[0.7rem] font-bold leading-tight transition-colors ${
+                      active
+                        ? 'border-electric-blue bg-electric-blue/10 text-electric-blue'
+                        : 'border-white/10 bg-dark-metal/40 text-muted-text hover:border-electric-blue/60'
+                    }`}
+                  >
+                    {t.setup.modes[id].label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-center text-[0.7rem] text-muted-text">{t.setup.modes[mode].hint}</p>
+          </>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onStartTest(mode)}
+        className="wc-btn wc-btn-primary min-h-[48px] w-full"
+      >
         <Icon name="play" size={16} />
         {t.review.startTest(cards.length)}
       </button>

@@ -7,6 +7,7 @@ import {
   MAX_DECK_WORDS,
   partOfSpeech,
   TEACHER_POS,
+  type TeacherDeckStatus,
   type TeacherPos,
   type TeacherWord,
 } from '../services/teacherDeck';
@@ -20,7 +21,7 @@ interface DeckReviewDialogProps {
   onUpdateWord: (index: number, patch: Partial<TeacherWord>) => void;
   onRemoveWord: (index: number) => void;
   /** Returns true when the deck was actually saved, which is what closes the dialog. */
-  onSave: () => boolean;
+  onSave: (status: TeacherDeckStatus) => boolean;
   onClose: () => void;
 }
 
@@ -61,8 +62,8 @@ export const DeckReviewDialog: React.FC<DeckReviewDialogProps> = ({
   const warnings = deckWarnings(words);
   const missing = [...warnings.values()].filter((warning) => warning === 'Missing meaning').length;
 
-  const handleSave = () => {
-    if (onSave()) onClose();
+  const handleSave = (status: TeacherDeckStatus) => {
+    if (onSave(status)) onClose();
   };
 
   // Portalled to <body> on purpose: the deck editor sits inside an animated card, and a
@@ -193,11 +194,18 @@ export const DeckReviewDialog: React.FC<DeckReviewDialogProps> = ({
           </button>
           <button
             type="button"
-            onClick={handleSave}
+            onClick={() => handleSave('draft')}
+            className="wc-btn wc-btn-secondary min-h-[44px] px-4"
+          >
+            {t.editor.saveDraft}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSave('ready')}
             className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-4"
           >
             <Icon name="save" size={16} />
-            {t.editor.saveDeck}
+            {t.editor.saveReady}
           </button>
         </div>
       </div>

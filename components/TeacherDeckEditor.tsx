@@ -12,6 +12,7 @@ import {
   partOfSpeech,
   reportMissingGlosses,
   type TeacherDeck,
+  type TeacherDeckStatus,
   type TeacherWord,
 } from '../services/teacherDeck';
 
@@ -107,7 +108,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
     setReviewOpen(true);
   };
 
-  const handleSave = (): boolean => {
+  const handleSave = (status: TeacherDeckStatus): boolean => {
     const cleaned = words
       .map((entry) => {
         const word = entry.word.trim();
@@ -130,6 +131,7 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       words: cleaned,
       createdAt: deck?.createdAt ?? now,
       updatedAt: now,
+      status,
     });
   };
 

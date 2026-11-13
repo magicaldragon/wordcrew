@@ -25,49 +25,139 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
   const t = useT('teacher');
   const total = answers.length;
   const correct = answers.filter((answer) => answer.correct).length;
+  const spelling = answers.filter((answer) => !answer.correct && answer.spelling).length;
   const missed = total - correct;
   const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
   const tone = accuracy >= 80 ? 'text-neon-green' : accuracy >= 50 ? 'text-warning-yellow' : 'text-danger-red';
+  // How much help it took — a right answer after two tries is not the same as a first-try one.
+  const retried = answers.filter((answer) => answer.attempts > 1).length;
+  const hintsUsed = answers.reduce((sum, answer) => sum + answer.hints, 0);
+  const skipped = answers.filter((answer) => answer.skipped).length;
+  const effort = t.report.effort(retried, hintsUsed, skipped);
+  const heading =
+    session.origin.kind === 'level' ? t.test.levelTitle(session.origin.levelId) : session.origin.name;
+  const title = session.retry ? `${heading}${t.test.retrySuffix}` : heading;
+  const guessLabel = session.mode === 'choice' ? t.report.chose : t.report.wrote;
+
+  /** The report is the teacher's record, so it can leave the screen as a spreadsheet. */
+  const exportCsv = () => {
+    const cell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const rows = [
+      [
+        t.report.csv.word,
+        t.report.csv.meaning,
+        t.report.csv.answer,
+        t.report.csv.result,
+        t.report.csv.attempts,
+        t.report.csv.hints,
+        t.report.csv.skipped,
+      ],
+      ...answers.map((answer) => [
+        answer.word.word,
+        answer.word.meaning,
+        answer.guess,
+        answer.correct
+          ? t.report.result.correct
+          : answer.spelling
+            ? t.report.result.spelling
+            : t.report.result.wrong,
+        String(answer.attempts),
+        String(answer.hints),
+        answer.skipped ? t.report.skippedTag : '',
+      ]),
+    ];
+    // The BOM keeps Vietnamese diacritics intact when Excel opens the file.
+    const csv = `\ufeff${rows.map((row) => row.map(cell).join(',')).join('\r\n')}`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'vocabulary-check'}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="flex flex-col gap-3 p-3 sm:p-4 animate-fadeInScaleUp">
       <div className="text-center">
         <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-muted-text">
-          {session.title}
+          {title}
         </p>
+        <p className="text-[0.65rem] text-muted-text">{t.setup.modes[session.mode].label}</p>
         <p className={`mt-1 text-4xl font-bold tabular-nums ${tone}`}>{accuracy}%</p>
         <p className="mt-1 text-sm text-light-text">
           {t.report.score(correct, total)}
           {missed > 0 && <span className="text-muted-text"> {t.report.toRevisit(missed)}</span>}
         </p>
+        {/* A right word with a typo is neither "known" nor "unknown" — it gets its own line. */}
+        {spelling > 0 && (
+          <p className="mt-0.5 text-[0.7rem] font-semibold text-warning-yellow">
+            {t.report.spellingNote(spelling)}
+          </p>
+        )}
+        {effort && <p className="mt-0.5 text-[0.7rem] text-muted-text">{effort}</p>}
         <div className="mx-auto mt-2 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-white/10" aria-hidden="true">
           <span className={`block h-full rounded-full ${accuracy >= 80 ? 'bg-neon-green' : accuracy >= 50 ? 'bg-warning-yellow' : 'bg-danger-red'}`} style={{ width: `${accuracy}%` }} />
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        {answers.map((answer, index) => (
-          <div
-            key={`${answer.word.word}-${index}`}
-            className={`flex items-start gap-2 rounded-lg border p-2.5 ${
-              answer.correct ? 'border-neon-green/25 bg-neon-green/5' : 'border-danger-red/30 bg-danger-red/5'
-            }`}
-          >
-            <span className="mt-0.5 shrink-0 text-sm" aria-hidden="true">
-              {answer.correct ? '✅' : '❌'}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-light-text">{answer.word.word}</p>
-              <p className="text-xs text-muted-text">{answer.word.meaning}</p>
-              {!answer.correct && (
-                <p className="mt-0.5 truncate text-[0.7rem] text-danger-red">
-                  {answer.guess ? t.report.wrote(answer.guess) : t.report.noAnswer}
+        {answers.map((answer, index) => {
+          const near = !answer.correct && Boolean(answer.spelling);
+          return (
+            <div
+              key={`${answer.word.word}-${index}`}
+              className={`flex items-start gap-2 rounded-lg border p-2.5 ${
+                answer.correct
+                  ? 'border-neon-green/25 bg-neon-green/5'
+                  : near
+                    ? 'border-warning-yellow/30 bg-warning-yellow/5'
+                    : 'border-danger-red/30 bg-danger-red/5'
+              }`}
+            >
+              <span className="mt-0.5 shrink-0 text-sm" aria-hidden="true">
+                {answer.correct ? '✅' : near ? '⚠️' : '❌'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-light-text">
+                  {answer.word.word}
+                  {near && (
+                    <span className="ml-1.5 rounded bg-warning-yellow/15 px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-warning-yellow">
+                      {t.report.spellingTag}
+                    </span>
+                  )}
                 </p>
-              )}
+                <p className="text-xs text-muted-text">{answer.word.meaning}</p>
+                {!answer.correct && (
+                  <p
+                    className={`mt-0.5 truncate text-[0.7rem] ${
+                      near ? 'text-warning-yellow' : 'text-danger-red'
+                    }`}
+                  >
+                    {answer.guess ? guessLabel(answer.guess) : t.report.noAnswer}
+                  </p>
+                )}
+                {(answer.attempts > 1 || answer.hints > 0 || answer.skipped) && (
+                  <p className="mt-0.5 text-[0.65rem] text-muted-text">
+                    {[
+                      answer.attempts > 1 ? t.report.attemptTag(answer.attempts) : '',
+                      answer.hints > 0 ? t.report.hintTag(answer.hints) : '',
+                      answer.skipped ? t.report.skippedTag : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      <button type="button" onClick={exportCsv} className="wc-btn wc-btn-secondary min-h-[44px] w-full">
+        <Icon name="save" size={16} />
+        {t.report.exportCsv}
+      </button>
 
       <div className="flex flex-col gap-2 sm:flex-row">
         {missed > 0 && (

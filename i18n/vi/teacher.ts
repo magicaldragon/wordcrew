@@ -28,8 +28,24 @@ export const teacher: Dictionary['teacher'] = {
     wordsInTest: 'Số từ trong bài',
     wordsInTestRange: (min: number, max: number) => `Nhập số từ ${min} đến ${max}.`,
     startTest: (level: string, count: number) => `Bắt đầu bài ${level} · ${count} từ`,
-    levelLocked: (level: string) =>
-      `Giới hạn trình độ: mọi từ trong bài đều thuộc ${level}. Học sinh gõ từ tiếng Anh cho gợi ý tiếng Việt.`,
+    levelLocked: (level: string) => `Giới hạn trình độ: mọi từ trong bài đều thuộc ${level}.`,
+
+    modeTitle: 'Cách hỏi mỗi từ',
+    modeHint: 'Cùng một danh sách từ, hỏi theo ba cách. Chọn một cách cho lượt này.',
+    modes: {
+      listen: {
+        label: 'Nghe & viết',
+        hint: 'Nghe phát âm rồi viết lại từ tiếng Anh.',
+      },
+      choice: {
+        label: 'Từ → nghĩa',
+        hint: 'Nhìn từ tiếng Anh, chọn nghĩa tiếng Việt đúng.',
+      },
+      letters: {
+        label: 'Nghĩa → ô chữ',
+        hint: 'Cho nghĩa, chữ cái đầu và số ô — điền nốt từ.',
+      },
+    },
 
     savedOnDevice: 'Đã lưu trên thiết bị này',
     newDeck: 'Bộ từ mới',
@@ -41,12 +57,15 @@ export const teacher: Dictionary['teacher'] = {
       'Bạn có thể soạn và chạy thử bộ từ mà không cần tài khoản. Chỉ khi lưu mới cần đăng nhập — khách đóng tab là mất bộ từ.',
 
     deckMeta: (count: number, date: string) => `${count} từ · sửa ${date}`,
+    draftBadge: 'Nháp',
     editDeckAria: (name: string) => `Sửa ${name}`,
     deleteDeckAria: (name: string) => `Xóa ${name}`,
     testDeck: 'Học bộ từ này',
 
     savedToast: 'Đã lưu bộ từ trên thiết bị này.',
     deletedToast: 'Đã xóa bộ từ.',
+    deckLimit: (max: number) =>
+      `Thiết bị này lưu tối đa ${max} bộ từ. Hãy xóa bớt một bộ trước khi thêm bộ mới.`,
     deleteAsk: (name: string, count: number) => `Xóa “${name}” và ${count} từ của bộ này?`,
   },
 
@@ -82,6 +101,8 @@ export const teacher: Dictionary['teacher'] = {
     warningDuplicate: 'Một từ khác có cùng nghĩa — câu hỏi có thể gây nhầm lẫn.',
 
     saveDeck: 'Lưu bộ từ',
+    saveDraft: 'Lưu nháp',
+    saveReady: 'Lưu & sẵn sàng dạy',
     untitled: 'Bộ từ chưa đặt tên',
 
     noWordsInList: 'Không tìm thấy từ nào trong danh sách.',
@@ -112,22 +133,64 @@ export const teacher: Dictionary['teacher'] = {
     leaveAsk: 'Thoát bài kiểm tra? Các câu đã làm sẽ không được lưu.',
     leaveLabel: 'Thoát',
     leaveAria: 'Thoát bài kiểm tra',
-    direction: 'Việt → Anh',
+    empty: 'Bài kiểm tra này không có từ nào để hỏi.',
+    listenPrompt: 'Nghe rồi viết lại từ tiếng Anh',
+    choicePrompt: 'Từ này nghĩa là gì?',
+    lettersPrompt: 'Viết từ tiếng Anh',
+    play: 'Phát âm từ',
+    lettersHint: (count: number) => `${count} chữ cái`,
+    continue: 'Tiếp tục',
+    levelTitle: (level: string) => `Bài kiểm tra trình độ ${level}`,
+    retrySuffix: ' · làm lại',
+    sourceLevel: (level: string, count: number) => `${level} · ${count} từ`,
+    sourceDeck: (count: number) => `${count} từ · bộ từ của bạn`,
+    sourceRetry: (count: number) => `Làm lại ${count} câu sai`,
     answerPlaceholder: 'Nhập từ tiếng Anh',
     answerAria: 'Câu trả lời của bạn',
     check: 'Kiểm tra',
     finish: 'Kết thúc & xem báo cáo',
     correct: '✅ Đúng rồi',
+    spelling: '⚠️ Gần đúng — sai chính tả',
     incorrect: '❌ Chưa đúng',
     youWrote: (guess: string) => `Bạn đã viết “${guess}”`,
     reveal: 'Không biết — xem đáp án',
+    retryAsk: 'Thử lại một lần, hoặc bỏ qua để xem đáp án.',
+    retry: 'Thử lại',
+    skip: 'Bỏ qua — xem đáp án',
+    hint: 'Gợi ý',
+    hintClue: (first: string, count: number) => `Bắt đầu bằng “${first}” · ${count} chữ cái`,
   },
 
   report: {
     score: (correct: number, total: number) => `${correct} / ${total} câu đúng`,
     toRevisit: (missed: number) => `· ${missed} cần ôn lại`,
     wrote: (guess: string) => `Đã viết “${guess}”`,
+    chose: (guess: string) => `Đã chọn “${guess}”`,
     noAnswer: 'Không trả lời',
+    spellingTag: 'Chính tả',
+    spellingNote: (count: number) => `· ${count} câu đúng từ nhưng sai chính tả`,
+    attemptTag: (attempts: number) => `Lần thử ${attempts}`,
+    hintTag: (hints: number) => `${hints} gợi ý`,
+    skippedTag: 'Bỏ qua',
+    effort: (retried: number, hints: number, skipped: number) => {
+      const parts = [
+        retried > 0 ? `${retried} từ phải thử lại` : '',
+        hints > 0 ? `${hints} lượt gợi ý` : '',
+        skipped > 0 ? `${skipped} từ bỏ qua` : '',
+      ].filter(Boolean);
+      return parts.join(' · ');
+    },
+    exportCsv: 'Xuất kết quả (CSV)',
+    csv: {
+      word: 'Từ',
+      meaning: 'Nghĩa',
+      answer: 'Trả lời',
+      result: 'Kết quả',
+      attempts: 'Số lần thử',
+      hints: 'Gợi ý',
+      skipped: 'Bỏ qua',
+    },
+    result: { correct: 'Đúng', spelling: 'Sai chính tả', wrong: 'Sai' },
     retryMissed: (missed: number) => `Làm lại ${missed} câu sai`,
     testAgain: 'Kiểm tra lại',
   },

@@ -27,8 +27,24 @@ export const teacher = {
     wordsInTest: 'Words in this test',
     wordsInTestRange: (min: number, max: number) => `Type any number from ${min} to ${max}.`,
     startTest: (level: string, count: number) => `Start ${level} test · ${count} words`,
-    levelLocked: (level: string) =>
-      `Level-locked: every word comes from ${level} only. The student types the English word for the Vietnamese prompt.`,
+    levelLocked: (level: string) => `Level-locked: every word comes from ${level} only.`,
+
+    modeTitle: 'How to ask each word',
+    modeHint: 'The same words, asked three ways. Pick one for this run.',
+    modes: {
+      listen: {
+        label: 'Listen & write',
+        hint: 'The word is spoken; the student writes the spelling.',
+      },
+      choice: {
+        label: 'Word → meaning',
+        hint: 'The English word is shown; the student picks the Vietnamese meaning.',
+      },
+      letters: {
+        label: 'Meaning → letters',
+        hint: 'The meaning, the first letter and one box per letter.',
+      },
+    },
 
     savedOnDevice: 'Saved on this device',
     newDeck: 'New deck',
@@ -40,12 +56,15 @@ export const teacher = {
       'You can build and test a deck without an account. Signing in is only needed to keep it — guests lose their decks when the tab closes.',
 
     deckMeta: (count: number, date: string) => `${count} words · edited ${date}`,
+    draftBadge: 'Draft',
     editDeckAria: (name: string) => `Edit ${name}`,
     deleteDeckAria: (name: string) => `Delete ${name}`,
     testDeck: 'Review this deck',
 
     savedToast: 'Deck saved on this device.',
     deletedToast: 'Deck deleted.',
+    deckLimit: (max: number) =>
+      `This device holds up to ${max} decks. Delete one before adding another.`,
     deleteAsk: (name: string, count: number) => `Delete “${name}” and its ${count} words?`,
   },
 
@@ -82,6 +101,8 @@ export const teacher = {
     warningDuplicate: 'Another word has the same meaning — the question may be ambiguous.',
 
     saveDeck: 'Save deck',
+    saveDraft: 'Save as draft',
+    saveReady: 'Save & mark ready',
     untitled: 'Untitled deck',
 
     noWordsInList: 'No words found in the list.',
@@ -112,22 +133,65 @@ export const teacher = {
     leaveAsk: 'Leave this test? The answers so far are not saved.',
     leaveLabel: 'Leave',
     leaveAria: 'Leave the test',
-    direction: 'Vietnamese → English',
+    empty: 'This test has no words to ask.',
+    listenPrompt: 'Listen, then write the English word',
+    choicePrompt: 'What does this word mean?',
+    lettersPrompt: 'Write the English word',
+    play: 'Play the word',
+    lettersHint: (count: number) => `${count} letters`,
+    continue: 'Continue',
+    levelTitle: (level: string) => `${level} level test`,
+    retrySuffix: ' · retry',
+    sourceLevel: (level: string, count: number) => `${level} · ${count} words`,
+    sourceDeck: (count: number) => `${count} words · your deck`,
+    sourceRetry: (count: number) => `Retry ${count} missed`,
     answerPlaceholder: 'Type the English word',
     answerAria: 'Your answer',
     check: 'Check',
     finish: 'Finish & see report',
     correct: '✅ Correct',
+    spelling: '⚠️ Almost — check the spelling',
     incorrect: '❌ Not this time',
     youWrote: (guess: string) => `You wrote “${guess}”`,
     reveal: 'I don’t know — show the answer',
+    retryAsk: 'Try once more, or skip to see the answer.',
+    retry: 'Try again',
+    skip: 'Skip — show the answer',
+    hint: 'Hint',
+    hintClue: (first: string, count: number) =>
+      `Starts with “${first}” · ${count} ${count === 1 ? 'letter' : 'letters'}`,
   },
 
   report: {
     score: (correct: number, total: number) => `${correct} / ${total} correct`,
     toRevisit: (missed: number) => `· ${missed} to revisit`,
     wrote: (guess: string) => `Wrote “${guess}”`,
+    chose: (guess: string) => `Chose “${guess}”`,
     noAnswer: 'No answer',
+    spellingTag: 'Spelling',
+    spellingNote: (count: number) => `· ${count} right word, misspelled`,
+    attemptTag: (attempts: number) => `Attempt ${attempts}`,
+    hintTag: (hints: number) => `${hints} ${hints === 1 ? 'hint' : 'hints'}`,
+    skippedTag: 'Skipped',
+    effort: (retried: number, hints: number, skipped: number) => {
+      const parts = [
+        retried > 0 ? `${retried} ${retried === 1 ? 'word' : 'words'} retried` : '',
+        hints > 0 ? `${hints} ${hints === 1 ? 'hint' : 'hints'} used` : '',
+        skipped > 0 ? `${skipped} skipped` : '',
+      ].filter(Boolean);
+      return parts.join(' · ');
+    },
+    exportCsv: 'Export results (CSV)',
+    csv: {
+      word: 'Word',
+      meaning: 'Meaning',
+      answer: 'Answer',
+      result: 'Result',
+      attempts: 'Attempts',
+      hints: 'Hints',
+      skipped: 'Skipped',
+    },
+    result: { correct: 'Correct', spelling: 'Spelling', wrong: 'Wrong' },
     retryMissed: (missed: number) => `Retry ${missed} missed`,
     testAgain: 'Test again',
   },

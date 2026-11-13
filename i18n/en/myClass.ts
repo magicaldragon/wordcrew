@@ -128,8 +128,6 @@ export const myClass = {
       return parts.join(' · ');
     },
     notSignedIn: 'Sign in with the email your teacher added to the class to do this assignment.',
-    sessionSource: (words: number) =>
-      `${words} ${words === 1 ? 'word' : 'words'} · class assignment`,
 
     quiz: {
       counter: (current: number, total: number) => `Question ${current} / ${total}`,
@@ -197,7 +195,7 @@ export const myClass = {
     deckPlaceholder: 'Pick a deck…',
     deckOption: (name: string, words: number) =>
       `${name} · ${words} ${words === 1 ? 'word' : 'words'}`,
-    noDecks: 'No decks yet. Build one in Teaching tools → Check Vocabulary → My decks.',
+    noDecks: 'No decks yet. Build one in Teaching tools → Vocabulary Check → My decks.',
     pastePlaceholder: 'apple\tquả táo\nborrow\tvay, mượn\nfurniture\tnội thất',
     pasteSummary: (words: number, warnings: number, max: number) => {
       const parts = [`${words} ${words === 1 ? 'word' : 'words'}`];
@@ -247,6 +245,14 @@ export const myClass = {
     attemptLine: (attempts: number, date: string) => `Attempt ${attempts} · ${date}`,
     wrote: (guess: string) => `wrote “${guess}”`,
     blank: 'blank',
+    effort: (attempts: number, hints: number, skipped: boolean) => {
+      const parts = [
+        attempts > 1 ? `attempt ${attempts}` : '',
+        hints > 0 ? `${hints} ${hints === 1 ? 'hint' : 'hints'}` : '',
+        skipped ? 'skipped' : '',
+      ].filter(Boolean);
+      return parts.join(' · ');
+    },
     quizAnswer: (picked: string | null, correct: string | null) => {
       const head = picked === null ? 'skipped' : `picked: ${picked}`;
       return correct === null ? head : `${head} · answer: ${correct}`;

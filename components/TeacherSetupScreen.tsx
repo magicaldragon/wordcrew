@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog, toast } from './Feedback';
 import { TeacherDeckEditor } from './TeacherDeckEditor';
@@ -7,18 +7,23 @@ import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
 import {
   clampTestWords,
+  countLevelWords,
+  deckStatus,
   deleteTeacherDeck,
+  MAX_DECKS,
   MAX_TEST_WORDS,
   MIN_TEST_WORDS,
   readTeacherDecks,
   saveTeacherDeck,
   TEACHER_LEVELS,
+  TEACHER_TEST_MODES,
   type TeacherDeck,
   type TeacherLevelId,
+  type TeacherTestMode,
 } from '../services/teacherDeck';
 
 interface TeacherSetupScreenProps {
-  onStartLevel: (levelId: TeacherLevelId, count: number) => void;
+  onStartLevel: (levelId: TeacherLevelId, count: number, mode: TeacherTestMode) => void;
   onStartDeck: (deck: TeacherDeck) => void;
   onExit: () => void;
   /** Opens the sign-in dialog; only decks that are kept need an account. */
@@ -42,21 +47,45 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   const { delete: deleteLabel } = useT('common');
   const { user } = useAuth();
   const locale = useLocale();
+  const owner = user?.uid ?? 'guest';
   const [tab, setTab] = useState<TabId>('level');
   const [levelId, setLevelId] = useState<TeacherLevelId>('A1');
+  const [mode, setMode] = useState<TeacherTestMode>('listen');
   const [count, setCount] = useState(10);
   // The box is a draft so the teacher can clear it and retype without the value
   // snapping back mid-keystroke; it is clamped on blur and before the test starts.
   const [countDraft, setCountDraft] = useState('10');
-  const [decks, setDecks] = useState<TeacherDeck[]>(() => readTeacherDecks());
+  const [decks, setDecks] = useState<TeacherDeck[]>(() => readTeacherDecks(owner));
   // null = list, 'new' = a deck being built, a deck = that deck being edited.
   const [editing, setEditing] = useState<TeacherDeck | 'new' | null>(null);
 
+  // The signed-in account owns its decks; signing in (even mid-edit) reloads that shelf.
+  useEffect(() => {
+    setDecks(readTeacherDecks(owner));
+  }, [owner]);
+
+  /** The level's real pool — A1 has fewer usable words than the 300 ceiling. */
+  const maxWords = countLevelWords(levelId);
+  const draftCount = (): number =>
+    Math.min(clampTestWords(countDraft === '' ? Number.NaN : Number(countDraft)), maxWords);
+
+  // An empty box falls back to the last good count instead of silently jumping to the minimum.
+  const planned = countDraft === '' ? Math.min(count, maxWords) : draftCount();
+
   const commitCount = (): number => {
-    const next = clampTestWords(countDraft === '' ? Number.NaN : Number(countDraft));
-    setCount(next);
-    setCountDraft(String(next));
-    return next;
+    setCount(planned);
+    setCountDraft(String(planned));
+    return planned;
+  };
+
+  const chooseLevel = (next: TeacherLevelId) => {
+    setLevelId(next);
+    const cap = countLevelWords(next);
+    const current = countDraft === '' ? count : Number(countDraft);
+    if (Number.isFinite(current) && current > cap) {
+      setCount(cap);
+      setCountDraft(String(cap));
+    }
   };
 
   // Building and testing a deck is free; keeping it needs an account, because a deck is a
@@ -67,7 +96,12 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       onRequireSignIn();
       return false;
     }
-    setDecks(saveTeacherDeck(deck));
+    const isNew = !decks.some((item) => item.id === deck.id);
+    if (isNew && decks.length >= MAX_DECKS) {
+      toast(t.setup.deckLimit(MAX_DECKS), 'error');
+      return false;
+    }
+    setDecks(saveTeacherDeck(owner, deck));
     setEditing(null);
     toast(t.setup.savedToast, 'success');
     return true;
@@ -79,7 +113,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       destructive: true,
     });
     if (!ok) return;
-    setDecks(deleteTeacherDeck(deck.id));
+    setDecks(deleteTeacherDeck(owner, deck.id));
     setEditing(null);
     toast(t.setup.deletedToast, 'success');
   };
@@ -146,7 +180,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                   type="button"
                   role="radio"
                   aria-checked={active}
-                  onClick={() => setLevelId(level.id)}
+                  onClick={() => chooseLevel(level.id)}
                   className={`flex min-h-[44px] flex-col items-start gap-0.5 rounded-lg border-2 p-3 text-left transition-colors ${
                     active
                       ? 'border-neon-green bg-neon-green/10'
@@ -175,7 +209,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                 type="number"
                 inputMode="numeric"
                 min={MIN_TEST_WORDS}
-                max={MAX_TEST_WORDS}
+                max={maxWords}
                 step={1}
                 value={countDraft}
                 onChange={(event) => setCountDraft(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
@@ -183,18 +217,49 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                 className="futuristic-input min-h-[44px] w-24 px-3 py-2 text-center text-base font-semibold tabular-nums"
               />
               <span className="text-[0.7rem] text-muted-text">
-                {t.setup.wordsInTestRange(MIN_TEST_WORDS, MAX_TEST_WORDS)}
+                {t.setup.wordsInTestRange(MIN_TEST_WORDS, Math.min(MAX_TEST_WORDS, maxWords))}
               </span>
             </div>
           </div>
 
+          <div>
+            <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
+              {t.setup.modeTitle}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t.setup.modeTitle}>
+              {TEACHER_TEST_MODES.map((id) => {
+                const active = id === mode;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setMode(id)}
+                    className={`flex min-h-[44px] flex-col items-start gap-0.5 rounded-lg border-2 p-2.5 text-left transition-colors ${
+                      active
+                        ? 'border-electric-blue bg-electric-blue/10'
+                        : 'border-white/10 bg-dark-metal/40 hover:border-electric-blue/60'
+                    }`}
+                  >
+                    <span className={`text-xs font-bold ${active ? 'text-electric-blue' : 'text-light-text'}`}>
+                      {t.setup.modes[id].label}
+                    </span>
+                    <span className="text-[0.7rem] leading-snug text-muted-text">{t.setup.modes[id].hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[0.7rem] text-muted-text">{t.setup.modeHint}</p>
+          </div>
+
           <button
             type="button"
-            onClick={() => onStartLevel(levelId, commitCount())}
+            onClick={() => onStartLevel(levelId, commitCount(), mode)}
             className="wc-btn wc-btn-primary min-h-[48px] w-full"
           >
             <Icon name="play" size={16} />
-            {t.setup.startTest(levelId, count)}
+            {t.setup.startTest(levelId, planned)}
           </button>
           <p className="text-center text-[0.7rem] leading-relaxed text-muted-text">
             {t.setup.levelLocked(levelId)}
@@ -245,7 +310,14 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                 <li key={deck.id} className="rounded-lg border border-white/10 bg-dark-metal/40 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-light-text">{deck.name}</p>
+                      <p className="truncate text-sm font-semibold text-light-text">
+                        {deck.name}
+                        {deckStatus(deck) === 'draft' && (
+                          <span className="ml-1.5 rounded bg-warning-yellow/15 px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-warning-yellow">
+                            {t.setup.draftBadge}
+                          </span>
+                        )}
+                      </p>
                       <p className="mt-0.5 text-[0.7rem] text-muted-text">
                         {t.setup.deckMeta(deck.words.length, new Date(deck.updatedAt).toLocaleDateString(locale))}
                       </p>

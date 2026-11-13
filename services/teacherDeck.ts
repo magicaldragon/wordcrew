@@ -100,13 +100,46 @@ export interface TeacherDeck {
   words: TeacherWord[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * A deck being prepared is a draft: it stays in My decks but is not offered when a
+   * class assignment is built. Missing on decks saved before the flag existed — those
+   * are treated as ready.
+   */
+  status?: TeacherDeckStatus;
 }
 
+export type TeacherDeckStatus = 'draft' | 'ready';
+
+/** Old decks have no status; they were already in use, so they stay assignable. */
+export const deckStatus = (deck: TeacherDeck): TeacherDeckStatus => deck.status ?? 'ready';
+
+/**
+ * How a run asks each word. Chosen per run and kept on the session, so the report can
+ * say what was actually tested — spelling, listening or recognition.
+ *
+ *   listen  — the word is spoken, the student writes it (listening + spelling)
+ *   choice  — the word is shown, the student picks its Vietnamese meaning
+ *   letters — the meaning is shown with the first letter and one box per letter
+ */
+export type TeacherTestMode = 'listen' | 'choice' | 'letters';
+
+export const TEACHER_TEST_MODES: TeacherTestMode[] = ['listen', 'choice', 'letters'];
+
+export const isTeacherTestMode = (value: string): value is TeacherTestMode =>
+  (TEACHER_TEST_MODES as string[]).includes(value);
+
+/** Where a session's words came from. Screens turn this into localized text. */
+export type TeacherSessionOrigin =
+  | { kind: 'level'; levelId: TeacherLevelId }
+  | { kind: 'deck'; name: string };
+
 export interface TeacherSession {
-  /** Heading on the test screen. */
-  title: string;
-  /** Where the words came from — shown on the report. */
-  source: string;
+  /** Level or deck the words came from. */
+  origin: TeacherSessionOrigin;
+  /** Question style for this run. */
+  mode: TeacherTestMode;
+  /** True when the run only replays the words missed in the previous one. */
+  retry?: boolean;
   words: TeacherWord[];
 }
 
@@ -114,6 +147,14 @@ export interface TeacherAnswer {
   word: TeacherWord;
   guess: string;
   correct: boolean;
+  /** The right word with a small spelling slip — reported, but not counted as correct. */
+  spelling?: boolean;
+  /** 1 = answered once; 2 = needed the single retry. */
+  attempts: number;
+  /** Hint presses used on this word (0–2). */
+  hints: number;
+  /** The student chose to see the answer instead of answering. */
+  skipped?: boolean;
 }
 
 // ── Level tests ────────────────────────────────────────────────────────────
@@ -136,16 +177,13 @@ const wordsOfBand = (band: CEFRLevel): Array<{ word: string; pos: TeacherPos }> 
   ];
 };
 
-/** A level-locked test: every word comes from that level's bands and nothing above it.
- * Words without a gloss are skipped (nothing to show), and only one word per gloss is
- * kept — two different words with the same Vietnamese prompt would make the question
- * unanswerable.
- */
-export const buildLevelTest = (
-  levelId: TeacherLevelId,
-  count: number,
-  rng: () => number = Math.random,
-): TeacherWord[] => {
+/** The usable pool for a level: unique words, each with a gloss and a unique meaning. */
+const poolCache = new Map<TeacherLevelId, TeacherWord[]>();
+
+const levelPool = (levelId: TeacherLevelId): TeacherWord[] => {
+  const cached = poolCache.get(levelId);
+  if (cached) return cached;
+
   const level = getTeacherLevel(levelId);
   const seenWords = new Set<string>();
   const seenMeanings = new Set<string>();
@@ -165,8 +203,83 @@ export const buildLevelTest = (
     }
   }
 
+  poolCache.set(levelId, pool);
+  return pool;
+};
+
+/** How many words a level can actually offer — the number the setup screen must show. */
+export const countLevelWords = (levelId: TeacherLevelId): number => levelPool(levelId).length;
+
+/**
+ * A level-locked test: every word comes from that level's bands and nothing above it.
+ * The count is capped at the usable pool, so the screen never promises 300 words for a
+ * level that only has 275.
+ */
+export const buildLevelTest = (
+  levelId: TeacherLevelId,
+  count: number,
+  rng: () => number = Math.random,
+): TeacherWord[] => {
+  const pool = levelPool(levelId);
   const take = Math.max(1, Math.min(count, pool.length));
   return shuffle(pool, rng).slice(0, take);
+};
+
+/** Every level's usable pool, for distractors when the run itself is too short. */
+let allPoolCache: TeacherWord[] | null = null;
+
+const allTeacherPool = (): TeacherWord[] => {
+  if (!allPoolCache) {
+    const seen = new Set<string>();
+    const all: TeacherWord[] = [];
+    for (const level of TEACHER_LEVELS) {
+      for (const word of levelPool(level.id)) {
+        const key = `${word.word.toLowerCase()}|${normalizeAnswer(word.meaning)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        all.push(word);
+      }
+    }
+    allPoolCache = all;
+  }
+  return allPoolCache;
+};
+
+export const CHOICE_OPTIONS = 4;
+
+/**
+ * Four Vietnamese meanings for a multiple-choice question: the right one plus three
+ * distractors, taken from the same run first so the options stay inside the lesson.
+ * A retry of one word still gets three options, drawn from the bank.
+ */
+export const buildChoiceOptions = (
+  word: TeacherWord,
+  sessionWords: TeacherWord[],
+  rng: () => number = Math.random,
+): string[] => {
+  const seen = new Set([normalizeAnswer(word.meaning)]);
+  const distractors: string[] = [];
+
+  const collect = (pool: TeacherWord[]) => {
+    for (const entry of shuffle(pool, rng)) {
+      if (distractors.length >= CHOICE_OPTIONS - 1) return;
+      const key = normalizeAnswer(entry.meaning);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      distractors.push(entry.meaning);
+    }
+  };
+
+  collect(sessionWords);
+  if (distractors.length < CHOICE_OPTIONS - 1) collect(allTeacherPool());
+
+  return shuffle([word.meaning, ...distractors], rng);
+};
+
+/** The picked option is right when it is the same meaning — no spelling involved. */
+export const judgeMeaningChoice = (guess: string, meaning: string): boolean => {
+  const picked = normalizeAnswer(guess);
+  return Boolean(picked) && picked === normalizeAnswer(meaning);
 };
 
 // ── Parts of speech ────────────────────────────────────────────────────────
@@ -359,7 +472,11 @@ export const partOfSpeech = (entry: TeacherWord): TeacherPos | '' =>
   entry.pos ?? guessPartOfSpeech(entry.word);
 
 // ── Decks ──────────────────────────────────────────────────────────────────
-const DECKS_KEY = 'wordcrew_teacher_decks_v1';
+// Decks belong to an account, not just to a device: a shared classroom laptop must
+// never show one teacher's lists to the next person who signs in.
+const DECKS_KEY_PREFIX = 'wordcrew_teacher_decks_v2';
+const LEGACY_DECKS_KEY = 'wordcrew_teacher_decks_v1';
+const decksKey = (owner: string): string => `${DECKS_KEY_PREFIX}:${owner || 'guest'}`;
 
 // One word per line. The separator is a tab, a colon/equals sign, or a spaced dash —
 // a bare hyphen stays part of the word ("well-known", "ice-cream"), which is what a
@@ -478,15 +595,61 @@ export const deckWarnings = (words: TeacherWord[]): Map<number, string> => {
   return warnings;
 };
 
-/** True when the answer is the word, allowing a one/two-letter typo. */
-export const matchesTeacherWord = (guess: string, target: string): boolean => {
+export type TeacherMatch = 'correct' | 'spelling' | 'wrong';
+
+/**
+ * How close an answer is. Only an exact spelling is "correct"; a small typo becomes
+ * "spelling", which the report shows separately from a word the student did not know.
+ * Short words are never fuzzy — "cut" is not "cat", "shop" is not "ship" — because a
+ * graded vocabulary check must not pass a different word.
+ */
+export const judgeTeacherAnswer = (guess: string, target: string): TeacherMatch => {
   const typed = normalizeAnswer(guess);
   const answer = normalizeAnswer(target);
-  if (!typed || !answer) return false;
-  if (typed === answer) return true;
-  // Same tolerance as Solo's fuzzy match, but without the "answer inside a longer
-  // phrase" rule: "category" must not be accepted for "cat" in a graded test.
-  return levenshtein(typed, answer) <= (answer.length <= 4 ? 1 : 2);
+  if (!typed || !answer) return 'wrong';
+  if (typed === answer) return 'correct';
+
+  // "ice cream" vs "ice-cream" vs "icecream" is a spacing/style slip, not another word.
+  const compact = (value: string) => value.replace(/[\s-]/g, '');
+  if (compact(typed) === compact(answer)) return 'spelling';
+
+  const typedWords = typed.split(' ');
+  const answerWords = answer.split(' ');
+  if (answerWords.length > 1) {
+    if (typedWords.length !== answerWords.length) return 'wrong';
+    let near = false;
+    for (let i = 0; i < answerWords.length; i += 1) {
+      if (typedWords[i] === answerWords[i]) continue;
+      // A phrasal verb is a unit: "get on" must not pass for "get up".
+      if (answerWords[i].length >= 5 && levenshtein(typedWords[i], answerWords[i]) === 1) {
+        near = true;
+        continue;
+      }
+      return 'wrong';
+    }
+    return near ? 'spelling' : 'correct';
+  }
+
+  if (answer.length <= 4) return 'wrong';
+  const distance = levenshtein(typed, answer);
+  if (answer.length <= 7) return distance === 1 ? 'spelling' : 'wrong';
+  return distance <= 2 ? 'spelling' : 'wrong';
+};
+
+/**
+ * The letter-box answer. The boxes show letters and a gap between words, so a phrase
+ * typed without its space ("icecream") is right, not a misspelling. Typos still count.
+ */
+export const judgeLetterAnswer = (guess: string, target: string): TeacherMatch => {
+  const compact = (value: string) => normalizeAnswer(value).replace(/[\s-]/g, '');
+  const typed = compact(guess);
+  const answer = compact(target);
+  if (!typed || !answer) return 'wrong';
+  if (typed === answer) return 'correct';
+  if (answer.length <= 4) return 'wrong';
+  const distance = levenshtein(typed, answer);
+  if (answer.length <= 7) return distance === 1 ? 'spelling' : 'wrong';
+  return distance <= 2 ? 'spelling' : 'wrong';
 };
 
 const isDeck = (value: unknown): value is TeacherDeck => {
@@ -500,10 +663,28 @@ const isDeck = (value: unknown): value is TeacherDeck => {
   );
 };
 
-/** Decks saved on this device, newest first. */
-export const readTeacherDecks = (): TeacherDeck[] => {
+/**
+ * The previous release kept every deck under one device-wide key. Move that list to the
+ * first account that signs in, so an upgrade does not make existing decks disappear.
+ */
+const adoptLegacyDecks = (owner: string): void => {
+  if (!owner || owner === 'guest') return;
   try {
-    const raw = localStorage.getItem(DECKS_KEY);
+    const legacy = localStorage.getItem(LEGACY_DECKS_KEY);
+    if (!legacy) return;
+    const key = decksKey(owner);
+    if (!localStorage.getItem(key)) localStorage.setItem(key, legacy);
+    localStorage.removeItem(LEGACY_DECKS_KEY);
+  } catch {
+    /* Storage blocked — nothing to migrate. */
+  }
+};
+
+/** Decks saved for this account, newest first. */
+export const readTeacherDecks = (owner: string): TeacherDeck[] => {
+  adoptLegacyDecks(owner);
+  try {
+    const raw = localStorage.getItem(decksKey(owner));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -513,22 +694,25 @@ export const readTeacherDecks = (): TeacherDeck[] => {
   }
 };
 
-/** Saves (or replaces) a deck and returns the full, persisted list. */
-export const saveTeacherDeck = (deck: TeacherDeck): TeacherDeck[] => {
-  const rest = readTeacherDecks().filter((item) => item.id !== deck.id);
-  const next = [deck, ...rest].slice(0, MAX_DECKS);
+/**
+ * Saves (or replaces) a deck and returns the full, persisted list. The caller enforces
+ * `MAX_DECKS` before calling this, so saving never silently drops the oldest list.
+ */
+export const saveTeacherDeck = (owner: string, deck: TeacherDeck): TeacherDeck[] => {
+  const rest = readTeacherDecks(owner).filter((item) => item.id !== deck.id);
+  const next = [deck, ...rest];
   try {
-    localStorage.setItem(DECKS_KEY, JSON.stringify(next));
+    localStorage.setItem(decksKey(owner), JSON.stringify(next));
   } catch {
     /* Storage blocked — the deck simply will not survive a reload. */
   }
   return next;
 };
 
-export const deleteTeacherDeck = (id: string): TeacherDeck[] => {
-  const next = readTeacherDecks().filter((item) => item.id !== id);
+export const deleteTeacherDeck = (owner: string, id: string): TeacherDeck[] => {
+  const next = readTeacherDecks(owner).filter((item) => item.id !== id);
   try {
-    localStorage.setItem(DECKS_KEY, JSON.stringify(next));
+    localStorage.setItem(decksKey(owner), JSON.stringify(next));
   } catch {
     /* Storage blocked. */
   }
@@ -539,9 +723,13 @@ export const newTeacherDeckId = (): string =>
   `deck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 /** A deck test: the deck's own words, shuffled, so the order is not the lesson's. */
-export const buildDeckTest = (deck: TeacherDeck, rng: () => number = Math.random): TeacherSession => ({
-  title: deck.name,
-  source: `${deck.words.length} words · your deck`,
+export const buildDeckTest = (
+  deck: TeacherDeck,
+  mode: TeacherTestMode = 'listen',
+  rng: () => number = Math.random,
+): TeacherSession => ({
+  origin: { kind: 'deck', name: deck.name },
+  mode,
   words: shuffle(deck.words, rng),
 });
 
@@ -557,17 +745,18 @@ export const shuffledDeckWords = (
 export const buildLevelSession = (
   levelId: TeacherLevelId,
   count: number,
+  mode: TeacherTestMode = 'listen',
   rng: () => number = Math.random,
-): TeacherSession => ({
-  title: `${levelId} level test`,
-  source: `${levelId} · ${count} words`,
-  words: buildLevelTest(levelId, count, rng),
-});
+): TeacherSession => {
+  const words = buildLevelTest(levelId, count, rng);
+  // The delivered count, not the requested one — A1 tops out below the 300 ceiling.
+  return { origin: { kind: 'level', levelId }, mode, words };
+};
 
 /** Rebuilds a session with only the words the student missed. */
 export const buildRetrySession = (session: TeacherSession, answers: TeacherAnswer[]): TeacherSession => ({
-  title: `${session.title} · retry`,
-  source: `Retry ${answers.filter((answer) => !answer.correct).length} missed`,
+  ...session,
+  retry: true,
   words: answers.filter((answer) => !answer.correct).map((answer) => answer.word),
 });
 

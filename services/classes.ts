@@ -36,7 +36,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { AppError } from './apiError';
-import type { TeacherWord } from './teacherDeck';
+import { isTeacherTestMode, type TeacherTestMode, type TeacherWord } from './teacherDeck';
 
 const CLASSES = 'classes';
 const CODES = 'classCodes';
@@ -86,6 +86,8 @@ export interface QuizQuestion {
 export interface ClassAssignment {
   id: string;
   kind: ClassKind;
+  /** vocabulary only — how the teacher wants the words asked. */
+  mode?: TeacherTestMode;
   title: string;
   /** Teacher's note shown above the work. */
   instructions: string;
@@ -107,6 +109,12 @@ export interface VocabAnswer {
   gloss: string;
   guess: string;
   correct: boolean;
+  /** 1 = right or wrong on the first go; 2 = the student used the retry. */
+  attempts?: number;
+  /** Hint presses used on this word. */
+  hints?: number;
+  /** The student asked to see the answer instead of answering. */
+  skipped?: boolean;
 }
 
 export interface WorkDetail {
@@ -137,6 +145,7 @@ export interface ClassSubmission {
 
 export interface NewAssignment {
   kind: ClassKind;
+  mode?: TeacherTestMode;
   title: string;
   instructions: string;
   dueAt: number | null;
@@ -187,6 +196,7 @@ const toAssignment = (id: string, data: Record<string, unknown>): ClassAssignmen
   return {
     id,
     kind,
+    mode: isTeacherTestMode(asString(data.mode)) ? (data.mode as TeacherTestMode) : 'letters',
     title: asString(data.title),
     instructions: asString(data.instructions),
     createdAt: asNumber(data.createdAt),
@@ -230,6 +240,10 @@ const toSubmission = (id: string, data: Record<string, unknown>): ClassSubmissio
           gloss: asString(row.gloss),
           guess: asString(row.guess),
           correct: row.correct === true,
+          // Absent on submissions written before the retry/hint flow existed.
+          attempts: asNumber(row.attempts, 1),
+          hints: asNumber(row.hints, 0),
+          skipped: row.skipped === true,
         };
       }),
       responses: Array.isArray(detail.responses) ? detail.responses.map((n) => asNumber(n, -1)) : [],
@@ -439,6 +453,7 @@ export const createAssignment = async (
 ): Promise<void> => {
   await addDoc(collection(db!, CLASSES, classId, 'assignments'), {
     kind: input.kind,
+    mode: input.kind === 'vocabulary' ? (input.mode ?? 'letters') : '',
     title: input.title.trim(),
     instructions: input.instructions.trim(),
     createdAt: Date.now(),

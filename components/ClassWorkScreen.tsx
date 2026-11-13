@@ -27,7 +27,7 @@ interface ClassWorkScreenProps {
  * A homework run: one assignment, one student, no scoreboard.
  *
  * This screen is only the shell — heading, submission, and the result. The work itself
- * belongs to a tool: VocabularyWork is Check Vocabulary (Tool 1), QuizWork is multiple
+ * belongs to a tool: VocabularyWork is Vocabulary Check (Tool 1), QuizWork is multiple
  * choice, WritingWork is the essay. Adding a fourth tool later means adding one module and
  * one branch here, not touching the other three.
  */
@@ -128,6 +128,9 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
               gloss: answer.word.meaning,
               guess: answer.guess,
               correct: answer.correct,
+              attempts: answer.attempts,
+              hints: answer.hints,
+              skipped: answer.skipped,
             })),
             responses: [],
             text: '',

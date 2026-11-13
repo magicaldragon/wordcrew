@@ -195,12 +195,25 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
                             {answer.term}
                             <span className="text-[var(--wn-8)]"> · {answer.gloss}</span>
                           </span>
-                          <span className="shrink-0 text-[var(--wn-9)]">
-                            {answer.correct
-                              ? '✓'
-                              : answer.guess
-                                ? t.review.wrote(answer.guess)
-                                : t.review.blank}
+                          <span className="shrink-0 text-right text-[var(--wn-9)]">
+                            <span className="block">
+                              {answer.correct
+                                ? '✓'
+                                : answer.guess
+                                  ? t.review.wrote(answer.guess)
+                                  : t.review.blank}
+                            </span>
+                            {((answer.attempts ?? 1) > 1 ||
+                              (answer.hints ?? 0) > 0 ||
+                              answer.skipped) && (
+                              <span className="mt-0.5 block text-[0.65rem] text-[var(--wn-8)]">
+                                {t.review.effort(
+                                  answer.attempts ?? 1,
+                                  answer.hints ?? 0,
+                                  Boolean(answer.skipped),
+                                )}
+                              </span>
+                            )}
                           </span>
                         </li>
                       ))}

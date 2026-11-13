@@ -95,7 +95,7 @@ export const dashboard = {
     // The tool card itself — the definition lives in services/tools.ts, the words live here.
     definition: {
       slot: 'Tool 1',
-      name: 'Check Vocabulary',
+      name: 'Vocabulary Check',
       summary:
         'Test one CEFR level, A1 to B2, or paste this week’s word list. Meanings are filled in for you to review, and the student gets a report instead of a score.',
       meta: ['Levels A1–B2', 'Your own word list', 'Report per student'],

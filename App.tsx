@@ -14,6 +14,7 @@ import {
   type TeacherDeck,
   type TeacherLevelId,
   type TeacherSession,
+  type TeacherTestMode,
 } from './services/teacherDeck';
 import { localDateId } from './services/periods';
 import type { ClassAssignment } from './services/classes';
@@ -102,6 +103,7 @@ const App: React.FC = () => {
   const shellCopy = useT('shell');
   const dashboardCopy = useT('dashboard');
   const gameCopy = useT('game');
+  const teacherCopy = useT('teacher');
 
   const [gamePhase, setGamePhase] = useState<GamePhase>(GamePhase.SETUP);
   const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
@@ -651,7 +653,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleStartLevelTest = useCallback(
-    (levelId: TeacherLevelId, count: number) => startTeacherSession(buildLevelSession(levelId, count)),
+    (levelId: TeacherLevelId, count: number, mode: TeacherTestMode) =>
+      startTeacherSession(buildLevelSession(levelId, count, mode)),
     [startTeacherSession],
   );
 
@@ -663,10 +666,13 @@ const App: React.FC = () => {
     setTeacherDeckForReview(deck);
   }, []);
 
-  const handleStartReviewedDeck = useCallback(() => {
-    if (!teacherDeckForReview) return;
-    startTeacherSession(buildDeckTest(teacherDeckForReview));
-  }, [startTeacherSession, teacherDeckForReview]);
+  const handleStartReviewedDeck = useCallback(
+    (mode: TeacherTestMode) => {
+      if (!teacherDeckForReview) return;
+      startTeacherSession(buildDeckTest(teacherDeckForReview, mode));
+    },
+    [startTeacherSession, teacherDeckForReview],
+  );
 
   const handleTeacherFinish = useCallback((answers: TeacherAnswer[]) => {
     setTeacherAnswers(answers);
@@ -1224,7 +1230,12 @@ const App: React.FC = () => {
           <p className="mt-1 sm:mt-2 text-base sm:text-lg text-muted-text font-sans">
             {isTeacher
               ? teacherSession
-                ? shellCopy.header.teacherRunning(teacherSession.title)
+                ? shellCopy.header.teacherRunning(
+                    (teacherSession.origin.kind === 'level'
+                      ? teacherCopy.test.levelTitle(teacherSession.origin.levelId)
+                      : teacherSession.origin.name) +
+                      (teacherSession.retry ? teacherCopy.test.retrySuffix : ''),
+                  )
                 : shellCopy.header.teacherIdle
               : isSolo || isSoloSetup
                 ? soloPhase === 'playing' && soloTrack
