@@ -46,7 +46,7 @@ export const teacher = {
       },
       read: {
         label: 'Look & read',
-        hint: 'The word, its sound and its IPA; the student reads it aloud. Practice — never scored.',
+        hint: 'The word, its sound and its IPA; the student reads it aloud and the mic checks it.',
       },
     },
 
@@ -133,6 +133,18 @@ export const teacher = {
     next: 'Next',
     startTest: (count: number) => `Start the test · ${count} words`,
     done: 'Done — back to results',
+    sayTitle: 'Say it out loud',
+    sayHint: 'Record yourself, play it back, and compare with the model.',
+    record: 'Record',
+    recordStop: 'Stop',
+    recordAgain: 'Record again',
+    playBackAria: 'Your recording',
+    selfCheck: 'How did it sound?',
+    selfGood: 'Matched',
+    selfAgain: 'Try again',
+    recordFailed: 'Nothing was captured — check the microphone and try again.',
+    recordInsecure:
+      'Recording needs the https:// address: the browser keeps the microphone closed on plain http.',
   },
 
   test: {
@@ -172,8 +184,19 @@ export const teacher = {
     readRetry: 'Try the mic again',
     readHeard: (heard: string) => `Heard “${heard}”`,
     readNotHeard: 'Nothing heard — check the microphone',
-    readNoMic: 'This browser cannot listen. Read the word out loud, then continue.',
-    readPractice: 'Practice only — reading aloud never affects the score.',
+    readNoMic: 'This browser cannot listen. Type the word instead, then continue.',
+    readChecking: 'Checking what you said…',
+    youSaid: (guess: string) => `You said “${guess}”`,
+    speech: {
+      blocked: 'Microphone access was blocked — allow it in the address bar, or type the word.',
+      network: 'Couldn’t reach the recogniser — check the connection, or type the word.',
+      unresponsive: 'Voice input is not responding on this device — type the word instead.',
+      'start-failed': 'Could not start the microphone — type the word instead.',
+      insecure:
+        'This page is not on HTTPS, so the browser will not open the microphone. Open the https:// address, or type the word.',
+      nothing: 'Didn’t catch that — say the word again.',
+      limited: 'Voice checking is resting for today — type the word instead.',
+    },
   },
 
   report: {
@@ -181,11 +204,10 @@ export const teacher = {
     toRevisit: (missed: number) => `· ${missed} to revisit`,
     wrote: (guess: string) => `Wrote “${guess}”`,
     chose: (guess: string) => `Chose “${guess}”`,
+    said: (guess: string) => `Said “${guess}”`,
     noAnswer: 'No answer',
     spellingTag: 'Spelling',
     spellingNote: (count: number) => `· ${count} right word, misspelled`,
-    practisedReading: (count: number) =>
-      `Also practised reading aloud: ${count} ${count === 1 ? 'word' : 'words'} (not scored)`,
     attemptTag: (attempts: number) => `Attempt ${attempts}`,
     hintTag: (hints: number) => `${hints} ${hints === 1 ? 'hint' : 'hints'}`,
     skippedTag: 'Skipped',

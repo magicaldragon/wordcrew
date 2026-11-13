@@ -5,8 +5,6 @@ import { TeacherTestScreen } from '../TeacherTestScreen';
 import { useT } from '../../i18n/useT';
 import { assignmentModes, assignmentWords, percent, type ClassAssignment } from '../../services/classes';
 import {
-  isPracticeMode,
-  isScoredAnswer,
   type TeacherAnswer,
   type TeacherDeck,
   type TeacherSession,
@@ -34,8 +32,8 @@ interface VocabularyWorkProps {
  * The teacher may ask the set one to four ways. The cards always come first — a Vietnamese
  * prompt with no prior exposure measures memory, not vocabulary — and then each style is
  * its own part with its own tab. A part is finished, saved, and the student is offered a
- * rest before the next one; nobody is pushed through all the parts in one sitting. Reading
- * aloud is practice: it is recorded, and it never enters the score.
+ * rest before the next one; nobody is pushed through all the parts in one sitting. Every
+ * part is scored, reading aloud included, so the hand-in means the same thing each time.
  *
  * This file is the whole of "vocabulary homework". A multiple-choice assignment and a
  * writing assignment each have their own module (QuizWork, WritingWork); ClassWorkScreen
@@ -71,34 +69,29 @@ export const VocabularyWork: React.FC<VocabularyWorkProps> = ({
   /** The cards are being re-read from the rest screen rather than before the first test. */
   const [reviewOnly, setReviewOnly] = useState(false);
 
-  /** Finished when every word was answered in that style; practice parts always are. */
+  /** Finished when every word was answered in that style. */
   const partStats = (mode: TeacherTestMode) => {
     const rows = answers.filter((answer) => answer.mode === mode);
-    const scored = rows.filter(isScoredAnswer);
     return {
       done: words.length > 0 && rows.length >= words.length,
-      correct: scored.filter((answer) => answer.correct).length,
-      total: scored.length,
+      correct: rows.filter((answer) => answer.correct).length,
+      total: rows.length,
     };
   };
 
   const remaining = modes.filter((mode) => !partStats(mode).done);
   const doneCount = modes.length - remaining.length;
-  // A part the teacher only made practice must not sit in the denominator.
-  const scoredParts = modes.filter((mode) => !isPracticeMode(mode)).length;
 
   /** Unanswered words count as zero, so a half-done draft never reads as 100%. */
   const scoreOf = (list: TeacherAnswer[]): number => {
-    if (scoredParts === 0) return 0;
-    const correct = list.filter(isScoredAnswer).filter((answer) => answer.correct).length;
-    return percent(correct, scoredParts * words.length);
+    if (modes.length === 0) return 0;
+    const correct = list.filter((answer) => answer.correct).length;
+    return percent(correct, modes.length * words.length);
   };
 
   const score = scoreOf(answers);
   const overall = modes.length > 0 ? Math.round((doneCount / modes.length) * 100) : 0;
-  // Nothing scored (the teacher only assigned reading) means there is no bar to clear.
-  const canSubmit =
-    scoredParts === 0 || assignment.passScore === null || score >= assignment.passScore;
+  const canSubmit = assignment.passScore === null || score >= assignment.passScore;
 
   /** One finished part: replace whatever that style produced before, save, and rest. */
   const commitPart = (mode: TeacherTestMode, tabAnswers: TeacherAnswer[]) => {
@@ -156,7 +149,6 @@ export const VocabularyWork: React.FC<VocabularyWorkProps> = ({
         <ul className="flex flex-col gap-2">
           {modes.map((mode, at) => {
             const stat = partStats(mode);
-            const practice = isPracticeMode(mode);
             return (
               <li key={mode}>
                 <button
@@ -173,18 +165,14 @@ export const VocabularyWork: React.FC<VocabularyWorkProps> = ({
                       {teacherT.setup.modes[mode].label}
                     </span>
                     <span className="block text-[0.7rem] text-muted-text">
-                      {practice
-                        ? t.work.tabs.practice
-                        : stat.done
-                          ? t.work.tabs.done
-                          : t.work.tabs.todo}
+                      {stat.done ? t.work.tabs.done : t.work.tabs.todo}
                     </span>
                   </span>
                   <span className="shrink-0 text-xs font-semibold text-light-text">
-                    {stat.done && !practice ? (
+                    {stat.done ? (
                       t.work.tabs.score(stat.correct, stat.total)
                     ) : (
-                      <Icon name={stat.done ? 'check' : 'play'} size={16} />
+                      <Icon name="play" size={16} />
                     )}
                   </span>
                 </button>

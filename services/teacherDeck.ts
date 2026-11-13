@@ -117,12 +117,16 @@ export const deckStatus = (deck: TeacherDeck): TeacherDeckStatus => deck.status 
 
 /**
  * How a run asks each word. Chosen per run and kept on the session, so the report can
- * say what was actually tested — spelling, listening or recognition.
+ * say what was actually tested — spelling, listening, recognition or pronunciation.
  *
  *   listen  — the word is spoken, the student writes it (listening + spelling)
  *   choice  — the word is shown, the student picks its Vietnamese meaning
  *   letters — the meaning is shown with the first letter and one box per letter
- *   read    — the word, its IPA and its sound; the student reads it aloud (practice)
+ *   read    — the word is shown; the student says it and the microphone checks it
+ *
+ * All four are scored. Reading aloud used to be practice, which meant a part with no
+ * verdict; it is now judged from the transcript (fuzzy spelling, then phonemes, the way
+ * Solo judges a spoken answer), so the part counts like every other one.
  */
 export type TeacherTestMode = 'listen' | 'choice' | 'letters' | 'read';
 
@@ -131,15 +135,12 @@ export const TEACHER_TEST_MODES: TeacherTestMode[] = ['listen', 'choice', 'lette
 export const isTeacherTestMode = (value: string): value is TeacherTestMode =>
   (TEACHER_TEST_MODES as string[]).includes(value);
 
-/** Reading aloud is practice: it is recorded, but never counted in a score. */
-export const isPracticeMode = (mode: TeacherTestMode): boolean => mode === 'read';
-
 /**
  * The styles build on each other: recognising a meaning is easier than recalling a word
  * from a Vietnamese prompt, which is easier than hearing it and spelling it. Reading the
- * word aloud comes last — it consolidates the word once the others have established it,
- * and it is never scored. A set that includes several modes is always asked in this
- * order, whatever order the teacher ticked them.
+ * word aloud comes last — it consolidates the word once the others have established it.
+ * A set that includes several modes is always asked in this order, whatever order the
+ * teacher ticked them.
  */
 export const TEACHER_MODE_LADDER: TeacherTestMode[] = ['choice', 'letters', 'listen', 'read'];
 
@@ -176,12 +177,7 @@ export interface TeacherAnswer {
   skipped?: boolean;
   /** Which question style produced this answer — a class set may ask several. */
   mode?: TeacherTestMode;
-  /** Reading aloud: recorded for the log, left out of every score. */
-  practice?: boolean;
 }
-
-/** True when an answer counts towards the score. Practice rows are kept out of it. */
-export const isScoredAnswer = (answer: TeacherAnswer): boolean => !answer.practice;
 
 // ── Level tests ────────────────────────────────────────────────────────────
 const shuffle = <T,>(input: T[], rng: () => number): T[] => {

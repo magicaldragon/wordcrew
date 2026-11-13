@@ -80,7 +80,6 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
             hints: row.hints ?? 0,
             skipped: row.skipped,
             mode: row.mode,
-            practice: row.practice,
           }];
         });
         if (restored.length > 0) setDraft(restored);
@@ -249,7 +248,6 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
         };
         if (answer.skipped) row.skipped = true;
         if (answer.mode) row.mode = answer.mode;
-        if (answer.practice) row.practice = true;
         return row;
       }),
       responses: [],
@@ -372,15 +370,12 @@ const ResultView: React.FC<ResultViewProps> = ({
       : null;
   // A multi-round assignment asks the same word several ways, so the "worth another look"
   // list is by word, not by answer row.
-  // Reading aloud is practice and is never counted, so it cannot appear in the "worth
-  // another look" list or in the word count.
-  const scored = result.detail.answers.filter((answer) => !answer.practice);
   const missed = Array.from(
     new Map(
-      scored.filter((answer) => !answer.correct).map((answer) => [answer.term, answer]),
+      result.detail.answers.filter((answer) => !answer.correct).map((answer) => [answer.term, answer]),
     ).values(),
   );
-  const wordCount = new Set(scored.map((answer) => answer.term)).size;
+  const wordCount = new Set(result.detail.answers.map((answer) => answer.term)).size;
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 text-center">

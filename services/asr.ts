@@ -90,11 +90,16 @@ export type ListenOutcome =
 export interface CloudListen {
   /** Settles once the clip has been recorded, uploaded and transcribed. */
   outcome: Promise<ListenOutcome>;
+  /** Ends the recording now and keeps what was said — the clip is still transcribed. */
+  stop: () => void;
   /** Drops the recording and releases the mic; `outcome` then reports cancelled. */
   cancel: () => void;
 }
 
-type Clip = { status: 'ok'; buffer: ArrayBuffer } | { status: 'mic' } | { status: 'empty' };
+type Clip =
+  | { status: 'ok'; buffer: ArrayBuffer; type: string }
+  | { status: 'mic' }
+  | { status: 'empty' };
 
 interface LevelMeter {
   /** Current loudness of the stream, as an RMS amplitude. */
@@ -145,8 +150,11 @@ const openMeter = (stream: MediaStream): LevelMeter | null => {
  * Opens the mic, records until the answer is over or `MAX_CLIP_MS` passes, and hands
  * back the encoded clip. A capture that never rises above room tone is reported as
  * empty without being uploaded — there is nothing to transcribe and no reason to pay.
+ *
+ * `signal` throws the capture away; `stopSignal` ends it early and keeps what was said,
+ * which is what a "stop recording" button needs.
  */
-const recordClip = (signal: AbortSignal): Promise<Clip> =>
+const recordClip = (signal: AbortSignal, stopSignal?: AbortSignal): Promise<Clip> =>
   new Promise<Clip>((resolve) => {
     let recorder: MediaRecorder | null = null;
     let stream: MediaStream | null = null;
@@ -155,6 +163,8 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
     let vadTimer: number | null = null;
     const chunks: Blob[] = [];
     let settled = false;
+    /** The player asked to stop before the recorder was even running. */
+    let stopRequested = false;
     /** False only when the meter is running and has never heard the player. */
     let heardSpeech = false;
 
@@ -173,6 +183,7 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
       meter?.close();
       meter = null;
       signal.removeEventListener('abort', onAbort);
+      stopSignal?.removeEventListener('abort', onStop);
       stopTracks();
       resolve(value);
     };
@@ -192,7 +203,13 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
       settle({ status: 'empty' });
     }
 
+    function onStop() {
+      stopRequested = true;
+      stopRecorder();
+    }
+
     signal.addEventListener('abort', onAbort, { once: true });
+    stopSignal?.addEventListener('abort', onStop, { once: true });
 
     void (async () => {
       try {
@@ -236,9 +253,10 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
           settle({ status: 'empty' });
           return;
         }
-        const blob = new Blob(chunks, { type: recorder?.mimeType || mime || 'audio/webm' });
+        const type = recorder?.mimeType || mime || 'audio/webm';
+        const blob = new Blob(chunks, { type });
         void blob.arrayBuffer().then(
-          (buffer) => settle({ status: 'ok', buffer }),
+          (buffer) => settle({ status: 'ok', buffer, type }),
           () => settle({ status: 'empty' }),
         );
       };
@@ -249,6 +267,8 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
         settle({ status: 'mic' });
         return;
       }
+      // A stop button pressed while the permission prompt was up.
+      if (stopRequested) stopRecorder();
 
       meter = openMeter(stream);
       // Without a meter we cannot tell speech from silence, so the clip is always kept.
@@ -283,10 +303,11 @@ const recordClip = (signal: AbortSignal): Promise<Clip> =>
  */
 export const listenOnce = (onRecorded?: () => void): CloudListen => {
   const controller = new AbortController();
+  const finish = new AbortController();
   let cancelled = false;
 
   const outcome = (async (): Promise<ListenOutcome> => {
-    const clip = await recordClip(controller.signal);
+    const clip = await recordClip(controller.signal, finish.signal);
     if (cancelled) return { kind: 'cancelled' };
     if (clip.status === 'mic') return { kind: 'mic-blocked' };
     if (clip.status === 'empty') return { kind: 'empty' };
@@ -312,10 +333,34 @@ export const listenOnce = (onRecorded?: () => void): CloudListen => {
 
   return {
     outcome,
+    stop: () => finish.abort(),
     cancel: () => {
       cancelled = true;
       controller.abort();
     },
   };
+};
+
+export interface ClipRecording {
+  /** Resolves with a playable object URL once the mic closes; null when nothing was captured. */
+  url: Promise<string | null>;
+  /** Ends the capture now, keeping whatever was said. */
+  stop: () => void;
+  /** Drops the capture and releases the mic; the promise then resolves null. */
+  cancel: () => void;
+}
+
+/**
+ * Records one clip and hands back a URL to play it — the review screen's
+ * "say it, hear yourself, compare with the model" loop. Nothing leaves the device:
+ * no upload, no transcription, and therefore no cost.
+ */
+export const recordClipForPlayback = (): ClipRecording => {
+  const cancel = new AbortController();
+  const stop = new AbortController();
+  const url = recordClip(cancel.signal, stop.signal).then((clip) =>
+    clip.status === 'ok' ? URL.createObjectURL(new Blob([clip.buffer], { type: clip.type })) : null,
+  );
+  return { url, stop: () => stop.abort(), cancel: () => cancel.abort() };
 };
 

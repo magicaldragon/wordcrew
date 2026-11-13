@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { SpeakButton } from './SpeakButton';
 import { confirmDialog } from './Feedback';
+import { useSpeechInput } from './useSpeechInput';
 import { useT } from '../i18n/useT';
 import { ipaOf, loadPronouncingDictionary } from '../services/ipa';
+import { checkSpokenAnswer } from '../services/solo';
 import { speakWord, stopPlayback, warmWords } from '../services/tts';
 import {
   buildChoiceOptions,
@@ -11,6 +13,7 @@ import {
   judgeMeaningChoice,
   judgeTeacherAnswer,
   type TeacherAnswer,
+  type TeacherMatch,
   type TeacherSession,
 } from '../services/teacherDeck';
 
@@ -31,39 +34,22 @@ const cardTone = (answer: TeacherAnswer | null): string => {
 
 const isLetter = (char: string): boolean => /[a-zA-Z]/.test(char);
 
-/** The slice of the Web Speech API this screen needs — not in the DOM lib we compile against. */
-interface SpeechRecognitionLike {
-  lang: string;
-  interimResults: boolean;
-  maxAlternatives: number;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: ((event: unknown) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-/** Chrome and Edge ship it under two names; Safari/Firefox do not ship it at all. */
-const speechRecognition = (): (new () => SpeechRecognitionLike) | null => {
-  if (typeof window === 'undefined') return null;
-  const scope = window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
-};
-
 /**
  * The test itself. The words are fixed; the question style is chosen before the run:
  *
  *   listen  — the word is spoken, the student writes it (listening + spelling)
  *   choice  — the word is shown, the student picks its Vietnamese meaning
  *   letters — the meaning, the first letter and one box per letter (spelling)
+ *   read    — the word is shown; the student says it aloud and the mic checks it
  *
- * No hearts, no clock, no score — the only output is a right/wrong report the teacher
- * can act on. After each answer the student presses Continue, so the class can talk
- * about the word before moving on. A near miss is flagged as a spelling slip: the
- * answer is not counted correct, and the report keeps it apart from words not known.
+ * Every mode is scored, reading aloud included: the microphone hears one word, the
+ * transcript is compared the way Solo compares a spoken answer (fuzzy spelling first,
+ * phonemes second, so "wear" passes for "where"), and the word counts as right or wrong.
+ *
+ * No hearts, no clock — the output is a right/wrong report the teacher can act on. After
+ * each answer the student presses Continue, so the class can talk about the word before
+ * moving on. A near miss is flagged as a spelling slip: the answer is not counted
+ * correct, and the report keeps it apart from words not known.
  *
  * A first miss is not final: the student gets one retry, a hint, or may skip and see
  * the answer. Every retry and hint is counted, so the report can tell a word the
@@ -85,10 +71,9 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   const [hints, setHints] = useState(0);
   const [ipaTick, setIpaTick] = useState(0);
   /** What the microphone heard on the current read-aloud card; null = nothing tried yet. */
-  const [heard, setHeard] = useState<string | null>(null);
-  const [listening, setListening] = useState(false);
-  const [canListen] = useState(() => speechRecognition() !== null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [heardText, setHeardText] = useState<string | null>(null);
+  /** A transcript is being checked against the target word. */
+  const [checking, setChecking] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const total = session.words.length;
@@ -110,16 +95,6 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   }, [session.words]);
 
   useEffect(() => () => stopPlayback(), []);
-
-  // Reading aloud has nothing to score, but the microphone from the previous card must not
-  // keep listening into this one.
-  useEffect(() => {
-    recognitionRef.current?.stop();
-    setHeard(null);
-    setListening(false);
-  }, [index]);
-
-  useEffect(() => () => recognitionRef.current?.stop(), []);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -156,26 +131,21 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   const shownOptions =
     revealed || !hiddenOption ? options : options.filter((option) => option !== hiddenOption);
 
-  const maxHints = mode === 'letters' ? 2 : 1;
+  const maxHints = mode === 'letters' ? 2 : mode === 'read' ? 0 : 1;
   const canHint = !revealed && hints < maxHints;
 
   const ipa = useMemo(() => (word ? ipaOf(word.word) : null), [word, ipaTick]);
 
-  const recordAnswer = (value: string, options?: { skipped?: boolean }) => {
+  /** Writes one answered word and reveals its verdict. */
+  const commit = (value: string, match: TeacherMatch, skipped: boolean) => {
     if (revealed || !word) return;
-    const skipped = options?.skipped ?? false;
-    const match =
-      mode === 'choice'
-        ? judgeMeaningChoice(value, word.meaning)
-          ? 'correct'
-          : 'wrong'
-        : mode === 'letters'
-          ? judgeLetterAnswer(value, word.word)
-          : judgeTeacherAnswer(value, word.word);
 
     // The first miss is a pause, not a verdict: hold it and let the student choose.
     if (!skipped && match === 'wrong' && attempt === 1) {
       setMissed({ guess: value.trim() });
+      // Whatever they do next — press Try again, or just read into the mic again —
+      // the word is on its second attempt, and the report must say so.
+      setAttempt(2);
       return;
     }
 
@@ -194,12 +164,65 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
     setMissed(null);
   };
 
+  /**
+   * One reading, judged the way Solo judges a spoken answer: the best transcript and
+   * every alternative the engine offered are checked — fuzzy spelling first, phonemes
+   * second — so a recogniser that writes "wear" for "where" still counts.
+   */
+  const judgeReading = async (transcript: string, alternatives: string[]) => {
+    if (!word) return;
+    setHeardText(transcript);
+    setChecking(true);
+    let correct = false;
+    try {
+      for (const candidate of [transcript, ...alternatives]) {
+        if (await checkSpokenAnswer(candidate, word.word)) {
+          correct = true;
+          break;
+        }
+      }
+    } finally {
+      setChecking(false);
+    }
+    commit(transcript, correct ? 'correct' : 'wrong', false);
+  };
+
+  const speech = useSpeechInput((transcript, alternatives) => {
+    void judgeReading(transcript, alternatives);
+  });
+
+  // A new word starts with a clean mic: the previous card's session must not keep
+  // listening, and its verdict must not leak into this one.
+  useEffect(() => {
+    speech.reset();
+    setHeardText(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
+
+  const recordAnswer = (value: string, options?: { skipped?: boolean }) => {
+    if (!word) return;
+    const match: TeacherMatch =
+      mode === 'choice'
+        ? judgeMeaningChoice(value, word.meaning)
+          ? 'correct'
+          : 'wrong'
+        : mode === 'letters'
+          ? judgeLetterAnswer(value, word.word)
+          : judgeTeacherAnswer(value, word.word);
+    commit(value, match, options?.skipped ?? false);
+  };
+
   /** One more go at the same word; the attempt count is what the report records. */
   const handleRetry = () => {
     if (!word) return;
     setAttempt(2);
     setMissed(null);
     setInput(mode === 'letters' ? word.word.slice(0, 1 + hints) : '');
+    if (mode === 'read') {
+      speech.reset();
+      setHeardText(null);
+      return;
+    }
     inputRef.current?.focus();
   };
 
@@ -222,55 +245,6 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
     setMissed(null);
     setAttempt(1);
     setHints(0);
-  };
-
-  /** Opens the mic for one reading. Whatever it hears is shown, never graded. */
-  const startListening = () => {
-    const Recognition = speechRecognition();
-    if (!Recognition) return;
-    recognitionRef.current?.stop();
-    const recognition = new Recognition();
-    recognitionRef.current = recognition;
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    setHeard(null);
-    setListening(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? '';
-      setHeard(transcript.trim());
-      setListening(false);
-    };
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-    try {
-      recognition.start();
-    } catch {
-      setListening(false);
-    }
-  };
-
-  /**
-   * Reading aloud ends the card no matter what the mic caught — there is nothing to judge,
-   * and a student on a device without speech support must not be stuck.
-   */
-  const recordReading = () => {
-    if (!word) return;
-    const answer: TeacherAnswer = {
-      word,
-      guess: heard ?? '',
-      correct: false,
-      attempts: 1,
-      hints: 0,
-      mode: 'read',
-      practice: true,
-    };
-    setAnswers((prev) => [...prev, answer]);
-    if (index + 1 >= total) {
-      onFinish([...answers, answer]);
-      return;
-    }
-    setIndex((current) => current + 1);
   };
 
   // Enter moves on once the answer is on screen. Buttons keep their own Enter handling,
@@ -363,60 +337,6 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
     </>
   );
 
-  // Reading aloud is a practice card, not a question: no answer to type, no verdict, and
-  // the word, its IPA and its sound are all on screen. The student reads, then moves on.
-  if (mode === 'read') {
-    return (
-      <div className="flex min-h-0 flex-grow flex-col gap-3 p-3 sm:p-4">
-        {header}
-
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border-2 border-electric-blue/30 bg-dark-metal/60 p-4 text-center">
-          <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
-            {t.setup.modes.read.label}
-          </span>
-          <p className="break-words font-heading text-3xl font-bold tracking-wide text-light-text sm:text-4xl">
-            {word.word}
-          </p>
-          {ipa && <p className="font-mono text-base text-electric-blue">/{ipa}/</p>}
-          <SpeakButton word={word.word} size="lg" label={t.test.play} />
-          <p className="text-sm font-semibold text-light-text">{t.test.readPrompt}</p>
-
-          <div className="w-full max-w-sm">
-            {canListen ? (
-              <button
-                type="button"
-                onClick={startListening}
-                disabled={listening}
-                className="wc-btn wc-btn-secondary min-h-[48px] w-full disabled:opacity-60"
-              >
-                <Icon name="mic" size={16} />
-                {listening ? t.test.readListening : heard === null ? t.test.readStart : t.test.readRetry}
-              </button>
-            ) : (
-              <p className="rounded-md border border-white/10 px-3 py-2 text-[0.7rem] leading-relaxed text-muted-text">
-                {t.test.readNoMic}
-              </p>
-            )}
-            {heard !== null && (
-              <p className="mt-1.5 text-xs text-light-text" role="status" aria-live="polite">
-                {heard ? t.test.readHeard(heard) : t.test.readNotHeard}
-              </p>
-            )}
-            <p className="mt-1.5 text-[0.7rem] text-muted-text">{t.test.readPractice}</p>
-            <button
-              type="button"
-              onClick={recordReading}
-              className="wc-btn wc-btn-primary mt-2 min-h-[48px] w-full"
-            >
-              {index + 1 >= total ? t.test.finish : t.test.continue}
-              <Icon name="arrowRight" size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   /** One box per letter of the target; the first one is given, the input fills the rest. */
   const letterSlots = (target: string) => {
     const typed = input.replace(/[^a-zA-Z]/g, '');
@@ -444,6 +364,9 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   };
 
   const letterCount = Array.from(word.word).filter(isLetter).length;
+  const listeningNow = speech.listening || speech.transcribing;
+  /** Reading aloud reports what the mic heard; the other modes report what was typed. */
+  const answerLabel = mode === 'read' ? t.test.youSaid : t.test.youWrote;
 
   return (
     <div className="flex min-h-0 flex-grow flex-col gap-3 p-3 sm:p-4">
@@ -487,7 +410,47 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
           </>
         )}
 
-        {mode === 'choice' ? (
+        {mode === 'read' && (
+          <>
+            <p className="break-words font-heading text-3xl font-bold tracking-wide text-light-text sm:text-4xl">
+              {word.word}
+            </p>
+            <p className="text-sm font-semibold text-light-text">{t.test.readPrompt}</p>
+            {speech.supported ? (
+              <button
+                type="button"
+                onClick={() => (listeningNow ? speech.stop() : speech.start())}
+                disabled={Boolean(revealed) || checking}
+                className="wc-btn wc-btn-secondary min-h-[52px] min-w-[14rem] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Icon name={listeningNow ? 'ban' : 'mic'} size={16} />
+                {checking || speech.transcribing
+                  ? t.test.readChecking
+                  : speech.listening
+                    ? t.test.readListening
+                    : heardText !== null
+                      ? t.test.readRetry
+                      : t.test.readStart}
+              </button>
+            ) : (
+              <p className="max-w-sm rounded-md border border-white/10 px-3 py-2 text-[0.7rem] leading-relaxed text-muted-text">
+                {t.test.readNoMic}
+              </p>
+            )}
+            {speech.error && (
+              <p role="status" aria-live="polite" className="text-[0.7rem] text-warning-yellow">
+                {t.test.speech[speech.error]}
+              </p>
+            )}
+            {!speech.error && heardText !== null && (
+              <p className="text-xs text-light-text" role="status" aria-live="polite">
+                {heardText ? t.test.readHeard(heardText) : t.test.readNotHeard}
+              </p>
+            )}
+          </>
+        )}
+
+        {mode === 'choice' && (
           <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
             {shownOptions.map((option) => {
               const isRight = judgeMeaningChoice(option, word.meaning);
@@ -514,7 +477,11 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
               );
             })}
           </div>
-        ) : (
+        )}
+
+        {/* Reading aloud is typed when the device cannot listen — no mic, or the mic is
+            blocked — so the part can still be finished and scored. */}
+        {mode !== 'choice' && (mode !== 'read' || !speech.supported || Boolean(speech.error)) && (
           <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-2">
             <input
               ref={inputRef}
@@ -555,7 +522,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
               {ipa && <p className="mt-0.5 font-mono text-xs text-electric-blue">/{ipa}/</p>}
               {!revealed.correct && revealed.guess && (
                 <p className="mt-0.5 truncate text-[0.7rem] text-muted-text">
-                  {t.test.youWrote(revealed.guess)}
+                  {answerLabel(revealed.guess)}
                 </p>
               )}
             </div>
@@ -574,7 +541,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
             <p className="text-sm font-bold text-danger-red">{t.test.incorrect}</p>
             {missed.guess && (
               <p className="mt-0.5 truncate text-[0.7rem] text-muted-text">
-                {t.test.youWrote(missed.guess)}
+                {answerLabel(missed.guess)}
               </p>
             )}
             <p className="mt-1 text-xs text-light-text">{t.test.retryAsk}</p>

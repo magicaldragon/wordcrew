@@ -123,8 +123,6 @@ export interface VocabAnswer {
   skipped?: boolean;
   /** Which of the assignment's question styles produced this answer. */
   mode?: TeacherTestMode;
-  /** Reading aloud — kept for the log, never counted in a score. */
-  practice?: boolean;
 }
 
 export interface WorkDetail {
@@ -286,7 +284,6 @@ const toSubmission = (id: string, data: Record<string, unknown>): ClassSubmissio
           hints: asNumber(row.hints, 0),
           skipped: row.skipped === true,
           mode: isTeacherTestMode(asString(row.mode)) ? (row.mode as TeacherTestMode) : undefined,
-          practice: row.practice === true,
         };
       }),
       responses: Array.isArray(detail.responses) ? detail.responses.map((n) => asNumber(n, -1)) : [],

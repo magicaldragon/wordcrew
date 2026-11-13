@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from './Icon';
+import { SayItPractice } from './SayItPractice';
 import { SpeakButton } from './SpeakButton';
 import { useT } from '../i18n/useT';
 import { ipaOf, loadPronouncingDictionary } from '../services/ipa';
@@ -159,6 +160,10 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
           </>
         )}
       </div>
+
+      {/* Say it, hear yourself, compare with the model. Practice only — the graded pass
+          is a separate pass and is the only thing that is scored. */}
+      <SayItPractice word={card.word} />
 
       <div className="flex items-center gap-2">
         <button

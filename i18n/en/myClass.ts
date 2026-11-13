@@ -142,7 +142,6 @@ export const myClass = {
       breakTitle: 'Take a breather',
       breakBody:
         'Each part is saved the moment you finish it, so you can stop here. Open the next part whenever you are ready.',
-      practice: 'Practice — never scored',
       done: 'Done',
       todo: 'Not started',
       score: (correct: number, total: number) => `${correct}/${total}`,

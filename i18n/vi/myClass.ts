@@ -141,7 +141,6 @@ export const myClass: Dictionary['myClass'] = {
       breakTitle: 'Nghỉ một chút',
       breakBody:
         'Mỗi phần được lưu ngay khi làm xong, nên bạn dừng ở đây cũng không mất gì. Mở phần tiếp theo khi đã sẵn sàng.',
-      practice: 'Luyện tập — không tính điểm',
       done: 'Đã xong',
       todo: 'Chưa làm',
       score: (correct: number, total: number) => `${correct}/${total}`,

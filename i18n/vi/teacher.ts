@@ -47,7 +47,7 @@ export const teacher: Dictionary['teacher'] = {
       },
       read: {
         label: 'Nhìn & đọc',
-        hint: 'Hiện từ, phiên âm và âm thanh; học sinh đọc to. Chỉ luyện, không tính điểm.',
+        hint: 'Hiện từ, phiên âm và âm thanh; học sinh đọc to và mic chấm điểm.',
       },
     },
 
@@ -133,6 +133,18 @@ export const teacher: Dictionary['teacher'] = {
     next: 'Sau',
     startTest: (count: number) => `Bắt đầu bài kiểm tra · ${count} từ`,
     done: 'Xong — quay lại kết quả',
+    sayTitle: 'Đọc to từ này',
+    sayHint: 'Thu âm, nghe lại và tự so sánh với giọng mẫu.',
+    record: 'Thu âm',
+    recordStop: 'Dừng',
+    recordAgain: 'Thu lại',
+    playBackAria: 'Bản thu của bạn',
+    selfCheck: 'Bạn nghe thấy thế nào?',
+    selfGood: 'Khớp rồi',
+    selfAgain: 'Đọc lại',
+    recordFailed: 'Không thu được gì — kiểm tra micro rồi thử lại.',
+    recordInsecure:
+      'Thu âm cần địa chỉ https://: trình duyệt không mở micrô khi trang chạy http thường.',
   },
 
   test: {
@@ -171,8 +183,19 @@ export const teacher: Dictionary['teacher'] = {
     readRetry: 'Thử mic lại',
     readHeard: (heard: string) => `Nghe được “${heard}”`,
     readNotHeard: 'Không nghe được gì — kiểm tra micro',
-    readNoMic: 'Trình duyệt này không nghe được. Hãy đọc to rồi bấm tiếp tục.',
-    readPractice: 'Chỉ luyện tập — đọc to không ảnh hưởng điểm.',
+    readNoMic: 'Trình duyệt này không nghe được. Hãy gõ từ rồi bấm tiếp tục.',
+    readChecking: 'Đang kiểm tra câu bạn đọc…',
+    youSaid: (guess: string) => `Bạn đã đọc “${guess}”`,
+    speech: {
+      blocked: 'Quyền truy cập micrô bị chặn — hãy cho phép trên thanh địa chỉ, hoặc gõ từ.',
+      network: 'Không kết nối được bộ nhận dạng — kiểm tra mạng, hoặc gõ từ.',
+      unresponsive: 'Giọng nói không phản hồi trên thiết bị này — hãy gõ từ.',
+      'start-failed': 'Không khởi động được micrô — hãy gõ từ.',
+      insecure:
+        'Trang này không dùng HTTPS nên trình duyệt không mở micrô. Hãy mở địa chỉ https:// hoặc gõ từ.',
+      nothing: 'Không nghe rõ — đọc lại từ giúp mình nhé.',
+      limited: 'Lượt kiểm tra bằng giọng nói đã tạm nghỉ — hãy gõ từ.',
+    },
   },
 
   report: {
@@ -180,10 +203,10 @@ export const teacher: Dictionary['teacher'] = {
     toRevisit: (missed: number) => `· ${missed} cần ôn lại`,
     wrote: (guess: string) => `Đã viết “${guess}”`,
     chose: (guess: string) => `Đã chọn “${guess}”`,
+    said: (guess: string) => `Đã đọc “${guess}”`,
     noAnswer: 'Không trả lời',
     spellingTag: 'Chính tả',
     spellingNote: (count: number) => `· ${count} câu đúng từ nhưng sai chính tả`,
-    practisedReading: (count: number) => `Có luyện đọc to ${count} từ (không tính điểm)`,
     attemptTag: (attempts: number) => `Lần thử ${attempts}`,
     hintTag: (hints: number) => `${hints} gợi ý`,
     skippedTag: 'Bỏ qua',
