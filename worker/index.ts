@@ -49,6 +49,11 @@ export interface Env {
    * API, so a Chrome/Edge/Safari session never touches it.
    */
   AI: Ai;
+  /**
+   * Kokoro text-to-speech endpoint on the VPS (`.../v1/audio/speech`). The browser
+   * cannot call it directly: the page is HTTPS and the host is plain HTTP.
+   */
+  KOKORO_TTS_URL?: string;
 }
 
 const DEFAULT_PRICE_VND = 199000;
@@ -73,11 +78,58 @@ const ASR_PER_IP_PER_DAY = 1_000;
 /** Whole-app ceiling: roughly 130 audio minutes a day, about $2 a month if it is ever hit. */
 const ASR_PER_DAY = 4_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Pronunciation playback. Kokoro on the VPS speaks one word or phrase per request, in
+ * the same "Heart" voice the WiseSpeak app uses.
+ *   - `TTS_VOICE` is the id the Kokoro API takes (the `kokoro:` prefix is a client-side
+ *     convention and is stripped before it reaches the VPS).
+ *   - The endpoint default matches `KOKORO_TTS_URL` in wrangler.jsonc, so a deploy that
+ *     forgot the var still speaks instead of failing.
+ *   - Clips are cached in the Worker's Cache API for a month: a class checks the same
+ *     deck every week, and the VPS should synthesise each word once.
+ */
+const TTS_VOICE = 'af_heart';
+const DEFAULT_KOKORO_TTS_URL = 'http://160.191.89.103:8880/v1/audio/speech';
+const MAX_TTS_CHARS = 120;
+const TTS_CACHE_SECONDS = 60 * 60 * 24 * 30;
 const PRODUCT = {
   id: 'pro',
   name: 'WordCrew Full Version',
   blurb: 'Hell Mode, all 5 extra word packs, 60 words / 10 minutes and custom sounds.',
 } as const;
+
+/**
+ * The price list.
+ *
+ * `product_id` on an order is always the product above — what a buyer owns never
+ * changes — while `plan` records which term they paid for. `pro` is the original
+ * one-off licence: it stays the default so a client that sends no plan still checks
+ * out, and it is treated as lifetime, which is the grandfathering promise.
+ *
+ * Prices live here rather than in wrangler config: a change is a deploy either way,
+ * and one table is easier to keep consistent than six environment variables.
+ */
+interface BillingPlan {
+  id: string;
+  name: string;
+  /** Days of access; `null` means forever. */
+  days: number | null;
+  /** Teacher seats included in the plan. */
+  seats: number;
+  amount: number;
+}
+
+const PLANS: Record<string, BillingPlan> = {
+  pro: { id: 'pro', name: 'Full Version (one-off)', days: null, seats: 1, amount: DEFAULT_PRICE_VND },
+  month: { id: 'month', name: 'Pro Teacher · 1 month', days: 31, seats: 1, amount: 129000 },
+  year: { id: 'year', name: 'Pro Teacher · 1 year', days: 365, seats: 1, amount: 990000 },
+  lifetime: { id: 'lifetime', name: 'Pro Teacher · lifetime', days: null, seats: 1, amount: 2490000 },
+  school10: { id: 'school10', name: 'School · 10 teachers · 1 year', days: 365, seats: 10, amount: 3900000 },
+  school30: { id: 'school30', name: 'School · 30 teachers · 1 year', days: 365, seats: 30, amount: 9900000 },
+};
+const DEFAULT_PLAN_ID = 'pro';
+/** Unknown ids fall back to the legacy plan, so an old row can still be fulfilled. */
+const planOrDefault = (id: string): BillingPlan => PLANS[id] ?? PLANS[DEFAULT_PLAN_ID];
 
 /**
  * Display names for everything we sell, keyed by the `product_id` stored on orders.
@@ -120,17 +172,70 @@ const priceVnd = (env: Env): number => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : DEFAULT_PRICE_VND;
 };
 
+/**
+ * The amount to charge for a plan. Only the legacy one-off price stays configurable
+ * (somebody may already have `PRICE_VND` set); the subscription table is code.
+ */
+const planAmount = (plan: BillingPlan, env: Env): number =>
+  plan.id === DEFAULT_PLAN_ID ? priceVnd(env) : plan.amount;
+
 const transferDescription = (orderCode: string): string => `WordCrew ${orderCode}`;
 
 const getPricing = (env: Env): Response =>
   json({
     currency: 'VND',
-    products: [{ ...PRODUCT, amount: priceVnd(env) }],
+    // `products` keeps the original single-offer shape the buy dialog reads; `plans`
+    // is the full table the plan picker will render.
+    products: [{ ...PRODUCT, amount: planAmount(PLANS[DEFAULT_PLAN_ID], env) }],
+    plans: Object.values(PLANS).map((plan) => ({
+      id: plan.id,
+      name: plan.name,
+      days: plan.days,
+      seats: plan.seats,
+      amount: planAmount(plan, env),
+    })),
     bank: {
       name: String(env.SEPAY_BANK_NAME || '').trim(),
       accountNumber: String(env.SEPAY_BANK_ACCOUNT || '').trim(),
     },
   });
+
+/**
+ * When a purchase stops unlocking, stacked on top of whatever the buyer already owns so
+ * an early renewal never burns days they have already paid for.
+ *
+ * A lifetime purchase returns `null` (never expires). Dated plans add to the latest
+ * expiry the account already has on this product, or to `now` when that has lapsed.
+ */
+const accessUntilFor = async (
+  db: D1Database,
+  plan: BillingPlan,
+  buyer: { uid: string | null; email: string },
+  now: number,
+): Promise<number | null> => {
+  if (plan.days === null) return null;
+
+  const statement = buyer.email
+    ? db
+        .prepare(
+          `SELECT MAX(access_until) AS until
+             FROM orders
+            WHERE status = 'paid' AND product_id = ? AND access_until IS NOT NULL
+              AND (user_id = ? OR LOWER(user_email) = ?)`,
+        )
+        .bind(PRODUCT.id, buyer.uid, buyer.email)
+    : db
+        .prepare(
+          `SELECT MAX(access_until) AS until
+             FROM orders
+            WHERE status = 'paid' AND product_id = ? AND access_until IS NOT NULL AND user_id = ?`,
+        )
+        .bind(PRODUCT.id, buyer.uid);
+
+  const row = await statement.first<{ until: number | null }>();
+  const base = Math.max(now, row?.until ?? 0);
+  return base + plan.days * DAY_MS;
+};
 
 /**
  * Mints a pending order and the VietQR the buyer scans. The order code is quoted in
@@ -140,6 +245,10 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
   const body = await readJson(request);
   const requestedId = String(body.productId || PRODUCT.id);
   if (requestedId !== PRODUCT.id) return fail('unknownProduct', 'Unknown product', 400);
+
+  const requestedPlan = String(body.plan || DEFAULT_PLAN_ID);
+  const plan = PLANS[requestedPlan];
+  if (!plan) return fail('unknownPlan', 'Unknown plan', 400);
 
   // Checkout is gated behind sign-in: the order is bound to a *verified* Firebase
   // account so the customer record (email/uid) survives for later campaigns. The game
@@ -172,14 +281,14 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
     }
   }
 
-  const amount = priceVnd(env);
+  const amount = planAmount(plan, env);
   const now = Date.now();
   const code = generateOrderCode();
   const expiresAt = now + ORDER_TTL_MS;
 
   await env.DB.prepare(
-    `INSERT INTO orders (code, product_id, amount, status, created_at, expires_at, client_ip, user_id, user_email)
-     VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    `INSERT INTO orders (code, product_id, amount, status, created_at, expires_at, plan, seats, client_ip, user_id, user_email)
+     VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       code,
@@ -187,6 +296,8 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
       amount,
       now,
       expiresAt,
+      plan.id,
+      plan.seats,
       clientIp,
       buyer?.uid ?? null,
       buyer?.email ?? null,
@@ -197,6 +308,7 @@ const createOrder = async (request: Request, env: Env): Promise<Response> => {
     code,
     amount,
     productName: PRODUCT.name,
+    plan: plan.id,
     bank: { name: bankName, accountNumber },
     transferDescription: transferDescription(code),
     qrUrl: buildQrUrl({
@@ -328,6 +440,31 @@ const listOrders = async (request: Request, env: Env): Promise<Response> => {
 };
 
 /**
+ * One product as the entitlement lookup reports it. `accessUntil` is the end of the
+ * paid window and `null` means lifetime; `active` is derived server-side so the client
+ * never has to agree on a clock to know whether the licence still counts.
+ */
+interface EntitlementRow {
+  productId: string;
+  plan: string;
+  licenseKey: string;
+  paidAt: number | null;
+  accessUntil: number | null;
+  active: boolean;
+}
+
+/**
+ * Whether `candidate` should headline a product over `current`: a live window beats an
+ * expired one, and then the later end date wins (a lifetime licence is infinite).
+ */
+const outranks = (candidate: EntitlementRow, current: EntitlementRow): boolean => {
+  if (candidate.active !== current.active) return candidate.active;
+  const end = (entry: EntitlementRow): number =>
+    entry.accessUntil === null ? Number.POSITIVE_INFINITY : entry.accessUntil;
+  return end(candidate) > end(current);
+};
+
+/**
  * What a signed-in account already owns. The Full Version belongs to the *account*,
  * not the browser, so a customer who switches device just signs in and gets it back.
  * The account is resolved from the verified ID token — never from anything the client
@@ -349,14 +486,14 @@ const getEntitlement = async (request: Request, env: Env): Promise<Response> => 
   const email = user.emailVerified && user.email ? user.email.trim().toLowerCase() : '';
   const statement = email
     ? env.DB.prepare(
-        `SELECT product_id, license_key, paid_at
+        `SELECT product_id, license_key, paid_at, plan, access_until
            FROM orders
           WHERE status = 'paid' AND license_key IS NOT NULL
             AND (user_id = ? OR LOWER(user_email) = ?)
           ORDER BY paid_at DESC`,
       ).bind(user.uid, email)
     : env.DB.prepare(
-        `SELECT product_id, license_key, paid_at
+        `SELECT product_id, license_key, paid_at, plan, access_until
            FROM orders
           WHERE user_id = ? AND status = 'paid' AND license_key IS NOT NULL
           ORDER BY paid_at DESC`,
@@ -366,22 +503,41 @@ const getEntitlement = async (request: Request, env: Env): Promise<Response> => 
     product_id: string;
     license_key: string;
     paid_at: number | null;
+    plan: string;
+    access_until: number | null;
   }>();
 
-  const seen = new Set<string>();
-  const entitlements: { productId: string; name: string; licenseKey: string; paidAt: number | null }[] = [];
+  const now = Date.now();
+  // One entry per product: an expired month must never shadow a live year, so the
+  // window with the latest end wins (a lifetime licence, `null`, always wins).
+  const best = new Map<string, EntitlementRow>();
   for (const row of results ?? []) {
-    if (seen.has(row.product_id)) continue;
-    seen.add(row.product_id);
-    entitlements.push({
+    const entry: EntitlementRow = {
       productId: row.product_id,
-      name: productLabel(row.product_id),
+      plan: row.plan || DEFAULT_PLAN_ID,
       licenseKey: row.license_key,
       paidAt: row.paid_at,
-    });
+      accessUntil: row.access_until,
+      active: row.access_until === null || row.access_until > now,
+    };
+    const current = best.get(entry.productId);
+    if (!current || outranks(entry, current)) best.set(entry.productId, entry);
   }
 
-  return json({ entitled: entitlements.length > 0, entitlements });
+  const entitlements = [...best.values()].map((entry) => ({
+    productId: entry.productId,
+    name: productLabel(entry.productId),
+    plan: entry.plan,
+    licenseKey: entry.licenseKey,
+    paidAt: entry.paidAt,
+    accessUntil: entry.accessUntil,
+    active: entry.active,
+  }));
+
+  return json({
+    entitled: entitlements.some((entry) => entry.active),
+    entitlements,
+  });
 };
 
 /**
@@ -526,33 +682,41 @@ const grantAccess = async (request: Request, env: Env): Promise<Response> => {
   const body = await readJson(request);
   const email = String(body.email || '').trim().toLowerCase();
   const productId = String(body.productId || PRODUCT.id);
+  const plan = PLANS[String(body.plan || DEFAULT_PLAN_ID)];
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return fail('invalidEmail', 'Enter a valid email address.', 400);
   }
   if (productId !== PRODUCT.id) return fail('unknownProduct', 'Unknown product', 400);
+  if (!plan) return fail('unknownPlan', 'Unknown plan', 400);
 
+  const now = Date.now();
+  // Only a *live* grant blocks a second one: an expired month must not stop support
+  // from issuing a fresh year to the same teacher.
   const existing = await env.DB.prepare(
-    "SELECT code FROM orders WHERE LOWER(user_email) = ? AND product_id = ? AND status = 'paid' LIMIT 1",
+    `SELECT code FROM orders
+      WHERE LOWER(user_email) = ? AND product_id = ? AND status = 'paid'
+        AND (access_until IS NULL OR access_until > ?)
+      LIMIT 1`,
   )
-    .bind(email, productId)
+    .bind(email, productId, now)
     .first<{ code: string }>();
   if (existing) return fail('emailOwnsProduct', 'That email already owns this product.', 409);
 
-  const now = Date.now();
   const code = generateOrderCode();
   const licenseKey = generateLicenseKey();
+  const accessUntil = await accessUntilFor(env.DB, plan, { uid: null, email }, now);
 
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO orders (code, product_id, amount, status, license_key, paid_at, created_at, expires_at, user_email, webhook_received)
-       VALUES (?, ?, 0, 'paid', ?, ?, ?, ?, ?, 1)`,
-    ).bind(code, productId, licenseKey, now, now, now, email),
+      `INSERT INTO orders (code, product_id, amount, status, license_key, paid_at, created_at, expires_at, plan, seats, access_until, user_email, webhook_received)
+       VALUES (?, ?, 0, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    ).bind(code, productId, licenseKey, now, now, now, plan.id, plan.seats, accessUntil, email),
     env.DB.prepare(
       'INSERT OR IGNORE INTO licenses (key, product_id, order_code, created_at) VALUES (?, ?, ?, ?)',
     ).bind(licenseKey, productId, code, now),
   ]);
 
-  return json({ ok: true, code, email, productId, licenseKey });
+  return json({ ok: true, code, email, productId, plan: plan.id, licenseKey, accessUntil });
 };
 
 /**
@@ -593,10 +757,18 @@ const reconcileOrder = async (request: Request, env: Env): Promise<Response> => 
   if (!/^WC[A-Z0-9]{7}$/.test(code)) return fail('unknownOrderCode', 'Unknown order code.', 400);
 
   const order = await env.DB.prepare(
-    'SELECT code, product_id, status, license_key FROM orders WHERE code = ?',
+    'SELECT code, product_id, status, license_key, plan, user_id, user_email FROM orders WHERE code = ?',
   )
     .bind(code)
-    .first<{ code: string; product_id: string; status: string; license_key: string | null }>();
+    .first<{
+      code: string;
+      product_id: string;
+      status: string;
+      license_key: string | null;
+      plan: string | null;
+      user_id: string | null;
+      user_email: string | null;
+    }>();
 
   if (!order) return fail('orderNotFound', 'Order not found.', 404);
   // Idempotent: re-running on an already paid order hands the same key back, so the admin
@@ -608,12 +780,19 @@ const reconcileOrder = async (request: Request, env: Env): Promise<Response> => 
 
   const licenseKey = generateLicenseKey();
   const now = Date.now();
+  const plan = planOrDefault(order.plan ?? DEFAULT_PLAN_ID);
+  const accessUntil = await accessUntilFor(
+    env.DB,
+    plan,
+    { uid: order.user_id, email: (order.user_email ?? '').toLowerCase() },
+    now,
+  );
   const updated = await env.DB.prepare(
     `UPDATE orders
-        SET status = 'paid', license_key = ?, paid_at = ?, webhook_received = 1
+        SET status = 'paid', license_key = ?, paid_at = ?, access_until = ?, webhook_received = 1
       WHERE code = ? AND status IN ('pending', 'expired')`,
   )
-    .bind(licenseKey, now, code)
+    .bind(licenseKey, now, accessUntil, code)
     .run();
   if (!updated.meta.changes) return fail('orderUpdateFailed', 'Could not update that order.', 409);
 
@@ -623,7 +802,7 @@ const reconcileOrder = async (request: Request, env: Env): Promise<Response> => 
     .bind(licenseKey, order.product_id, code, now)
     .run();
 
-  return json({ ok: true, code, status: 'paid', licenseKey });
+  return json({ ok: true, code, status: 'paid', licenseKey, accessUntil });
 };
 
 /**
@@ -666,10 +845,18 @@ const handleSepayWebhook = async (request: Request, env: Env): Promise<Response>
   if (!code) return json({ success: true, ignored: 'no_order_code' });
 
   const order = await env.DB.prepare(
-    'SELECT code, amount, product_id, status FROM orders WHERE code = ?',
+    'SELECT code, amount, product_id, status, plan, user_id, user_email FROM orders WHERE code = ?',
   )
     .bind(code)
-    .first<{ code: string; amount: number; product_id: string; status: string }>();
+    .first<{
+      code: string;
+      amount: number;
+      product_id: string;
+      status: string;
+      plan: string | null;
+      user_id: string | null;
+      user_email: string | null;
+    }>();
 
   // Unrelated transfers (and codes from other products) are acknowledged so Sepay
   // stops retrying, but never fulfilled.
@@ -682,6 +869,13 @@ const handleSepayWebhook = async (request: Request, env: Env): Promise<Response>
   const licenseKey = generateLicenseKey();
   const sepayTxId = payload.id == null ? null : String(payload.id);
   const now = Date.now();
+  const plan = planOrDefault(order.plan ?? DEFAULT_PLAN_ID);
+  const accessUntil = await accessUntilFor(
+    env.DB,
+    plan,
+    { uid: order.user_id, email: (order.user_email ?? '').toLowerCase() },
+    now,
+  );
 
   // Accepts `pending` as well as `expired`: the order TTL is only a UI hint, and a
   // transfer that lands after it must still be fulfilled — otherwise the money arrives
@@ -690,10 +884,10 @@ const handleSepayWebhook = async (request: Request, env: Env): Promise<Response>
   // everyone else reports it as done.
   const updated = await env.DB.prepare(
     `UPDATE orders
-        SET status = 'paid', license_key = ?, sepay_tx_id = ?, paid_at = ?, webhook_received = 1
+        SET status = 'paid', license_key = ?, sepay_tx_id = ?, paid_at = ?, access_until = ?, webhook_received = 1
       WHERE code = ? AND status IN ('pending', 'expired')`,
   )
-    .bind(licenseKey, sepayTxId, now, code)
+    .bind(licenseKey, sepayTxId, now, accessUntil, code)
     .run();
 
   if (!updated.meta.changes) return json({ success: true, message: 'Already processed' });
@@ -714,13 +908,35 @@ const verifyLicense = async (request: Request, env: Env): Promise<Response> => {
   if (!key) return json({ valid: false, error: 'That does not look like a licence key.', code: 'invalidLicenceKey' }, 400);
 
   const row = await env.DB.prepare(
-    'SELECT key, product_id FROM licenses WHERE key = ? AND revoked = 0',
+    `SELECT l.product_id, o.plan, o.access_until
+       FROM licenses l
+       LEFT JOIN orders o ON o.code = l.order_code
+      WHERE l.key = ? AND l.revoked = 0`,
   )
     .bind(key)
-    .first<{ key: string; product_id: string }>();
+    .first<{ product_id: string; plan: string | null; access_until: number | null }>();
 
   if (!row) return json({ valid: false, error: 'Licence key not found.', code: 'licenceNotFound' }, 404);
-  return json({ valid: true, productId: row.product_id });
+
+  const accessUntil = row.access_until ?? null;
+  const plan = planOrDefault(row.plan ?? DEFAULT_PLAN_ID).id;
+  // An expired subscription stops unlocking, but the key keeps reporting when it ran
+  // out so the dialog can say so instead of "not found".
+  if (accessUntil !== null && accessUntil <= Date.now()) {
+    return json(
+      {
+        valid: false,
+        productId: row.product_id,
+        plan,
+        accessUntil,
+        error: 'That licence has expired.',
+        code: 'licenceExpired',
+      },
+      410,
+    );
+  }
+
+  return json({ valid: true, productId: row.product_id, plan, accessUntil });
 };
 
 /** Base64 is what the Whisper binding takes, and Workers has no streaming encoder. */
@@ -816,12 +1032,127 @@ const transcribeClip = async (request: Request, env: Env): Promise<Response> => 
   }
 };
 
+/** Hex digest, used as the pronunciation cache key. */
+const digestKey = async (value: string): Promise<string> => {
+  const bytes = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest('SHA-1', bytes);
+  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+/**
+ * Pronunciation proxy: the client posts `{ text }`, the VPS answers with an MP3.
+ *
+ * This route exists because the page is served over HTTPS and the Kokoro host is plain
+ * HTTP — a browser would block the clip as mixed content. Kokoro costs nothing per call
+ * (it is our own box), so there is no quota here; the text cap keeps a single request
+ * to a word or short phrase, and the Cache API makes a repeated deck free.
+ */
+const synthesizeSpeech = async (request: Request, env: Env): Promise<Response> => {
+  const body = await readJson(request);
+  const text = String(body.text ?? '').trim().slice(0, MAX_TTS_CHARS);
+  if (!text) return fail('noText', 'Text is required', 400);
+
+  // Kokoro clips a bare word's final consonant ("busi" for "busy") — a full stop makes
+  // it read the word as a word.
+  const input = /[.!?]$/.test(text) ? text : `${text}.`;
+  const cache = caches.default;
+  const cacheKey = new Request(
+    `https://tts-cache.wordcrew.internal/${await digestKey(`${TTS_VOICE}::${input}`)}`,
+  );
+
+  try {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  } catch {
+    // A cache miss we cannot serve from is not a failure — synthesise instead.
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(env.KOKORO_TTS_URL?.trim() || DEFAULT_KOKORO_TTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'kokoro',
+        input,
+        voice: TTS_VOICE,
+        response_format: 'mp3',
+      }),
+    });
+  } catch {
+    return fail('ttsUnreachable', 'The voice service is offline.', 502);
+  }
+  if (!upstream.ok) return fail('ttsFailed', 'The voice service refused that word.', 502);
+
+  const audio = await upstream.arrayBuffer();
+  if (!audio.byteLength) return fail('ttsEmpty', 'The voice service returned no audio.', 502);
+
+  const response = new Response(audio, {
+    headers: {
+      'Content-Type': 'audio/mpeg',
+      'Cache-Control': `public, max-age=${TTS_CACHE_SECONDS}`,
+    },
+  });
+  try {
+    await cache.put(cacheKey, response.clone());
+  } catch {
+    // Not caching costs a repeat request later; it must not fail the reply.
+  }
+  return response;
+};
+
+/** One report carries at most this many words; a pasted deck is far smaller. */
+const GLOSS_REPORT_MAX = 60;
+/** Plain single words and the short phrases a textbook list usually holds. */
+const GLOSS_REPORT_WORD = /^[a-z][a-z' -]{0,39}$/;
+
+/**
+ * Collects the words a teacher pasted that had no Vietnamese gloss.
+ *
+ * The gloss map ships inside the bundle, so the only way to learn which words are still
+ * missing in the wild is to be told. Reports are anonymous, capped and write-only: they
+ * rank what `scripts/generate-glosses.mjs` should cover next. A failure is logged and
+ * swallowed — the deck is already on the teacher's device either way.
+ */
+const reportMissingGlosses = async (request: Request, env: Env): Promise<Response> => {
+  const body = await readJson(request);
+  const raw = Array.isArray(body.words) ? body.words : [];
+  const words = [
+    ...new Set(
+      raw
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim().toLowerCase().replace(/\s+/g, ' '))
+        .filter((item) => GLOSS_REPORT_WORD.test(item)),
+    ),
+  ].slice(0, GLOSS_REPORT_MAX);
+
+  if (words.length === 0) return fail('noWords', 'No words to report.', 400);
+
+  const now = Date.now();
+  try {
+    await env.DB.batch(
+      words.map((word) =>
+        env.DB.prepare(
+          `INSERT INTO missing_glosses (word, hits, first_seen, last_seen)
+             VALUES (?, 1, ?, ?)
+           ON CONFLICT(word) DO UPDATE SET hits = hits + 1, last_seen = excluded.last_seen`,
+        ).bind(word, now, now),
+      ),
+    );
+  } catch (error) {
+    console.error('missing gloss report failed', error);
+  }
+  return json({ ok: true });
+};
+
 const handleApi = async (request: Request, env: Env, url: URL): Promise<Response> => {
   const { pathname } = url;
   const method = request.method.toUpperCase();
 
   if (pathname === '/api/pricing' && method === 'GET') return getPricing(env);
   if (pathname === '/api/asr' && method === 'POST') return transcribeClip(request, env);
+  if (pathname === '/api/tts' && method === 'POST') return synthesizeSpeech(request, env);
+  if (pathname === '/api/glosses/missing' && method === 'POST') return reportMissingGlosses(request, env);
   if (pathname === '/api/orders' && method === 'POST') return createOrder(request, env);
   if (pathname === '/api/orders' && method === 'GET') return listOrders(request, env);
   if (pathname === '/api/licenses/verify' && method === 'POST') return verifyLicense(request, env);

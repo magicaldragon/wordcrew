@@ -51,6 +51,11 @@ export const myClass: Dictionary['myClass'] = {
     removeAsk: (name: string) => `Xóa ${name} khỏi lớp này? Bài em đã nộp vẫn được giữ lại.`,
     removeAria: (name: string) => `Xóa ${name}`,
     removeFailed: 'Không xóa được học sinh đó.',
+    moveAria: (name: string) => `Chuyển ${name} sang lớp khác`,
+    moveTo: 'Chuyển sang…',
+    movedMember: (name: string, className: string) => `Đã chuyển ${name} sang ${className}.`,
+    alreadyInClass: (name: string) => `Học sinh này đã ở trong ${name}.`,
+    moveFailed: 'Không chuyển được học sinh đó.',
     joined: 'Đã vào lớp',
     invited: 'Đã mời',
 
@@ -73,6 +78,7 @@ export const myClass: Dictionary['myClass'] = {
     deleteAssignmentAria: (title: string) => `Xóa ${title}`,
     deleteAssignmentAsk: (title: string) => `Xóa “${title}”? Câu trả lời đã nộp sẽ bị xóa theo.`,
     assignmentSent: 'Đã giao bài cho lớp.',
+    assignmentSentMany: (count: number) => `Đã giao bài cho ${count} lớp.`,
     deleteAssignmentFailed: 'Không xóa được bài tập đó.',
   },
 
@@ -101,6 +107,11 @@ export const myClass: Dictionary['myClass'] = {
     waitingForTeacher: 'Chờ giáo viên chấm',
     overdue: 'Quá hạn',
     todo: 'Chưa làm',
+    dueInHours: (hours: number) => `Còn ${hours} giờ`,
+    dueInDays: (days: number) => `Còn ${days} ngày`,
+    dueTomorrow: 'Hạn là ngày mai',
+    reminderTitle: (count: number) => `${count} bài cần nộp trước hạn`,
+    reminderBody: 'Mở một bài để bắt đầu. Nộp muộn vẫn được ghi nhận nhưng sẽ bị đánh dấu quá hạn.',
     teacherFeedback: 'Giáo viên: ',
     attempt: (attempts: number) => `Lần ${attempts}`,
     notStarted: 'Chưa bắt đầu',
@@ -123,6 +134,11 @@ export const myClass: Dictionary['myClass'] = {
     quiz: {
       counter: (current: number, total: number) => `Câu ${current} / ${total}`,
       answered: (answered: number) => `Đã trả lời ${answered} câu`,
+      review: 'Xem lại đáp án',
+      reviewTitle: 'Kiểm tra trước khi nộp',
+      reviewHint: 'Chạm vào một câu để đổi đáp án.',
+      skipped: 'Chưa trả lời',
+      backToQuestions: 'Sửa tiếp',
       submit: 'Nộp bài',
     },
 
@@ -132,6 +148,7 @@ export const myClass: Dictionary['myClass'] = {
       wordCount: (words: number, min: number) => `${words} / ${min} từ`,
       gradedByTeacher: 'Bài này giáo viên sẽ chấm.',
       moreWords: (count: number) => `Viết thêm ${count} từ`,
+      confirmAsk: 'Nộp bài bây giờ? Giáo viên sẽ thấy ngay.',
       submit: 'Nộp cho giáo viên',
     },
 
@@ -146,6 +163,9 @@ export const myClass: Dictionary['myClass'] = {
       attemptLine: (attempts: number, questions: number) =>
         `Lần ${attempts} · ${questions} câu hỏi`,
       worthAnotherLook: 'Cần xem lại',
+      answersTitle: 'Từng câu đã làm',
+      yourAnswer: (answer: string | null) => (answer === null ? 'Không trả lời' : `Bạn chọn: ${answer}`),
+      correctAnswer: (answer: string) => `Đáp án: ${answer}`,
     },
   },
 
@@ -197,6 +217,9 @@ export const myClass: Dictionary['myClass'] = {
       'Viết 80–100 từ cho một người bạn về kỳ nghỉ gần nhất. Dùng thì quá khứ đơn.',
     assigning: 'Đang giao…',
     assign: 'Giao cho lớp',
+    assignTo: (count: number) => (count > 1 ? `Giao cho ${count} lớp` : 'Giao cho lớp'),
+    classesLabel: 'Lớp nhận bài',
+    pickClass: 'Chọn ít nhất một lớp.',
     problems: {
       title: 'Hãy đặt tiêu đề cho bài tập.',
       tooFewWords: 'Bộ từ cần ít nhất ba từ.',

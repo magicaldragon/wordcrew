@@ -26,7 +26,7 @@ export const dashboard: Dictionary['dashboard'] = {
     },
     class: {
       title: 'Lớp của tôi',
-      subtitle: 'Giao bài, nộp bài và xem cả lớp thực sự sai ở đâu.',
+      subtitle: 'Giao bài, nhận bài, và xem cả lớp tiến bộ.',
     },
     progress: { title: 'Tiến độ của tôi', subtitle: 'Số ván, điểm số và chuỗi ngày của bạn.' },
     account: { title: 'Tài khoản', subtitle: 'Trạng thái đăng nhập và thiết bị này.' },
@@ -116,13 +116,6 @@ export const dashboard: Dictionary['dashboard'] = {
   class: {
     signIn:
       'Đăng nhập để vào lớp. Giáo viên có thể thêm địa chỉ email này hoặc đưa bạn mã lớp sáu ký tự — cách nào thì bài tập cũng hiện ở đây.',
-    teacherConsole: 'Bảng điều khiển giáo viên',
-    locked:
-      'Mở lớp và giao bài thuộc bản đầy đủ. Học sinh của bạn luôn vào lớp miễn phí — bản quyền trả cho bảng điều khiển, không phải cho lớp học.',
-    unlockFull: 'Mở khóa bản đầy đủ',
-    footerFree: (date: string) =>
-      `Miễn phí cho giáo viên đến ${date}. Sau đó học sinh vẫn miễn phí.`,
-    footerPaid: 'Đã bao gồm trong bản đầy đủ. Học sinh của bạn vào miễn phí.',
   },
 
   progress: {
@@ -175,6 +168,9 @@ export const dashboard: Dictionary['dashboard'] = {
     purchasedOn: (date: string) => `Đã mua ${date}`,
     purchased: 'Đã mua',
     owned: 'Sở hữu',
+    planLifetime: 'Vĩnh viễn',
+    planDaysLeft: (days: number) => `Còn ${days} ngày`,
+    planExpired: 'Đã hết hạn — quay lại giới hạn bản demo. Gia hạn để dùng bản đầy đủ.',
     pending: 'Chuyển khoản đang chờ',
     refresh: 'Làm mới',
     pendingBody: 'Các giao dịch chưa khớp với đơn nào. Giữ mã bên dưới để được hỗ trợ.',

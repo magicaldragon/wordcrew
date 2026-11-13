@@ -15,6 +15,18 @@ export interface Product {
   amount: number;
 }
 
+/**
+ * One row of the price list. `days` is the length of the term and `null` means the plan
+ * never expires; `seats` is how many teachers a school plan covers.
+ */
+export interface PricingPlan {
+  id: string;
+  name: string;
+  days: number | null;
+  seats: number;
+  amount: number;
+}
+
 export interface BankDetails {
   name: string;
   accountNumber: string;
@@ -23,6 +35,8 @@ export interface BankDetails {
 export interface Pricing {
   currency: string;
   products: Product[];
+  /** The full table; `products` is the legacy single-offer shape. */
+  plans: PricingPlan[];
   bank: BankDetails;
 }
 
@@ -30,6 +44,7 @@ export interface OrderDraft {
   code: string;
   amount: number;
   productName: string;
+  plan: string;
   bank: BankDetails;
   transferDescription: string;
   qrUrl: string;
@@ -49,8 +64,10 @@ export interface OrderState {
  * What the dialogs report back to the app after the player submits a code. When `ok` is
  * false, `code` names the reason and the dialog translates it — the server's English
  * sentence never reaches a Vietnamese reader.
+ *
+ * `accessUntil` is the end of the licence's paid window; `null` means it never expires.
  */
-export type UnlockOutcome = { ok: boolean; code?: string };
+export type UnlockOutcome = { ok: boolean; code?: string; accessUntil?: number | null };
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`/api${path}`, {
@@ -71,11 +88,19 @@ export const fetchPricing = (): Promise<Pricing> => request<Pricing>('/pricing')
 /**
  * Mints an order. The worker requires a Firebase ID token here — checkout is gated
  * behind sign-in so every paid order carries a real customer record.
+ *
+ * `plan` picks the billing term ('month', 'year', 'lifetime', a school plan). The price
+ * is always recomputed on the worker, so the amount sent by a browser can never decide
+ * what is charged.
  */
-export const createOrder = (productId: string, idToken?: string | null): Promise<OrderDraft> =>
+export const createOrder = (
+  productId: string,
+  idToken?: string | null,
+  plan = 'pro',
+): Promise<OrderDraft> =>
   request<OrderDraft>('/orders', {
     method: 'POST',
-    body: JSON.stringify({ productId }),
+    body: JSON.stringify({ productId, plan }),
     ...(idToken ? { headers: { Authorization: `Bearer ${idToken}` } } : {}),
   });
 
@@ -180,13 +205,36 @@ export interface EntitlementItem {
   productId: string;
   /** Human label for the purchase, e.g. "WordCrew Full Version". */
   name: string;
+  /** Billing term: 'pro' (legacy one-off), 'month', 'year', 'lifetime', 'school10'… */
+  plan: string;
   licenseKey: string;
   paidAt: number | null;
+  /** End of the paid window; `null` means lifetime. */
+  accessUntil: number | null;
+  /** Whether the window is still open right now, as judged by the worker's clock. */
+  active: boolean;
 }
+
+/**
+ * The furthest end among live entitlements, for the device unlock flag.
+ *
+ * `null` = a lifetime licence (the flag never expires), `undefined` = nothing is live
+ * right now (an expired subscription must not unlock anything).
+ */
+export const activeAccessUntil = (
+  entitlements: EntitlementItem[],
+): number | null | undefined => {
+  const live = entitlements.filter((item) => item.active);
+  if (live.length === 0) return undefined;
+  if (live.some((item) => item.accessUntil === null)) return null;
+  return Math.max(...live.map((item) => item.accessUntil ?? 0));
+};
 
 /** Everything the signed-in account owns, resolved from the verified ID token. */
 export interface Entitlement {
+  /** True when at least one purchase is still inside its paid window. */
   entitled: boolean;
+  /** Every purchase on record, lapsed ones included. */
   entitlements: EntitlementItem[];
 }
 
@@ -194,32 +242,43 @@ const NO_ENTITLEMENT: Entitlement = { entitled: false, entitlements: [] };
 
 /**
  * Asks the worker what the signed-in account owns, so purchases follow the customer
- * across devices. Any failure (offline, expired session) resolves to "not entitled"
- * rather than throwing — the game must never hard-block on this check.
+ * across devices.
+ *
+ * Returns `null` — not "owns nothing" — when the question could not be answered
+ * (offline, expired session, API down). The caller must treat that as "no news": an
+ * account is only downgraded on an answer, never on a failed lookup, or a paying
+ * customer would lose the full version the moment the wifi drops.
  */
-export const fetchEntitlement = async (idToken: string | null): Promise<Entitlement> => {
-  if (!idToken) return NO_ENTITLEMENT;
+export const fetchEntitlement = async (idToken: string | null): Promise<Entitlement | null> => {
+  if (!idToken) return null;
   try {
     const response = await fetch('/api/entitlements', {
       headers: { Authorization: `Bearer ${idToken}` },
     });
-    if (!response.ok) return NO_ENTITLEMENT;
+    if (!response.ok) return null;
     const payload = (await response.json()) as { entitled?: unknown; entitlements?: unknown };
-    if (payload.entitled !== true || !Array.isArray(payload.entitlements)) return NO_ENTITLEMENT;
+    // Lapsed purchases are still listed: the Account tab shows them as expired, which is
+    // where a renewal starts. Only a missing list means the answer was unusable.
+    if (!Array.isArray(payload.entitlements)) return null;
     const entitlements = payload.entitlements
       .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
       .map((item) => ({
         productId: String(item.productId ?? ''),
         name: typeof item.name === 'string' ? item.name : String(item.productId ?? ''),
+        plan: typeof item.plan === 'string' ? item.plan : 'pro',
         licenseKey: String(item.licenseKey ?? ''),
         paidAt: typeof item.paidAt === 'number' ? item.paidAt : null,
+        accessUntil: typeof item.accessUntil === 'number' ? item.accessUntil : null,
+        // The worker always sends `active`; the fallback only matters against a stale
+        // deployment, where "no end date" is the old lifetime licence.
+        active: typeof item.active === 'boolean' ? item.active : item.accessUntil == null,
       }))
       .filter((item) => item.productId && item.licenseKey);
     return entitlements.length > 0
-      ? { entitled: true, entitlements }
+      ? { entitled: entitlements.some((item) => item.active), entitlements }
       : NO_ENTITLEMENT;
   } catch {
-    return NO_ENTITLEMENT;
+    return null;
   }
 };
 
@@ -251,7 +310,12 @@ export const verifyLicenseKey = async (key: string): Promise<UnlockOutcome> => {
     });
     const payload: unknown = await response.json().catch(() => null);
     const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-    if (response.ok && record.valid === true) return { ok: true };
+    if (response.ok && record.valid === true) {
+      return {
+        ok: true,
+        accessUntil: typeof record.accessUntil === 'number' ? record.accessUntil : null,
+      };
+    }
     return {
       ok: false,
       code: typeof record.code === 'string' ? record.code : 'licenceNotFound',
@@ -311,10 +375,11 @@ export const grantAccess = (
   idToken: string,
   email: string,
   productId = 'pro',
-): Promise<{ code: string; email: string; licenseKey: string }> =>
+  plan = 'pro',
+): Promise<{ code: string; email: string; licenseKey: string; accessUntil: number | null }> =>
   request('/admin/grant', {
     method: 'POST',
-    body: JSON.stringify({ email, productId }),
+    body: JSON.stringify({ email, productId, plan }),
     headers: { Authorization: `Bearer ${idToken}` },
   });
 

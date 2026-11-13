@@ -25,6 +25,7 @@ import {
   type MyOrder,
 } from '../services/payments';
 import { cefrWordLists } from '../cefrWordLists';
+import { BILLING_ENABLED } from '../constants';
 import { isDailyDoneToday } from '../services/solo';
 import { localDateId } from '../services/periods';
 import { DAILY_FREEZES_PER_MONTH, dailyMilestone } from '../services/dailyHabit';
@@ -36,7 +37,6 @@ import {
   toolsVisible,
 } from '../services/tools';
 import type { ClassAssignment } from '../services/classes';
-import { classFreeUntilLabel, classConsoleAccess } from '../services/classAccess';
 import { useT } from '../i18n/useT';
 import { describeError } from '../i18n/errors';
 import { useLocale } from '../i18n/useLocale';
@@ -239,13 +239,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   // Tool access is a single dial (services/tools.ts): open during launch, teacher-only
   // when the gate closes, paid when it becomes a product. Nav, card and locked state all
   // derive from it, so flipping the mode is the only change needed.
+  const hasLiveLicence = entitlements.some((item) => item.active);
   const toolViewer = useMemo(
     () => ({
       isTeacher: profile?.role === 'teacher',
       isAdmin: admin !== null,
-      isPro: isUnlocked || entitlements.length > 0,
+      isPro: isUnlocked || hasLiveLicence,
     }),
-    [profile?.role, admin, isUnlocked, entitlements.length],
+    [profile?.role, admin, isUnlocked, hasLiveLicence],
   );
   const toolGate = useMemo(() => toolAccess(toolViewer), [toolViewer]);
   const showTools = toolsVisible(toolGate);
@@ -315,6 +316,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     } catch {
       /* Clipboard blocked — the key stays visible so it can be copied by hand. */
     }
+  };
+
+  /**
+   * How long a purchase still unlocks for: "Lifetime access", "N days left" or, once the
+   * window has closed, a line that says the demo limits are back.
+   */
+  const termLabel = (item: EntitlementItem): string => {
+    if (item.accessUntil === null) return t.account.planLifetime;
+    const days = Math.ceil((item.accessUntil - Date.now()) / 86_400_000);
+    if (days <= 0) return t.account.planExpired;
+    return t.account.planDaysLeft(days);
   };
 
   const handleGrant = async () => {
@@ -472,14 +484,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 className="wc-btn wc-btn-primary flex-1 sm:flex-none sm:px-8"
               >
                 <Icon name="play" size={16} />
-                {isUnlocked ? t.games.playFull : t.games.playDemo}
+                {BILLING_ENABLED
+                  ? isUnlocked
+                    ? t.games.playFull
+                    : t.games.playDemo
+                  : t.games.play}
               </button>
-              {isUnlocked ? (
+              {BILLING_ENABLED && isUnlocked && (
                 <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--wa-11)]">
                   <Icon name="unlock" size={18} />
                   {t.games.fullVersion}
                 </span>
-              ) : (
+              )}
+              {BILLING_ENABLED && !isUnlocked && (
                 <button
                   type="button"
                   onClick={onUnlock}
@@ -571,15 +588,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                     <h3 className="text-xl font-bold text-[var(--wn-12)]">{game.name}</h3>
                     <p className="mt-1 text-xs text-[var(--wn-9)]">{t.games.game.meta}</p>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold ${
-                      isUnlocked
-                        ? 'bg-[var(--wa-2)] text-[var(--wa-11)]'
-                        : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
-                    }`}
-                  >
-                    {isUnlocked ? t.games.fullVersion : t.games.freeDemo}
-                  </span>
+                  {BILLING_ENABLED && (
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold ${
+                        isUnlocked
+                          ? 'bg-[var(--wa-2)] text-[var(--wa-11)]'
+                          : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
+                      }`}
+                    >
+                      {isUnlocked ? t.games.fullVersion : t.games.freeDemo}
+                    </span>
+                  )}
                 </div>
 
                 <p className="mt-3 flex-1 text-sm leading-relaxed text-[var(--wn-10)]">
@@ -688,14 +707,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
               </div>
             </div>
           </div>
-          <div className="flex flex-col gap-3 border-t border-[var(--wn-4)] p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-[var(--wn-9)]">
-              {toolGate.mode === 'open'
-                ? t.tools.footerFree(toolFreeUntilLabel(locale))
-                : toolGate.mode === 'paid'
-                  ? t.tools.footerPaid
-                  : t.tools.footerRole}
-            </p>
+          <div
+            className={`flex flex-col gap-3 border-t border-[var(--wn-4)] p-4 sm:flex-row sm:items-center ${
+              BILLING_ENABLED ? 'sm:justify-between' : 'sm:justify-end'
+            }`}
+          >
+            {/* The launch deadline only makes sense while there is something to sell. */}
+            {BILLING_ENABLED && (
+              <p className="text-xs text-[var(--wn-9)]">
+                {toolGate.mode === 'open'
+                  ? t.tools.footerFree(toolFreeUntilLabel(locale))
+                  : toolGate.mode === 'paid'
+                    ? t.tools.footerPaid
+                    : t.tools.footerRole}
+              </p>
+            )}
             <button type="button" onClick={onOpenTeacher} className="wc-btn wc-btn-primary">
               <Icon name="play" size={16} />
               {t.tools.open(t.tools.definition.slot)}
@@ -734,32 +760,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     };
     // Admins count as teachers everywhere else, so the console opens for them too.
     const isTeacher = profile?.role === 'teacher' || admin !== null;
-    const consoleAccess = classConsoleAccess(toolViewer);
-
-    if (isTeacher && !consoleAccess.allowed) {
-      return (
-        <div className="wc-card flex flex-col gap-4 p-5">
-          <div className="flex items-start gap-4">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--r-md)] bg-[var(--wn-3)] text-[var(--wn-10)]">
-              <Icon name="lock" size={22} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[var(--wn-9)]">
-                {t.class.teacherConsole}
-              </p>
-              <h3 className="mt-0.5 text-lg font-bold text-[var(--wn-12)]">{t.sections.class.title}</h3>
-              <p className="mt-1 max-w-prose text-sm leading-relaxed text-[var(--wn-10)]">
-                {t.class.locked}
-              </p>
-            </div>
-          </div>
-          <button type="button" onClick={onUnlock} className="wc-btn wc-btn-primary self-start">
-            <Icon name="unlock" size={16} />
-            {t.class.unlockFull}
-          </button>
-        </div>
-      );
-    }
 
     return (
       <Suspense
@@ -771,14 +771,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         }
       >
         {isTeacher ? (
-          <div className="flex flex-col gap-4">
-            <p className="text-xs text-[var(--wn-9)]">
-              {consoleAccess.mode === 'open'
-                ? t.class.footerFree(classFreeUntilLabel(locale))
-                : t.class.footerPaid}
-            </p>
-            <ClassTeacherPanel viewer={viewer} refreshKey={classRefreshKey} />
-          </div>
+          <ClassTeacherPanel viewer={viewer} refreshKey={classRefreshKey} />
         ) : (
           <ClassStudentPanel viewer={viewer} onOpenAssignment={onOpenAssignment} refreshKey={classRefreshKey} />
         )}
@@ -982,29 +975,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </>
       )}
 
-      <div className="my-5 h-px bg-[var(--wn-4)]" />
+      {/* Licence state and receipts only exist while something is for sale. */}
+      {BILLING_ENABLED && (
+        <>
+          <div className="my-5 h-px bg-[var(--wn-4)]" />
 
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.account.thisDevice}</p>
-          <p className="text-xs text-[var(--wn-9)]">
-            {isUnlocked ? t.account.unlocked : t.account.demo}
-          </p>
-        </div>
-        {!isUnlocked && (
-          <button
-            type="button"
-            onClick={onUnlock}
-            className="wc-icon-btn"
-            aria-label={t.games.unlockFull}
-            title={t.games.unlockFull}
-          >
-            <Icon name="lock" size={20} />
-          </button>
-        )}
-      </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--wn-12)]">{t.account.thisDevice}</p>
+              <p className="text-xs text-[var(--wn-9)]">
+                {isUnlocked ? t.account.unlocked : t.account.demo}
+              </p>
+            </div>
+            {!isUnlocked && (
+              <button
+                type="button"
+                onClick={onUnlock}
+                className="wc-icon-btn"
+                aria-label={t.games.unlockFull}
+                title={t.games.unlockFull}
+              >
+                <Icon name="lock" size={20} />
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
-      {entitlements.length > 0 && (
+      {BILLING_ENABLED && entitlements.length > 0 && (
         <>
           <div className="my-5 h-px bg-[var(--wn-4)]" />
 
@@ -1020,9 +1018,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                         ? t.account.purchasedOn(new Date(item.paidAt).toLocaleDateString(locale))
                         : t.account.purchased}
                     </p>
+                    {/* The term is the thing a renewal decision hangs on, so it sits next to
+                        the purchase date rather than behind the key. */}
+                    <p className="mt-1 text-xs font-semibold text-[var(--wn-10)]">{termLabel(item)}</p>
                   </div>
                   <span className="shrink-0 rounded-full bg-[var(--wa-2)] px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-wider text-[var(--wa-11)]">
-                    {t.account.owned}
+                    {item.active ? t.account.owned : t.account.expired}
                   </span>
                 </div>
 
@@ -1044,7 +1045,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
         </>
       )}
 
-      {pendingOrders.length > 0 && (
+      {BILLING_ENABLED && pendingOrders.length > 0 && (
         <>
           <div className="my-5 h-px bg-[var(--wn-4)]" />
 

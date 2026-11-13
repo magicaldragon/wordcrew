@@ -34,7 +34,11 @@
     "PRICE_VND": "199000",
     // Firebase project whose ID tokens the worker validates before minting an order.
     // Leaving it blank disables the check (local dev only — never ship it blank).
-    "FIREBASE_PROJECT_ID": "wordcrew"
+    "FIREBASE_PROJECT_ID": "wordcrew",
+    // Kokoro text-to-speech (the "Heart" voice) on the WiseSpeak VPS. The Worker proxies
+    // it because the page is HTTPS and this host is plain HTTP — a browser would block
+    // the clip as mixed content. Change it here, no app rebuild needed.
+    "KOKORO_TTS_URL": "http://160.191.89.103:8880/v1/audio/speech"
   }
   // SEPAY_WEBHOOK_API_KEY is a secret — set it with:
   //   npx wrangler secret put SEPAY_WEBHOOK_API_KEY

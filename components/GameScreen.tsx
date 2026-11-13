@@ -13,7 +13,7 @@ import {
     HELL_MODE_INITIAL_SKIPS, HELL_MODE_SKIP_PENALTY, HELL_MODE_LUCKY_SKIP_PENALTY,
     ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES
 } from '../constants';
-import { getVietnameseMeaning } from '../vietnameseMeanings';
+import { getHintMeaning } from '../vietnameseMeanings';
 import { resolveEnglishSynonym } from '../services/synonyms';
 import { useT } from '../i18n/useT';
 
@@ -1218,7 +1218,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   useEffect(() => {
     setHintMeaning(
       showGameUI && hintStage >= 2
-        ? getVietnameseMeaning(shuffledWords[currentWordIndex])
+        ? getHintMeaning(shuffledWords[currentWordIndex])
         : undefined,
     );
   }, [showGameUI, hintStage, currentWordIndex, shuffledWords]);

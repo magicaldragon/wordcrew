@@ -36,6 +36,7 @@ const SoloResultsScreen = lazy(() => import('./components/SoloResultsScreen').th
 // Teacher Mode is its own flow — setup, test, report — and never posts to a board, so it
 // has no reason to sit in the initial bundle either.
 const TeacherSetupScreen = lazy(() => import('./components/TeacherSetupScreen').then((m) => ({ default: m.TeacherSetupScreen })));
+const FlashcardReviewScreen = lazy(() => import('./components/FlashcardReviewScreen').then((m) => ({ default: m.FlashcardReviewScreen })));
 const TeacherTestScreen = lazy(() => import('./components/TeacherTestScreen').then((m) => ({ default: m.TeacherTestScreen })));
 const TeacherReportScreen = lazy(() => import('./components/TeacherReportScreen').then((m) => ({ default: m.TeacherReportScreen })));
 // Homework runs are opened from the My Class shelf and only by students, so the whole
@@ -58,11 +59,12 @@ import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
     SKIP_SOUNDS, BACKGROUND_MUSIC_URL, GAME_MUSIC_URL, DEFAULT_EFFECTS_VOLUME,
-    readUnlockFlag, writeUnlockFlag,
-    readDemoRounds, incrementDemoRounds
+    readUnlockFlag, writeUnlockFlag, clearUnlockFlag,
+    readDemoRounds, incrementDemoRounds,
+    BILLING_ENABLED
 } from './constants';
 import { isMajorUpgrade, fetchRemoteVersion, readDismissedUpdateVersion, writeDismissedUpdateVersion } from './version';
-import { verifyLicenseKey, verifyAccessCode, fetchPricing, fetchEntitlement, formatPrice, type EntitlementItem, type UnlockOutcome } from './services/payments';
+import { verifyLicenseKey, verifyAccessCode, fetchPricing, fetchEntitlement, formatPrice, activeAccessUntil, type EntitlementItem, type UnlockOutcome } from './services/payments';
 import { recordRound } from './services/progress';
 import { recordDailyCompletion, type DailyCompletionOutcome } from './services/dailyHabit';
 
@@ -180,6 +182,8 @@ const App: React.FC = () => {
   // nothing is written to the player's Memory Anchors.
   const [teacherSession, setTeacherSession] = useState<TeacherSession | null>(null);
   const [teacherAnswers, setTeacherAnswers] = useState<TeacherAnswer[] | null>(null);
+  // A deck opens on its flashcards first: study the words, then take the test.
+  const [teacherDeckForReview, setTeacherDeckForReview] = useState<TeacherDeck | null>(null);
   // Bumped per attempt so the test screen remounts with a clean index and input.
   const [teacherRunId, setTeacherRunId] = useState(0);
 
@@ -203,9 +207,11 @@ const App: React.FC = () => {
   const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
 
-  const grantFullVersion = useCallback(() => {
+  // `until` carries the end of a subscription; null unlocks the device for good, which
+  // is what an access code and a lifetime licence mean.
+  const grantFullVersion = useCallback((until: number | null = null) => {
     setIsUnlocked(true);
-    writeUnlockFlag();
+    writeUnlockFlag(until);
   }, []);
 
   // The Full Version is owned by the account, not the browser: as soon as a signed-in
@@ -220,8 +226,19 @@ const App: React.FC = () => {
       return;
     }
     const entitlement = await fetchEntitlement(token);
+    // A failed lookup is not an answer: keep whatever this device already holds, so a
+    // paying customer stays unlocked while offline.
+    if (!entitlement) return;
     setEntitlements(entitlement.entitlements);
-    if (entitlement.entitled) grantFullVersion();
+    const until = activeAccessUntil(entitlement.entitlements);
+    if (until === undefined) {
+      // Nothing is live on this account any more (a term plan lapsed, or a licence was
+      // revoked): drop the device unlock so the demo limits come back on the next render.
+      setIsUnlocked(false);
+      clearUnlockFlag();
+      return;
+    }
+    grantFullVersion(until);
   }, [getIdToken, grantFullVersion]);
 
   useEffect(() => {
@@ -237,11 +254,12 @@ const App: React.FC = () => {
   const handleUnlock = useCallback(
     async (code: string): Promise<UnlockOutcome> => {
       if (await verifyAccessCode(code)) {
-        grantFullVersion();
-        return { ok: true };
+        // The classroom code has no term: it unlocks this machine for good.
+        grantFullVersion(null);
+        return { ok: true, accessUntil: null };
       }
       const outcome = await verifyLicenseKey(code);
-      if (outcome.ok) grantFullVersion();
+      if (outcome.ok) grantFullVersion(outcome.accessUntil ?? null);
       return outcome;
     },
     [grantFullVersion],
@@ -249,13 +267,18 @@ const App: React.FC = () => {
 
   // Called by the buy dialog once a transfer has been matched to an order: the key it
   // hands over was just issued by the same backend, so no second round-trip is needed.
+  // The account re-read is what puts the plan's real end date on the device flag, so a
+  // month-long order does not unlock forever.
   const handleLicensed = useCallback(() => {
     grantFullVersion();
-  }, [grantFullVersion]);
+    void refreshEntitlements();
+  }, [grantFullVersion, refreshEntitlements]);
 
   // Quoted once on load for every "Unlock" CTA. Silently stays hidden when the API is
   // unreachable (offline install), where the CTA still reads fine without a price.
+  // Skipped entirely while billing is off — no CTA exists to quote a price to.
   useEffect(() => {
+    if (!BILLING_ENABLED) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -614,6 +637,7 @@ const App: React.FC = () => {
   const handleOpenTeacher = useCallback(() => {
     setTeacherSession(null);
     setTeacherAnswers(null);
+    setTeacherDeckForReview(null);
     setShowLanding(false);
     setActiveMusicOverride(null);
     setView('teacher');
@@ -622,6 +646,7 @@ const App: React.FC = () => {
   const startTeacherSession = useCallback((session: TeacherSession) => {
     setTeacherSession(session);
     setTeacherAnswers(null);
+    setTeacherDeckForReview(null);
     setTeacherRunId((id) => id + 1);
   }, []);
 
@@ -630,10 +655,18 @@ const App: React.FC = () => {
     [startTeacherSession],
   );
 
-  const handleStartDeckTest = useCallback(
-    (deck: TeacherDeck) => startTeacherSession(buildDeckTest(deck)),
-    [startTeacherSession],
-  );
+  // A deck is studied before it is tested: open the flashcards, and the test starts from
+  // the review screen once the class says it is ready.
+  const handleStartDeckTest = useCallback((deck: TeacherDeck) => {
+    setTeacherSession(null);
+    setTeacherAnswers(null);
+    setTeacherDeckForReview(deck);
+  }, []);
+
+  const handleStartReviewedDeck = useCallback(() => {
+    if (!teacherDeckForReview) return;
+    startTeacherSession(buildDeckTest(teacherDeckForReview));
+  }, [startTeacherSession, teacherDeckForReview]);
 
   const handleTeacherFinish = useCallback((answers: TeacherAnswer[]) => {
     setTeacherAnswers(answers);
@@ -654,11 +687,13 @@ const App: React.FC = () => {
   const handleTeacherBackToSetup = useCallback(() => {
     setTeacherSession(null);
     setTeacherAnswers(null);
+    setTeacherDeckForReview(null);
   }, []);
 
   const handleTeacherExit = useCallback(() => {
     setTeacherSession(null);
     setTeacherAnswers(null);
+    setTeacherDeckForReview(null);
     setShowLanding(true);
     setActiveMusicOverride(null);
     setView('dashboard');
@@ -1023,11 +1058,21 @@ const App: React.FC = () => {
         />
       );
     }
+    if (teacherDeckForReview) {
+      return (
+        <FlashcardReviewScreen
+          deck={teacherDeckForReview}
+          onStartTest={handleStartReviewedDeck}
+          onExit={() => setTeacherDeckForReview(null)}
+        />
+      );
+    }
     return (
       <TeacherSetupScreen
         onStartLevel={handleStartLevelTest}
         onStartDeck={handleStartDeckTest}
         onExit={handleTeacherExit}
+        onRequireSignIn={() => setShowAuthDialog(true)}
       />
     );
   };
@@ -1254,17 +1299,21 @@ const App: React.FC = () => {
         onClose={() => setShowAuthDialog(false)}
         reason={shellCopy.signInForCheckout}
       />
-      <PurchaseDialog
-        isOpen={showPurchaseDialog}
-        onClose={() => setShowPurchaseDialog(false)}
-        onLicensed={() => {
-          setShowPurchaseDialog(false);
-          handleLicensed();
-        }}
-        onRequireSignIn={requestSignInForPurchase}
-        suspendEscape={showAuthDialog}
-        priceLabel={priceLabel}
-      />
+      {/* Purchase is the one dialog that only exists when something is for sale,
+          so it is not even mounted during the free launch. */}
+      {BILLING_ENABLED && (
+        <PurchaseDialog
+          isOpen={showPurchaseDialog}
+          onClose={() => setShowPurchaseDialog(false)}
+          onLicensed={() => {
+            setShowPurchaseDialog(false);
+            handleLicensed();
+          }}
+          onRequireSignIn={requestSignInForPurchase}
+          suspendEscape={showAuthDialog}
+          priceLabel={priceLabel}
+        />
+      )}
     </div>
   );
 };

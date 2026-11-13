@@ -16,6 +16,7 @@ export const auth: Dictionary['auth'] = {
     heroBodyAfter: 'trên cùng một màn hình.',
     playFull: 'Chơi bản đầy đủ',
     playDemo: 'Chơi bản dùng thử',
+    play: 'Chơi ngay',
     freeBadges: 'Miễn phí · Không cần đăng ký · Chơi offline',
     unlockedNote: 'Đã mở khóa bản đầy đủ trên thiết bị này',
     alreadyBought: 'Đã mua rồi? Nhập mã bản quyền',
@@ -80,6 +81,15 @@ export const auth: Dictionary['auth'] = {
 
   purchase: {
     oneTime: 'thanh toán một lần · dùng mãi mãi',
+    perMonth: 'mỗi tháng',
+    perYear: 'mỗi năm',
+    choosePlan: 'Chọn kỳ hạn',
+    planNames: {
+      pro: 'Bản đầy đủ (mua một lần)',
+      month: '1 tháng',
+      year: '1 năm',
+      lifetime: 'Vĩnh viễn',
+    } as Record<string, string>,
     continueToPayment: 'Tiếp tục thanh toán',
     signInAndContinue: 'Đăng nhập và tiếp tục',
     bankTransferNote: 'Chuyển khoản ngân hàng — mã QR sẽ hiện ở bước tiếp theo.',

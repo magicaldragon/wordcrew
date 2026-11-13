@@ -68,19 +68,55 @@ export const FULL_VERSION_PERKS = [
 // results screen (a returning player gets a firmer nudge than a first-timer).
 export const DEMO_ROUNDS_STORAGE_KEY = 'wordcrew_demo_rounds';
 
+/**
+ * Billing switch for the whole client.
+ *
+ * The app is in launch mode: My Class, Teacher Mode and the full game are open to
+ * everyone while we are still earning the audience. Every price, deadline, "unlock"
+ * prompt and demo limit in the UI reads this flag (directly or through `isUnlocked`),
+ * so turning billing back on is flipping this one boolean — the pricing, order and
+ * licence routes stay live on the worker either way.
+ *
+ * Typed as `boolean` rather than the literal `false` so the paid branches survive the
+ * build instead of being tree-shaken away.
+ */
+export const BILLING_ENABLED: boolean = false;
+
+/**
+ * What is stored: `'1'` for a permanent unlock (access code, lifetime licence), or the
+ * epoch-ms end of a dated subscription. Keeping the date on the device means an expired
+ * plan stops unlocking even when the worker cannot be reached — the same rule, read
+ * off the local clock.
+ */
 export const readUnlockFlag = (): boolean => {
+  // Nothing is for sale while billing is off, so the device flag is not consulted:
+  // every visitor gets the full version.
+  if (!BILLING_ENABLED) return true;
   try {
-    return localStorage.getItem(UNLOCK_STORAGE_KEY) === '1';
+    const raw = localStorage.getItem(UNLOCK_STORAGE_KEY);
+    if (raw === '1') return true;
+    const until = Number(raw);
+    return Number.isFinite(until) && until > Date.now();
   } catch {
     return false;
   }
 };
 
-export const writeUnlockFlag = (): void => {
+/** `until` = when a subscription ends; `null` = never (access code, lifetime plan). */
+export const writeUnlockFlag = (until: number | null = null): void => {
   try {
-    localStorage.setItem(UNLOCK_STORAGE_KEY, '1');
+    localStorage.setItem(UNLOCK_STORAGE_KEY, until === null ? '1' : String(until));
   } catch {
     /* Storage unavailable: the unlock simply lasts for this session. */
+  }
+};
+
+/** Forgets the unlock — used when the account behind it has no live licence left. */
+export const clearUnlockFlag = (): void => {
+  try {
+    localStorage.removeItem(UNLOCK_STORAGE_KEY);
+  } catch {
+    /* Storage unavailable: nothing was written to forget. */
   }
 };
 

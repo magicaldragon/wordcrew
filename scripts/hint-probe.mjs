@@ -17,15 +17,21 @@
 //   node scripts/hint-probe.mjs                 both candidates, full scoreboard
 //   node scripts/hint-probe.mjs --only=locked   just the shipped prompt
 //   node scripts/hint-probe.mjs --quiet         scoreboard only, no clue text
+//   node scripts/hint-probe.mjs --dry-run       print the cost estimate and stop
 //
 // Costs roughly 900 neurons (~$0.01) for the full run: two gates per clue, not one.
+// The estimate is printed before anything is spent, and --max-usd / --yes override the
+// default cap of the free daily allowance (see planBudget in lib/workers-ai.mjs).
 
-import { readDevVars, createWorkersAi } from './lib/workers-ai.mjs';
+import { readDevVars, createWorkersAi, planBudget } from './lib/workers-ai.mjs';
 import { HINT_PROMPT, HINT_EXAMPLES, HINT_SCHEMA, HINT_TEMPERATURE } from './lib/hint-prompt.mjs';
 import { createJudge } from './lib/hint-judge.mjs';
 import { checkClue, readWordLists, tokens } from './hint-validators.mjs';
 
 const CONCURRENCY = 6;
+// One word under one candidate costs a generation plus a judge call: ~50 neurons in the
+// nine-word sample, rounded up here so the pilot never drifts past its printed estimate.
+const NEURONS_PER_PROBE = 60;
 const JSON_SHAPE = `Reply with JSON only:
 {"nearest":"<the one English word closest in meaning to the target>","defs":["<clue 1>","<clue 2>"],"example":"<sentence with ___ for the word>"}`;
 
@@ -116,6 +122,8 @@ const runCandidate = async (ai, judge, candidate, entries, quiet) => {
           const guess = await judge(entry, clue);
           return { entry, clue, verdict, guess, error: null };
         } catch (error) {
+          // A failed word is a row in the scoreboard; a spent cap is the end of the run.
+          if (error.budget) throw error;
           return { entry, error: error.message };
         }
       }),
@@ -182,14 +190,28 @@ if (!candidates.length) throw new Error(`no candidate matches --only=${only} (ha
 
 const lists = readWordLists();
 const entries = resolve(lists);
+
+const plan = planBudget({
+  label: 'hint probe',
+  items: entries.length * candidates.length,
+  neuronsPerItem: NEURONS_PER_PROBE,
+});
+if (!plan.allowed) process.exit(plan.dryRun ? 0 : 1);
+
 const { CLOUDFLARE_API_TOKEN: token, CLOUDFLARE_ACCOUNT_ID: accountId } = readDevVars();
-const ai = createWorkersAi({ token, accountId, log: (m) => console.warn(m) });
+const ai = createWorkersAi({ token, accountId, maxNeurons: plan.cap, log: (m) => console.warn(m) });
 
 console.log(`scoring ${entries.length} words x ${candidates.length} candidate prompt(s)`);
 const judge = createJudge({ ai, lists });
 const summaries = [];
-for (const candidate of candidates) {
-  summaries.push(await runCandidate(ai, judge, candidate, entries, quiet));
+try {
+  for (const candidate of candidates) {
+    summaries.push(await runCandidate(ai, judge, candidate, entries, quiet));
+  }
+} catch (error) {
+  if (!error.budget) throw error;
+  console.log(`\n${error.message}\n${ai.report()}`);
+  process.exit(1);
 }
 
 if (summaries.length > 1) {

@@ -1,0 +1,595 @@
+# Proper nouns, kept out of the vocabulary bank on purpose.
+#
+# A word game teaches words, not trivia. "France", "Berlin" and "Toyota" carry no
+# meaning beyond the name itself, they are never the target of a lesson, and a flashcard
+# that asks for the gloss of "Moscow" teaches nothing. So the generator skips every key
+# listed here and cefrWordLists.ts no longer carries the same names in its packs.
+#
+# The line this file draws, because a name-based heuristic does not work: the translator
+# renders "Africa" as "Châu Phi", "coast" as "Bờ biển" and "portrait" as "Chân dung" —
+# capitalisation says nothing about whether a word is a name. Hand-curated is the only
+# reliable filter.
+#
+#   dropped — countries, capitals and major cities, continents, regions, oceans and
+#             mountain ranges, nationalities and language names, religions, people's
+#             first and last names, brands and companies, and institution names.
+#   kept    — words that are ordinary English despite starting life as a name, so they
+#             are NOT listed below: "chile" (a chilli), "jersey" (a shirt), "polish"
+#             (to polish), "reunion" (a gathering), "pound" (a unit of weight, and a
+#             currency), "turkey" (the bird), "china" is dropped because the pack word
+#             is the country, not the porcelain.
+#   kept    — calendar, cultural and science vocabulary beginner textbooks teach:
+#             "christmas", "easter", "olympics", "saturn". Capitalisation there is
+#             orthography, not a quiz on trivia.
+#
+# One entry per line, lower-case, # starts a comment. The app lower-cases every pasted
+# word, so "North America" is listed as "north america".
+
+# ── Countries ────────────────────────────────────────────────────────────────
+afghanistan
+albania
+algeria
+andorra
+angola
+argentina
+armenia
+australia
+austria
+azerbaijan
+bahamas
+bahrain
+bangladesh
+barbados
+belarus
+belgium
+belize
+benin
+bhutan
+bolivia
+bosnia
+botswana
+brazil
+britain
+brunei
+bulgaria
+burundi
+cambodia
+cameroon
+canada
+chad
+china
+colombia
+columbia
+congo
+croatia
+cuba
+cyprus
+czechia
+denmark
+ecuador
+egypt
+england
+eritrea
+estonia
+ethiopia
+fiji
+finland
+france
+gabon
+gambia
+georgia
+germany
+ghana
+greece
+guatemala
+guinea
+guyana
+haiti
+honduras
+holland
+hungary
+iceland
+india
+indonesia
+iran
+iraq
+ireland
+israel
+italy
+jamaica
+japan
+jordan
+kazakhstan
+kenya
+kuwait
+kyrgyzstan
+laos
+latvia
+lebanon
+liberia
+libya
+liechtenstein
+lithuania
+luxembourg
+madagascar
+malawi
+malaysia
+maldives
+mali
+malta
+mauritania
+mauritius
+mexico
+moldova
+monaco
+mongolia
+montenegro
+morocco
+mozambique
+myanmar
+namibia
+nepal
+netherlands
+nicaragua
+niger
+nigeria
+norway
+oman
+pakistan
+palestine
+panama
+paraguay
+peru
+philippines
+poland
+portugal
+qatar
+romania
+russia
+rwanda
+saudi
+scotland
+senegal
+serbia
+singapore
+slovakia
+slovenia
+somalia
+spain
+sudan
+sweden
+switzerland
+syria
+taiwan
+tajikistan
+tanzania
+thailand
+togo
+tunisia
+turkmenistan
+uganda
+ukraine
+uruguay
+usa
+uzbekistan
+venezuela
+vietnam
+wales
+yemen
+zambia
+zimbabwe
+
+# ── Regions, continents, oceans, ranges ──────────────────────────────────────
+africa
+america
+americas
+antarctica
+arctic
+asia
+atlantic
+balkans
+caribbean
+central america
+europe
+everest
+far east
+himalayas
+latin america
+mediterranean
+middle east
+nile
+north america
+oceania
+pacific
+sahara
+scandinavia
+siberia
+south america
+
+# ── Capitals and major cities ────────────────────────────────────────────────
+albany
+amsterdam
+athens
+atlanta
+auckland
+baghdad
+bangkok
+barcelona
+beijing
+beirut
+belfast
+belgrade
+berlin
+bern
+bogota
+boston
+bratislava
+brisbane
+brussels
+bucharest
+budapest
+buenos aires
+cairo
+calgary
+canberra
+caracas
+cardiff
+chicago
+copenhagen
+dakar
+damascus
+delhi
+denver
+detroit
+doha
+dubai
+dublin
+edinburgh
+florence
+frankfurt
+geneva
+glasgow
+guangzhou
+hanoi
+havana
+helsinki
+hong kong
+houston
+istanbul
+jakarta
+jerusalem
+kabul
+kathmandu
+khartoum
+kiev
+kingston
+kolkata
+kuala lumpur
+kyiv
+lagos
+las vegas
+lima
+lisbon
+ljubljana
+london
+los angeles
+luanda
+madrid
+manila
+melbourne
+mexico city
+miami
+milan
+minsk
+montreal
+moscow
+mumbai
+nairobi
+nassau
+new delhi
+new york
+nyc
+osaka
+oslo
+ottawa
+paris
+perth
+philadelphia
+phnom penh
+prague
+pyongyang
+quebec
+reykjavik
+riga
+rio de janeiro
+rome
+san francisco
+san jose
+santiago
+sao paulo
+seattle
+seoul
+shanghai
+sofia
+stockholm
+sydney
+taipei
+tallinn
+tehran
+tel aviv
+tokyo
+toronto
+tripoli
+tunis
+vancouver
+venice
+vienna
+vientiane
+vilnius
+warsaw
+washington
+wellington
+yangon
+zagreb
+
+# ── US states, Canadian provinces ────────────────────────────────────────────
+alabama
+alaska
+alberta
+arizona
+arkansas
+british columbia
+california
+colorado
+connecticut
+delaware
+florida
+hawaii
+idaho
+illinois
+indiana
+iowa
+kansas
+kentucky
+louisiana
+maine
+manitoba
+maryland
+massachusetts
+michigan
+minnesota
+mississippi
+missouri
+montana
+nebraska
+nevada
+new jersey
+new mexico
+north carolina
+north dakota
+ohio
+oklahoma
+ontario
+oregon
+pennsylvania
+rhode island
+saskatchewan
+south carolina
+south dakota
+tennessee
+texas
+utah
+vermont
+virginia
+west virginia
+wisconsin
+wyoming
+
+# ── Nationalities, languages, peoples ────────────────────────────────────────
+afghan
+african
+american
+arab
+asian
+australian
+austrian
+belgian
+brazilian
+british
+bulgarian
+cambodian
+canadian
+celtic
+chinese
+croatian
+czech
+danish
+dutch
+egyptian
+english
+estonian
+european
+filipino
+finnish
+french
+german
+greek
+hawaiian
+hebrew
+hispanic
+hungarian
+indian
+indonesian
+iranian
+iraqi
+irish
+israeli
+italian
+jamaican
+japanese
+kenyan
+korean
+latin
+latvian
+lithuanian
+malaysian
+mexican
+mongolian
+moroccan
+nigerian
+norwegian
+pakistani
+palestinian
+persian
+portuguese
+romanian
+russian
+senegalese
+serbian
+singaporean
+slovak
+soviet
+spanish
+swedish
+swiss
+syrian
+taiwanese
+thai
+turkish
+ukrainian
+vietnamese
+welsh
+yugoslav
+
+# ── Religions ────────────────────────────────────────────────────────────────
+allah
+buddha
+buddhism
+buddhist
+catholic
+christ
+christian
+christianity
+hindu
+hinduism
+islam
+islamic
+jew
+jewish
+jews
+judaism
+jesus
+moses
+muslim
+muslims
+protestant
+satan
+sikh
+taoism
+
+# ── People's names ───────────────────────────────────────────────────────────
+# Only names that are not also ordinary English words: "bill", "mark", "jack",
+# "grace", "carol", "harper" and "victor" stay out of this section on purpose — they
+# are vocabulary first and names second.
+abraham
+andrews
+bennett
+caesar
+cameron
+chen
+churchill
+cleopatra
+collins
+darwin
+donna
+einstein
+elizabeth
+hitler
+johns
+kennedy
+kruger
+lincoln
+margaret
+muhammad
+napoleon
+norfolk
+orleans
+packard
+parker
+ruth
+shakespeare
+somerset
+springer
+stewart
+victoria
+wagner
+
+# ── Brands, companies, institutions ──────────────────────────────────────────
+adidas
+amazon
+audi
+batman
+bmw
+britannica
+cambridge
+coca cola
+disney
+facebook
+ferrari
+google
+harvard
+honda
+huawei
+ibm
+ielts
+lego
+lenovo
+mcdonalds
+mercedes
+microsoft
+nato
+netflix
+nike
+nintendo
+nokia
+oxford
+pepsi
+porsche
+samsung
+sega
+sony
+starbucks
+tesla
+toefl
+toshiba
+toyota
+twitter
+unesco
+unicef
+volkswagen
+walmart
+yale
+youtube
+
+# ── Foreign spelling and stray place names the web corpus carries ────────────
+# Words that are not English at all, or that only exist as a name; the generator used
+# to translate them into nonsense ("kruger" → "người lùn", "uri" → "nước tiểu").
+arabia
+arabic
+deutsch
+deutsche
+deutschland
+dominican
+eng
+ira
+italiano
+latinas
+latino
+rhode
+roman
+scottish
+sierra
+transexuales
+uri
+victorian
+yugoslavia

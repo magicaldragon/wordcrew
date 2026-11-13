@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { createOrder, fetchOrder, formatPrice, type OrderDraft } from '../services/payments';
+import {
+  createOrder,
+  fetchOrder,
+  fetchPricing,
+  formatPrice,
+  type OrderDraft,
+  type PricingPlan,
+} from '../services/payments';
 import { useAuth } from '../contexts/AuthContext';
 import { Icon } from './Icon';
 import { useT } from '../i18n/useT';
@@ -24,6 +31,9 @@ type Phase = 'intro' | 'loading' | 'awaiting' | 'paid' | 'error';
 // to reveal the licence without the teacher ever pressing refresh.
 const POLL_INTERVAL_MS = 4000;
 
+/** The plan the dialog opens on: the yearly one, since it is the offer we want picked. */
+const PREFERRED_PLAN = 'year';
+
 export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
   isOpen,
   onClose,
@@ -44,6 +54,10 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
   const [copied, setCopied] = useState('');
   // Set the moment the buyer commits to the price; the order waits for an account.
   const [intent, setIntent] = useState(false);
+  // Single-teacher plans only: school licences are invoiced and granted by hand, so a
+  // self-service QR would charge the wrong thing. `planId` is what the worker bills.
+  const [plans, setPlans] = useState<PricingPlan[]>([]);
+  const [planId, setPlanId] = useState('pro');
 
   const startOrder = useCallback(async () => {
     setPhase('loading');
@@ -58,13 +72,15 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
         return;
       }
       setSessionToken(token);
-      setOrder(await createOrder('pro', token));
+      // The price is recomputed on the worker from `planId`, so the browser never decides
+      // what is charged.
+      setOrder(await createOrder('pro', token, planId));
       setPhase('awaiting');
     } catch (err) {
       setError(describeError(errors, err, t.purchase.orderFailed));
       setPhase('error');
     }
-  }, [getIdToken, t, errors]);
+  }, [getIdToken, planId, t, errors]);
 
   // Price first: opening shows what the licence covers. The QR only starts once the
   // buyer commits, and sign-in is asked for at that point rather than on the way in.
@@ -77,6 +93,30 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
     setIntent(false);
     setError('');
     setPhase('intro');
+  }, [isOpen]);
+
+  // The term list is quoted once per opening. An unreachable API simply leaves the
+  // single legacy price in place, which is still a valid (lifetime) purchase.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pricing = await fetchPricing();
+        if (cancelled) return;
+        const offered = pricing.plans.filter((plan) => plan.seats <= 1);
+        if (offered.length === 0) return;
+        setPlans(offered);
+        setPlanId(
+          offered.some((plan) => plan.id === PREFERRED_PLAN) ? PREFERRED_PLAN : offered[0].id,
+        );
+      } catch {
+        /* Pricing unavailable — the dialog keeps the price label it was given. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   // The sign-in panel sits on top of this one. Once it closes with an account present,
@@ -142,7 +182,19 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
 
   if (!isOpen) return null;
 
-  const amountLabel = order ? formatPrice(order.amount) : priceLabel;
+  const selectedPlan = plans.find((plan) => plan.id === planId) ?? null;
+  const amountLabel = order
+    ? formatPrice(order.amount)
+    : selectedPlan
+      ? formatPrice(selectedPlan.amount)
+      : priceLabel;
+  // The term sits next to the price so a monthly plan never reads as "yours forever".
+  const termLabel =
+    selectedPlan && selectedPlan.days !== null
+      ? selectedPlan.days <= 31
+        ? t.purchase.perMonth
+        : t.purchase.perYear
+      : t.purchase.oneTime;
 
   return (
     <div
@@ -174,7 +226,7 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
           <p className="mt-1 text-2xl font-bold text-[var(--wa-11)]">
             {amountLabel}
             <span className="ml-2 text-xs font-normal uppercase tracking-wider text-[var(--wn-9)]">
-              {t.purchase.oneTime}
+              {termLabel}
             </span>
           </p>
         )}
@@ -184,6 +236,36 @@ export const PurchaseDialog: React.FC<PurchaseDialogProps> = ({
             <li key={perk}>{perk}</li>
           ))}
         </ul>
+
+        {phase === 'intro' && plans.length > 0 && (
+          <div className="mt-4" role="radiogroup" aria-label={t.purchase.choosePlan}>
+            <p className="text-[0.7rem] uppercase tracking-wider text-[var(--wn-9)]">
+              {t.purchase.choosePlan}
+            </p>
+            <div className="mt-2 space-y-2">
+              {plans.map((plan) => {
+                const active = plan.id === planId;
+                return (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setPlanId(plan.id)}
+                    className={`flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-sm transition ${
+                      active
+                        ? 'border-[var(--wa-6)] bg-[var(--wa-2)] font-semibold text-[var(--wn-12)]'
+                        : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:bg-[var(--wn-3)]'
+                    }`}
+                  >
+                    <span>{t.purchase.planNames[plan.id] ?? plan.name}</span>
+                    <span className="shrink-0 tabular-nums">{formatPrice(plan.amount)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {phase === 'intro' && (
           <div className="mt-5">

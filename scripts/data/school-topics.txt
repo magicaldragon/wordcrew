@@ -1,0 +1,216 @@
+# Words and phrases a school syllabus uses that the frequency lists miss: topic
+# vocabulary for reading and writing units, plus the phrasal verbs textbooks teach.
+# Curated by hand, then machine-translated by scripts/generate-glosses.mjs, so this
+# file is the only place where a multi-word entry is allowed.
+#
+accountant
+addicted
+ancestor
+arrogant
+avalanche
+belong to
+binoculars
+biodiversity
+boredom
+calorie
+carpenter
+check in
+commemorate
+commute
+congestion
+consist of
+curiosity
+cut down on
+deforestation
+descendant
+disappointment
+dissertation
+drought
+ecosystem
+electrician
+embarrassment
+empathy
+envy
+epidemic
+eruption
+extinction
+famine
+fertilizer
+figure out
+firefighter
+frustrated
+frustration
+generosity
+get along with
+gratitude
+guilt
+hardworking
+honesty
+horrified
+humble
+idealistic
+immunity
+in charge of
+inequality
+insomnia
+itinerary
+jealous
+jealousy
+landfill
+landslide
+loyalty
+obese
+on behalf of
+optimistic
+orphanage
+overcrowded
+overtime
+pandemic
+patience
+pay attention to
+pedestrian
+pessimistic
+pesticide
+pharmacist
+plagiarism
+plumber
+polluted
+prejudice
+racism
+recycle
+refer to
+resignation
+reuse
+ritual
+rude
+run out of
+selfish
+souvenir
+stressful
+stubborn
+sunscreen
+superstition
+surgeon
+syllabus
+tailor
+take care of
+take part in
+teamwork
+terrified
+therapist
+thrilled
+tornado
+vitamin
+volcano
+wildfire
+
+# Compound topics. A unit list names these as one item ("climate change", "public
+# transport"), but no frequency list ever holds a bare two-word phrase, so every one of
+# them used to land in a deck with an empty meaning. Grouped by the textbook theme.
+air pollution
+water pollution
+noise pollution
+plastic waste
+carbon footprint
+greenhouse gas
+fossil fuel
+renewable energy
+solar energy
+wind power
+natural disaster
+natural resource
+endangered species
+wildlife conservation
+environmental protection
+climate change
+global warming
+extreme weather
+sea level
+water shortage
+public transport
+online learning
+distance learning
+physical education
+boarding school
+extracurricular activity
+school uniform
+school trip
+field trip
+summer camp
+sports club
+debate club
+study habit
+study skill
+learning style
+critical thinking
+problem-solving skill
+lifelong learning
+gap year
+entrance exam
+final exam
+high school
+primary school
+secondary school
+job market
+career path
+job interview
+part-time job
+full-time job
+summer job
+work experience
+work-life balance
+time management
+job opportunity
+unemployment rate
+living standard
+working condition
+mental health
+healthy lifestyle
+balanced diet
+eating habit
+sleeping habit
+junk food
+food pyramid
+physical activity
+health care
+medical care
+first aid
+life expectancy
+birth rate
+population growth
+generation gap
+family reunion
+nuclear family
+extended family
+gender equality
+income inequality
+social issue
+community service
+volunteer work
+blood donation
+human right
+child labour
+peer pressure
+role model
+social media
+social network
+screen time
+digital device
+electronic device
+online game
+smart phone
+mobile phone
+cultural heritage
+historical site
+tourist attraction
+local cuisine
+traditional custom
+quality of life
+urban area
+rural area
+global citizen
+team spirit
+public speaking
+presentation skill
+customer service
+

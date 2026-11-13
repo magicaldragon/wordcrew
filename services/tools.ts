@@ -1,4 +1,5 @@
 import type { IconName } from '../components/Icon';
+import { BILLING_ENABLED } from '../constants';
 
 /**
  * The tool shelf.
@@ -72,12 +73,15 @@ export const toolFreeUntilLabel = (locale: string): string =>
 
 /**
  * The mode actually in force. The launch window only ever closes an 'open' gate; a manual
- * 'role' or 'paid' override is left alone.
+ * 'role' or 'paid' override is left alone. While billing is off the gate never closes —
+ * the launch deadline is a paid-plan decision, not a calendar one.
  */
 export const toolGateMode = (): ToolAccessMode =>
-  TOOL_GATE.mode === 'open' && Date.now() > Date.parse(TOOL_GATE.freeUntil)
-    ? 'paid'
-    : TOOL_GATE.mode;
+  !BILLING_ENABLED
+    ? 'open'
+    : TOOL_GATE.mode === 'open' && Date.now() > Date.parse(TOOL_GATE.freeUntil)
+      ? 'paid'
+      : TOOL_GATE.mode;
 
 export interface ToolViewer {
   isTeacher: boolean;

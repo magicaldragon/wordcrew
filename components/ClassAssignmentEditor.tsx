@@ -21,8 +21,12 @@ import {
 } from '../services/teacherDeck';
 
 interface ClassAssignmentEditorProps {
+  /** Every class the teacher owns, so one piece of work can go to several at once. */
+  classes: { id: string; name: string }[];
+  /** The class whose tab is open — selected by default. */
+  activeClassId: string;
   onCancel: () => void;
-  onCreate: (input: NewAssignment) => Promise<void>;
+  onCreate: (input: NewAssignment, classIds: string[]) => Promise<void>;
 }
 
 const emptyQuestion = (): QuizQuestion => ({ prompt: '', choices: ['', '', '', ''], answer: 0 });
@@ -38,7 +42,12 @@ const dueDateToMs = (value: string): number | null => {
  * Builds one assignment. The three kinds share the same shell — title, note, due date —
  * and differ only in the body, so a teacher learns the screen once.
  */
-export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ onCancel, onCreate }) => {
+export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
+  classes,
+  activeClassId,
+  onCancel,
+  onCreate,
+}) => {
   const t = useT('myClass');
   const common = useT('common');
 
@@ -59,6 +68,12 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
   const [due, setDue] = useState('');
   const [passScore, setPassScore] = useState(80);
   const [busy, setBusy] = useState(false);
+  const [targets, setTargets] = useState<string[]>([activeClassId]);
+
+  const toggleTarget = (classId: string) =>
+    setTargets((prev) =>
+      prev.includes(classId) ? prev.filter((id) => id !== classId) : [...prev, classId],
+    );
 
   // vocabulary
   const [source, setSource] = useState<'level' | 'deck' | 'paste'>('level');
@@ -117,6 +132,10 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
       toast(message, 'error');
       return;
     }
+    if (!targets.length) {
+      toast(t.editor.pickClass, 'error');
+      return;
+    }
     setBusy(true);
     try {
       await onCreate({
@@ -133,7 +152,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
         })) : [],
         prompt: kind === 'writing' ? prompt : '',
         minWords,
-      });
+      }, targets);
     } finally {
       setBusy(false);
     }
@@ -256,6 +275,34 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
             />
           </label>
         )}
+      </div>
+
+      {/* One piece of work often belongs to several rooms at once, so the class
+          list is part of the form rather than something chosen beforehand. */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
+          {t.editor.classesLabel}
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {classes.map((item) => {
+            const on = targets.includes(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggleTarget(item.id)}
+                className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold transition-colors ${
+                  on
+                    ? 'border-neon-green/60 bg-neon-green/10 text-neon-green'
+                    : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-[var(--wn-6)]'
+                }`}
+              >
+                {item.name}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {kind === 'vocabulary' && (
@@ -449,7 +496,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({ on
           disabled={busy}
           className="wc-btn wc-btn-primary min-h-[44px] disabled:opacity-50"
         >
-          {busy ? t.editor.assigning : t.editor.assign}
+          {busy ? t.editor.assigning : t.editor.assignTo(targets.length)}
         </button>
       </div>
     </div>

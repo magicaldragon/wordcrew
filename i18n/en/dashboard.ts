@@ -24,7 +24,7 @@ export const dashboard = {
     },
     class: {
       title: 'My Class',
-      subtitle: 'Set work, hand it in, and see what the class actually got wrong.',
+      subtitle: 'Set work, collect it, and watch the class improve.',
     },
     progress: { title: 'My progress', subtitle: 'Your rounds, scores and streaks.' },
     account: { title: 'Account', subtitle: 'Sign-in status and this device.' },
@@ -115,13 +115,6 @@ export const dashboard = {
   class: {
     signIn:
       'Sign in to join your class. Your teacher either adds this email or gives you a six-letter class code — the work shows up here either way.',
-    teacherConsole: 'Teacher console',
-    locked:
-      'Opening classes and setting work is part of the full version. Your students always join for free — the licence pays for the console, never for the classroom.',
-    unlockFull: 'Unlock full version',
-    footerFree: (date: string) =>
-      `Free for teachers until ${date}. Students stay free after that.`,
-    footerPaid: 'Included in the full version. Your students join free.',
   },
 
   progress: {
@@ -174,6 +167,9 @@ export const dashboard = {
     purchasedOn: (date: string) => `Purchased ${date}`,
     purchased: 'Purchased',
     owned: 'Owned',
+    planLifetime: 'Lifetime access',
+    planDaysLeft: (days: number) => (days === 1 ? '1 day left' : `${days} days left`),
+    planExpired: 'Expired — the free demo limits apply again. Renew to restore the full version.',
     pending: 'Pending transfers',
     refresh: 'Refresh',
     pendingBody: 'Transfers we have not matched to an order yet. Keep the code below for support.',

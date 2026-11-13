@@ -34,6 +34,7 @@ export const errors = {
   emailOwnsProduct: 'That email already owns this product.',
   invalidLicenceKey: 'That does not look like a licence key.',
   licenceNotFound: 'Licence key not found. Check the key from your purchase email.',
+  licenceExpired: 'That licence has expired. Renew it from the Account tab to keep the full version.',
   notFound: 'Not found.',
 
   // Classes

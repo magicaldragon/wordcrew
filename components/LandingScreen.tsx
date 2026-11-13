@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GameMode } from '../types';
-import { DEMO_POLICY } from '../constants';
+import { DEMO_POLICY, BILLING_ENABLED } from '../constants';
 import { UnlockDialog } from './UnlockDialog';
 import { Icon } from './Icon';
 import { useT } from '../i18n/useT';
@@ -127,35 +127,41 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             >
               <Icon name="play" size={20} />
               <span className="font-heading text-base tracking-wide sm:text-lg">
-                {isUnlocked ? t.landing.playFull : t.landing.playDemo}
+                {BILLING_ENABLED
+                  ? isUnlocked
+                    ? t.landing.playFull
+                    : t.landing.playDemo
+                  : t.landing.play}
               </span>
             </button>
             <p className="mt-3 font-sans text-xs text-muted-text">{t.landing.freeBadges}</p>
 
-            {isUnlocked ? (
-              <p className="mt-4 inline-flex items-center gap-1.5 font-sans text-xs text-neon-green">
-                <Icon name="unlock" />
-                {t.landing.unlockedNote}
-              </p>
-            ) : (
-              <div className="mt-6 flex flex-col items-center gap-3">
-                <button
-                  type="button"
-                  onClick={onUpgrade}
-                  className="futuristic-button inline-flex items-center gap-2 rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
-                >
-                  <Icon name="unlock" size={18} />
-                  {t.unlockFull}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowUnlockDialog(true)}
-                  className="font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
-                >
-                  {t.landing.alreadyBought}
-                </button>
-              </div>
-            )}
+            {/* The storefront only appears once there is a price to quote. */}
+            {BILLING_ENABLED &&
+              (isUnlocked ? (
+                <p className="mt-4 inline-flex items-center gap-1.5 font-sans text-xs text-neon-green">
+                  <Icon name="unlock" />
+                  {t.landing.unlockedNote}
+                </p>
+              ) : (
+                <div className="mt-6 flex flex-col items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onUpgrade}
+                    className="futuristic-button inline-flex items-center gap-2 rounded-xl border border-neon-green/50 bg-neon-green/10 px-6 py-3 font-sans text-sm font-semibold text-neon-green transition hover:bg-neon-green/20"
+                  >
+                    <Icon name="unlock" size={18} />
+                    {t.unlockFull}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowUnlockDialog(true)}
+                    className="font-sans text-xs text-muted-text underline decoration-dotted underline-offset-4 transition hover:text-electric-blue"
+                  >
+                    {t.landing.alreadyBought}
+                  </button>
+                </div>
+              ))}
           </section>
 
           {/* MODES */}

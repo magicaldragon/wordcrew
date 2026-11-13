@@ -11,13 +11,20 @@ CREATE TABLE IF NOT EXISTS orders (
   code             TEXT PRIMARY KEY,
   product_id       TEXT    NOT NULL,
   amount           INTEGER NOT NULL,
-  -- pending -> paid | expired
+  -- pending -> paid | expired | revoked
   status           TEXT    NOT NULL DEFAULT 'pending',
   license_key      TEXT,
   sepay_tx_id      TEXT,
   paid_at          INTEGER,
   created_at       INTEGER NOT NULL,
+  -- When the *pending order* stops being payable. Unrelated to `access_until`.
   expires_at       INTEGER NOT NULL,
+  -- Billing term: pro (legacy one-off) | month | year | lifetime | school10 | school30.
+  plan             TEXT    NOT NULL DEFAULT 'pro',
+  -- Teacher seats on a school plan; 1 for a single licence.
+  seats            INTEGER NOT NULL DEFAULT 1,
+  -- When the purchase stops unlocking. NULL means "never" (lifetime / legacy key).
+  access_until     INTEGER,
   -- Only used to throttle QR spam; never shown or joined against anything.
   client_ip        TEXT,
   -- Firebase account that checked out (from the verified ID token).
@@ -34,6 +41,12 @@ CREATE INDEX IF NOT EXISTS idx_orders_user ON orders (user_id, created_at);
 -- once by hand (SQLite has no "ADD COLUMN IF NOT EXISTS"):
 --   npx wrangler d1 execute wordcrew-db --remote \
 --     --command "ALTER TABLE orders ADD COLUMN user_id TEXT; ALTER TABLE orders ADD COLUMN user_email TEXT;"
+--
+-- Databases created before the subscription plans need the three billing columns.
+-- The defaults keep every existing row working: an old 199.000đ key becomes a
+-- lifetime purchase, which is exactly the grandfathering promise.
+--   npx wrangler d1 execute wordcrew-db --remote --command \
+--     "ALTER TABLE orders ADD COLUMN plan TEXT NOT NULL DEFAULT 'pro'; ALTER TABLE orders ADD COLUMN seats INTEGER NOT NULL DEFAULT 1; ALTER TABLE orders ADD COLUMN access_until INTEGER;"
 
 CREATE TABLE IF NOT EXISTS licenses (
   key        TEXT PRIMARY KEY,
@@ -56,3 +69,16 @@ CREATE TABLE IF NOT EXISTS asr_calls (
 
 CREATE INDEX IF NOT EXISTS idx_asr_calls_ip_created ON asr_calls (client_ip, created_at);
 CREATE INDEX IF NOT EXISTS idx_asr_calls_created ON asr_calls (created_at);
+
+-- Words a teacher pasted that had no Vietnamese gloss. One row per word, and `hits` is
+-- how many reports it drew — that ranking is what decides which words are worth adding
+-- to the offline map next (scripts/generate-glosses.mjs). Nothing here is ever read back
+-- by the app: it is a build-time hint for us, not a feature.
+CREATE TABLE IF NOT EXISTS missing_glosses (
+  word       TEXT PRIMARY KEY,
+  hits       INTEGER NOT NULL DEFAULT 0,
+  first_seen INTEGER NOT NULL,
+  last_seen  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_missing_glosses_hits ON missing_glosses (hits DESC);

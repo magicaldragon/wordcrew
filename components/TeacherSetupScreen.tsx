@@ -2,14 +2,17 @@ import React, { useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog, toast } from './Feedback';
 import { TeacherDeckEditor } from './TeacherDeckEditor';
+import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
 import {
+  clampTestWords,
   deleteTeacherDeck,
+  MAX_TEST_WORDS,
+  MIN_TEST_WORDS,
   readTeacherDecks,
   saveTeacherDeck,
   TEACHER_LEVELS,
-  TEACHER_WORD_COUNTS,
   type TeacherDeck,
   type TeacherLevelId,
 } from '../services/teacherDeck';
@@ -18,6 +21,8 @@ interface TeacherSetupScreenProps {
   onStartLevel: (levelId: TeacherLevelId, count: number) => void;
   onStartDeck: (deck: TeacherDeck) => void;
   onExit: () => void;
+  /** Opens the sign-in dialog; only decks that are kept need an account. */
+  onRequireSignIn: () => void;
 }
 
 type TabId = 'level' | 'decks';
@@ -31,21 +36,41 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   onStartLevel,
   onStartDeck,
   onExit,
+  onRequireSignIn,
 }) => {
   const t = useT('teacher');
   const { delete: deleteLabel } = useT('common');
+  const { user } = useAuth();
   const locale = useLocale();
   const [tab, setTab] = useState<TabId>('level');
   const [levelId, setLevelId] = useState<TeacherLevelId>('A1');
   const [count, setCount] = useState(10);
+  // The box is a draft so the teacher can clear it and retype without the value
+  // snapping back mid-keystroke; it is clamped on blur and before the test starts.
+  const [countDraft, setCountDraft] = useState('10');
   const [decks, setDecks] = useState<TeacherDeck[]>(() => readTeacherDecks());
   // null = list, 'new' = a deck being built, a deck = that deck being edited.
   const [editing, setEditing] = useState<TeacherDeck | 'new' | null>(null);
 
-  const handleSave = (deck: TeacherDeck) => {
+  const commitCount = (): number => {
+    const next = clampTestWords(countDraft === '' ? Number.NaN : Number(countDraft));
+    setCount(next);
+    setCountDraft(String(next));
+    return next;
+  };
+
+  // Building and testing a deck is free; keeping it needs an account, because a deck is a
+  // thing the teacher expects to still be there next week. The dialog opens instead of a
+  // silent failure, and the review keeps the words already typed.
+  const handleSave = (deck: TeacherDeck): boolean => {
+    if (!user) {
+      onRequireSignIn();
+      return false;
+    }
     setDecks(saveTeacherDeck(deck));
     setEditing(null);
     toast(t.setup.savedToast, 'success');
+    return true;
   };
 
   const handleDelete = async (deck: TeacherDeck) => {
@@ -138,31 +163,34 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
           </div>
 
           <div>
-            <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
+            <label
+              htmlFor="teacher-word-count"
+              className="mb-1.5 block text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text"
+            >
               {t.setup.wordsInTest}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {TEACHER_WORD_COUNTS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setCount(option)}
-                  aria-pressed={count === option}
-                  className={`min-h-[44px] min-w-[44px] rounded-md border px-3 text-sm font-semibold tabular-nums transition-colors ${
-                    count === option
-                      ? 'border-neon-green bg-neon-green/15 text-neon-green'
-                      : 'border-white/10 text-muted-text hover:border-electric-blue/60 hover:text-light-text'
-                  }`}
-                >
-                  {option}
-                </button>
-              ))}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="teacher-word-count"
+                type="number"
+                inputMode="numeric"
+                min={MIN_TEST_WORDS}
+                max={MAX_TEST_WORDS}
+                step={1}
+                value={countDraft}
+                onChange={(event) => setCountDraft(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
+                onBlur={() => commitCount()}
+                className="futuristic-input min-h-[44px] w-24 px-3 py-2 text-center text-base font-semibold tabular-nums"
+              />
+              <span className="text-[0.7rem] text-muted-text">
+                {t.setup.wordsInTestRange(MIN_TEST_WORDS, MAX_TEST_WORDS)}
+              </span>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => onStartLevel(levelId, count)}
+            onClick={() => onStartLevel(levelId, commitCount())}
             className="wc-btn wc-btn-primary min-h-[48px] w-full"
           >
             <Icon name="play" size={16} />
@@ -178,14 +206,18 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
             <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
               {t.setup.savedOnDevice}
             </p>
-            <button
-              type="button"
-              onClick={() => setEditing('new')}
-              className="wc-btn wc-btn-secondary min-h-[44px] px-3"
-            >
-              <Icon name="save" size={16} />
-              {t.setup.newDeck}
-            </button>
+            {/* The empty state below already carries this action, so it only appears once
+                there is a list to add to. */}
+            {decks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setEditing('new')}
+                className="wc-btn wc-btn-secondary min-h-[44px] px-3"
+              >
+                <Icon name="save" size={16} />
+                {t.setup.newDeck}
+              </button>
+            )}
           </div>
 
           {decks.length === 0 ? (
@@ -201,6 +233,11 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
               >
                 {t.setup.buildFirstDeck}
               </button>
+              {!user && (
+                <p className="mx-auto mt-2 max-w-sm text-[0.7rem] leading-relaxed text-muted-text">
+                  {t.setup.guestNote}
+                </p>
+              )}
             </div>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -237,7 +274,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                     onClick={() => onStartDeck(deck)}
                     className="wc-btn wc-btn-primary mt-2 min-h-[44px] w-full"
                   >
-                    <Icon name="play" size={16} />
+                    <Icon name="list" size={16} />
                     {t.setup.testDeck}
                   </button>
                 </li>

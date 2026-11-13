@@ -1,12 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
+import { DeckReviewDialog } from './DeckReviewDialog';
 import { useT } from '../i18n/useT';
 import {
   deckWarnings,
+  guessPartOfSpeech,
   MAX_DECK_WORDS,
   newTeacherDeckId,
   parseTeacherWords,
+  partOfSpeech,
+  reportMissingGlosses,
   type TeacherDeck,
   type TeacherWord,
 } from '../services/teacherDeck';
@@ -14,16 +18,19 @@ import {
 interface TeacherDeckEditorProps {
   /** Deck being edited, or null when the teacher is starting a new one. */
   deck: TeacherDeck | null;
-  onSave: (deck: TeacherDeck) => void;
+  /** Returns true when the deck was stored — the caller owns the sign-in gate. */
+  onSave: (deck: TeacherDeck) => boolean;
   onCancel: () => void;
   /** Only offered for a saved deck. */
   onDelete?: (deck: TeacherDeck) => void;
 }
 
 /**
- * Paste → review → save. The paste box is the only required step: glosses are filled
- * from the bundled dictionary, and the table is where the teacher fixes the words whose
- * meaning in this lesson is not the most common one.
+ * Step one of building a deck: get the words in.
+ *
+ * Pasting is the only required action — glosses come from the bundled dictionary. Checking
+ * what the class will actually see happens in the review dialog, so this screen stays a
+ * single paste box no matter how long the deck gets.
  */
 export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
   deck,
@@ -36,7 +43,21 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
   const [name, setName] = useState(deck?.name ?? '');
   const [words, setWords] = useState<TeacherWord[]>(deck?.words ?? []);
   const [paste, setPaste] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const pasteRef = useRef<HTMLTextAreaElement | null>(null);
   const warnings = useMemo(() => deckWarnings(words), [words]);
+  const missing = [...warnings.values()].filter((warning) => warning === 'Missing meaning').length;
+  /** What the paste box would add if the teacher pressed the button right now. */
+  const detected = useMemo(() => (paste.trim() ? parseTeacherWords(paste).length : 0), [paste]);
+
+  // The box grows with the list instead of trapping it behind a scrollbar: a 40-line
+  // paste is reviewable at a glance, and pasting never hides the bulk of what arrived.
+  useEffect(() => {
+    const box = pasteRef.current;
+    if (!box) return;
+    box.style.height = 'auto';
+    box.style.height = `${Math.min(box.scrollHeight, 240)}px`;
+  }, [paste]);
 
   const addFromPaste = () => {
     const parsed = parseTeacherWords(paste);
@@ -55,13 +76,18 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       toast(t.editor.alreadyInDeck, 'error');
       return;
     }
-    setWords([...words, ...fresh.slice(0, room)]);
+    const added = fresh.slice(0, room);
+    const unglossed = added.filter((entry) => !entry.meaning);
+    setWords([...words, ...added]);
     setPaste('');
-    const auto = fresh.filter((entry) => !entry.meaning).length;
-    const added = Math.min(fresh.length, room);
+    // Words the bundled dictionary could not gloss; the server ranks them for the next
+    // build of the offline map (see reportMissingGlosses).
+    reportMissingGlosses(unglossed.map((entry) => entry.word));
     toast(
-      auto > 0 ? t.editor.wordsAddedMissing(added, auto) : t.editor.wordsAdded(added),
-      auto > 0 ? 'info' : 'success',
+      unglossed.length > 0
+        ? t.editor.wordsAddedMissing(added.length, unglossed.length)
+        : t.editor.wordsAdded(added.length),
+      unglossed.length > 0 ? 'info' : 'success',
     );
   };
 
@@ -73,24 +99,32 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
     setWords((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSave = () => {
-    const cleaned = words
-      .map((entry) => ({
-        ...entry,
-        word: entry.word.trim(),
-        meaning: entry.meaning.trim(),
-      }))
-      .filter((entry) => entry.word);
-    if (cleaned.length === 0) {
+  const openReview = () => {
+    if (words.length === 0) {
       toast(t.editor.addAtLeastOne, 'error');
       return;
     }
+    setReviewOpen(true);
+  };
+
+  const handleSave = (): boolean => {
+    const cleaned = words
+      .map((entry) => {
+        const word = entry.word.trim();
+        const pos = (entry.pos ?? guessPartOfSpeech(word)) || undefined;
+        return { ...entry, word, meaning: entry.meaning.trim(), pos };
+      })
+      .filter((entry) => entry.word);
+    if (cleaned.length === 0) {
+      toast(t.editor.addAtLeastOne, 'error');
+      return false;
+    }
     if (cleaned.some((entry) => !entry.meaning)) {
       toast(t.editor.everyWordNeedsMeaning, 'error');
-      return;
+      return false;
     }
     const now = Date.now();
-    onSave({
+    return onSave({
       id: deck?.id ?? newTeacherDeckId(),
       name: name.trim() || t.editor.untitled,
       words: cleaned,
@@ -126,24 +160,30 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
       </div>
 
       <div className="rounded-lg border border-electric-blue/30 bg-dark-metal/50 p-3">
-        <p className="text-xs font-semibold text-electric-blue">
-          {t.editor.pasteTitle}
-        </p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-semibold text-electric-blue">
+            {t.editor.pasteTitle}
+          </p>
+          <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-text">
+            {t.editor.wordCount(words.length, MAX_DECK_WORDS)}
+          </span>
+        </div>
         <p className="mt-1 text-[0.7rem] leading-relaxed text-muted-text">
           <code className="text-light-text">journey</code> {t.editor.pasteHelpOr}{' '}
           <code className="text-light-text">journey - chuyến đi</code>{t.editor.pasteHelpTail}
         </p>
         <textarea
+          ref={pasteRef}
           value={paste}
           onChange={(event) => setPaste(event.target.value)}
-          rows={4}
+          rows={3}
           placeholder={'journey\nluggage - hành lý\ndeparture'}
-          className="futuristic-input mt-2 w-full resize-y px-3 py-2 font-mono text-xs leading-relaxed"
+          className="futuristic-input mt-2 min-h-[5rem] w-full resize-none overflow-y-auto px-3 py-2 font-mono text-xs leading-relaxed"
           aria-label={t.editor.pasteAria}
         />
         <div className="mt-2 flex items-center justify-between gap-2">
-          <span className="text-[0.7rem] text-muted-text">
-            {t.editor.wordCount(words.length, MAX_DECK_WORDS)}
+          <span className="text-[0.7rem] tabular-nums text-electric-blue">
+            {detected > 0 ? t.editor.detectedWords(detected) : ''}
           </span>
           <button
             type="button"
@@ -157,57 +197,57 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
         </div>
       </div>
 
+      {/* The deck so far, not just its size: a chip per word means the teacher can see
+          what actually landed — and spot the red ones — without opening the review sheet.
+          Tapping a chip opens that sheet, which is where any word is edited. */}
       {words.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
-            {t.editor.reviewTitle}
-          </p>
-          {words.map((entry, index) => {
-            const warning = warnings.get(index);
-            return (
-              <div key={`${entry.word}-${index}`} className="rounded-md border border-white/10 bg-dark-metal/40 p-2">
-                <div className="flex items-center gap-1.5">
-                  <input
-                    value={entry.word}
-                    onChange={(event) => updateWord(index, { word: event.target.value })}
-                    className="futuristic-input min-h-[44px] w-[42%] min-w-0 px-2 py-1.5 text-sm font-semibold"
-                    aria-label={t.editor.wordAria(index + 1)}
-                  />
-                  <input
-                    value={entry.meaning}
-                    onChange={(event) => updateWord(index, { meaning: event.target.value })}
-                    className={`futuristic-input min-h-[44px] min-w-0 flex-1 px-2 py-1.5 text-sm ${
-                      warning === 'Missing meaning' ? 'border-danger-red/70' : ''
-                    }`}
-                    aria-label={t.editor.meaningAria(entry.word)}
-                    placeholder={t.editor.meaningPlaceholder}
-                  />
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <p className="text-xs font-semibold text-light-text">{t.editor.previewTitle}</p>
+            <p className="text-[0.65rem] text-muted-text">{t.editor.previewHint}</p>
+          </div>
+          <ul className="mt-2 flex max-h-44 flex-wrap gap-1.5 overflow-y-auto pr-1">
+            {words.map((entry, index) => {
+              const pos = partOfSpeech(entry);
+              const noMeaning = !entry.meaning.trim();
+              return (
+                <li key={`${entry.word}-${index}`}>
                   <button
                     type="button"
-                    onClick={() => removeWord(index)}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
-                    aria-label={t.editor.removeAria(entry.word)}
+                    onClick={openReview}
+                    title={entry.meaning || t.editor.warningMissing}
+                    className={`flex min-h-[44px] items-center gap-1.5 rounded-full border px-3.5 py-1 text-xs transition-colors ${
+                      noMeaning
+                        ? 'border-danger-red/50 bg-danger-red/10 text-danger-red hover:bg-danger-red/20'
+                        : 'border-white/10 bg-white/[0.06] text-light-text hover:border-electric-blue/50 hover:bg-white/[0.12]'
+                    }`}
                   >
-                    <Icon name="close" size={16} />
+                    <span className="font-semibold">{entry.word}</span>
+                    {pos && <span className="text-[0.65rem] font-normal opacity-70">{pos}</span>}
                   </button>
-                </div>
-                {warning && (
-                  <p className={`mt-1 text-[0.65rem] ${warning === 'Missing meaning' ? 'text-danger-red' : 'text-warning-yellow'}`}>
-                    {warning === 'Duplicate meaning'
-                      ? t.editor.warningDuplicate
-                      : t.editor.warningMissing}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={handleSave} className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-4">
+      {/* Only the words that still need a gloss are called out here: the total already
+          sits in the paste card's header, so repeating it would be a third copy of the
+          same number on one screen. */}
+      {missing > 0 && (
+        <p className="rounded-md border border-danger-red/40 bg-danger-red/10 px-3 py-2 text-[0.7rem] text-danger-red">
+          {t.editor.warningsLeft(missing)}
+        </p>
+      )}
+
+      {/* Save stays reachable: a 30-word deck is taller than any phone screen, so the
+          action bar is pinned to the bottom of the scroll area instead of trailing the
+          list — the teacher never has to scroll to the end to keep the deck. */}
+      <div className="sticky bottom-0 z-10 -mx-3 -mb-3 mt-1 flex items-center gap-2 border-t border-white/10 bg-dark-metal/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:-mb-4 sm:px-4">
+        <button type="button" onClick={openReview} className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-4">
           <Icon name="save" size={16} />
-          {t.editor.saveDeck}
+          {t.editor.openReview(words.length)}
         </button>
         {onDelete && deck && (
           <button
@@ -220,6 +260,16 @@ export const TeacherDeckEditor: React.FC<TeacherDeckEditorProps> = ({
           </button>
         )}
       </div>
+
+      <DeckReviewDialog
+        isOpen={reviewOpen}
+        deckName={name}
+        words={words}
+        onUpdateWord={updateWord}
+        onRemoveWord={removeWord}
+        onSave={handleSave}
+        onClose={() => setReviewOpen(false)}
+      />
     </div>
   );
 };

@@ -25,6 +25,7 @@ export const teacher = {
     },
 
     wordsInTest: 'Words in this test',
+    wordsInTestRange: (min: number, max: number) => `Type any number from ${min} to ${max}.`,
     startTest: (level: string, count: number) => `Start ${level} test · ${count} words`,
     levelLocked: (level: string) =>
       `Level-locked: every word comes from ${level} only. The student types the English word for the Vietnamese prompt.`,
@@ -35,11 +36,13 @@ export const teacher = {
     noDecksBody:
       'Paste this week’s word list — one word per line. Meanings are filled in automatically and you review them before the class sees the test.',
     buildFirstDeck: 'Build the first deck',
+    guestNote:
+      'You can build and test a deck without an account. Signing in is only needed to keep it — guests lose their decks when the tab closes.',
 
     deckMeta: (count: number, date: string) => `${count} words · edited ${date}`,
     editDeckAria: (name: string) => `Edit ${name}`,
     deleteDeckAria: (name: string) => `Delete ${name}`,
-    testDeck: 'Test this deck',
+    testDeck: 'Review this deck',
 
     savedToast: 'Deck saved on this device.',
     deletedToast: 'Deck deleted.',
@@ -56,10 +59,22 @@ export const teacher = {
     pasteHelpTail: '. Meanings you leave out are filled from the built-in dictionary.',
     pasteAria: 'Words to add, one per line',
     wordCount: (count: number, max: number) => `${count}/${max} words`,
+    detectedWords: (count: number) =>
+      count === 1 ? '1 word ready to add' : `${count} words ready to add`,
     addToDeck: 'Add to deck',
+    previewTitle: 'In this deck',
+    previewHint: 'Tap a word to review & edit it',
 
-    reviewTitle: 'Review · the prompt is what the student sees',
+    wordLabel: 'Word',
+    posLabel: 'Type',
+    meaningLabel: 'Meaning (what the student sees)',
+    removeLabel: 'Remove',
+    openReview: (count: number) => `Review & save · ${count} ${count === 1 ? 'word' : 'words'}`,
+    reviewDialogTitle: 'Review the deck',
+    reviewBack: 'Back to the list',
+    warningsLeft: (count: number) => (count === 1 ? '1 word still missing a meaning' : `${count} words still missing a meaning`),
     wordAria: (index: number) => `Word ${index}`,
+    posAria: (word: string) => `Part of speech for ${word}`,
     meaningAria: (word: string) => `Vietnamese meaning for ${word}`,
     meaningPlaceholder: 'Vietnamese meaning',
     removeAria: (word: string) => `Remove ${word}`,
@@ -77,6 +92,20 @@ export const teacher = {
       `${count} words added · ${missing} still need a meaning.`,
     addAtLeastOne: 'Add at least one word first.',
     everyWordNeedsMeaning: 'Every word needs a meaning — fix the rows marked in red.',
+  },
+
+  review: {
+    exitAria: 'Back to the deck list',
+    progress: (current: number, total: number) => `Card ${current} of ${total}`,
+    shuffleAria: 'Shuffle the cards',
+    showWord: 'Show the word',
+    showMeaning: 'Show the meaning',
+    tapToFlip: 'Tap the card to see the meaning',
+    tapToHide: 'Tap the card to go back',
+    noPos: 'word',
+    previous: 'Previous',
+    next: 'Next',
+    startTest: (count: number) => `Start the test · ${count} words`,
   },
 
   test: {

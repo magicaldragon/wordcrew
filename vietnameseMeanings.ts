@@ -156,15 +156,349 @@ export const VIETNAMESE_MEANINGS: Record<string, string> = {
   "tired": "mệt", "weak": "yếu", "well": "khỏe", "wet": "ướt", "windy": "lộng gió",
   "worse": "tệ hơn", "worst": "tệ nhất", "wrong": "sai",
 
+  // The endpoint echoes a few words back unchanged. Most are loanwords whose Vietnamese
+  // spelling *is* the English one ("pizza", "vitamin"), but these two are not: an echo
+  // teaches nothing for "critically", and "bang" is a different Vietnamese word.
+  "bang": "tiếng nổ; đập mạnh",
+  "critically": "một cách nghiêm trọng",
+
+  // Two words no bundled list reaches, though their plurals are common in a lesson
+  // ("geese", "thieves"). wordForms only knows how to strip a plural, so the singular
+  // has to exist for those to resolve.
+  "goose": "con ngỗng", "thief": "kẻ trộm",
+
+  // "runner" came back as "Á hậu" (a runner-up in a beauty pageant) in a KET unit about
+  // sport; the word is the person who runs.
+  "runner": "người chạy; vận động viên chạy",
+
+  // Compound topics the generator translated too literally: a "gap year" is not an
+  // empty year, and "peer pressure" comes from one's own age group.
+  "gap year": "năm nghỉ học tạm thời",
+  "peer pressure": "áp lực đồng trang lứa",
+
 };
 
-const normalize = (word: string): string => word.trim().toLowerCase();
+// ── Words with more than one sense ──────────────────────────────────────────
+//
+// A pasted list gives a word, not a meaning, and English is full of words that carry
+// several. The dictionary can only offer one gloss, so the generator's answer is the
+// most common sense — and for a lesson that used another sense ("the bank of the river",
+// "a break between classes") that gloss quietly points the class at the wrong meaning.
+//
+// Three things keep that from becoming a bug:
+//   1. this map lists the senses a school list actually uses, most common first,
+//      separated by "; " so the teacher can pick the one from the lesson;
+//   2. the deck review table lets the teacher overwrite any gloss before saving, and a
+//      typed meaning always wins over anything here;
+//   3. the generator skips every key that appears in this file (it scans for the
+//      "key": shape), so a generated one-sense gloss never competes with these.
+//
+// Only senses worth teaching are listed — not every dictionary meaning. Order matters:
+// the first sense is the one the hint shows alone in game modes.
+export const POLYSEMOUS_MEANINGS: Record<string, string> = {
+  "bank": "ngân hàng; bờ sông",
+  "bark": "vỏ cây; tiếng sủa",
+  "bat": "con dơi; gậy đánh bóng",
+  "bear": "con gấu; chịu đựng",
+  "board": "cái bảng; lên tàu, lên máy bay",
+  "book": "quyển sách; đặt trước",
+  "bow": "cúi chào; cái nơ",
+  "break": "làm vỡ; giờ nghỉ",
+  "capital": "thủ đô; nguồn vốn; chữ hoa",
+  "case": "trường hợp; cái va li",
+  "change": "thay đổi; tiền lẻ",
+  "charge": "tính phí; sạc pin",
+  "class": "lớp học; tầng lớp",
+  "close": "đóng lại; gần gũi",
+  "coach": "huấn luyện viên; xe khách",
+  "company": "công ty; sự đồng hành",
+  "content": "nội dung; hài lòng",
+  "contract": "hợp đồng; co lại",
+  "count": "đếm; bá tước",
+  "course": "khóa học; món ăn",
+  "court": "tòa án; sân thể thao",
+  "cross": "băng qua; cây thánh giá",
+  "current": "hiện tại; dòng điện",
+  "date": "ngày tháng; cuộc hẹn hò",
+  "dish": "món ăn; cái đĩa",
+  "dress": "váy liền; mặc quần áo",
+  "fair": "công bằng; hội chợ",
+  "fall": "ngã; mùa thu",
+  "fan": "người hâm mộ; cái quạt",
+  "figure": "con số; vóc dáng",
+  "fine": "ổn, tốt; tiền phạt",
+  "firm": "công ty; vững chắc",
+  "fly": "bay; con ruồi",
+  "foot": "bàn chân; chân núi",
+  "form": "hình thức; mẫu đơn",
+  "glass": "thủy tinh; cái ly",
+  "grade": "lớp học; điểm số",
+  "ground": "mặt đất; lý do",
+  "head": "cái đầu; đứng đầu",
+  "iron": "sắt; bàn là",
+  "issue": "vấn đề; phát hành",
+  "jam": "mứt; tắc đường",
+  "key": "chìa khóa; phím",
+  "kind": "loại; tốt bụng",
+  "last": "cuối cùng; kéo dài",
+  "lead": "dẫn đầu; chì",
+  "leave": "rời đi; nghỉ phép",
+  "lie": "nằm; nói dối",
+  "light": "ánh sáng; nhẹ",
+  "line": "đường kẻ; xếp hàng",
+  "live": "sống; trực tiếp",
+  "match": "trận đấu; que diêm; phù hợp",
+  "matter": "vấn đề; quan trọng",
+  "mean": "có nghĩa là; keo kiệt",
+  "mind": "tâm trí; thấy phiền",
+  "mine": "của tôi; mỏ khoáng sản",
+  "miss": "bỏ lỡ; nhớ nhung",
+  "nail": "cái đinh; móng tay",
+  "note": "ghi chú; tờ tiền",
+  "object": "đồ vật; phản đối",
+  "order": "đặt hàng; thứ tự",
+  "park": "công viên; đỗ xe",
+  "party": "bữa tiệc; đảng phái",
+  "period": "thời kỳ; tiết học",
+  "pilot": "phi công; thử nghiệm",
+  "pitch": "sân bóng; cao độ",
+  "plant": "cái cây; trồng; nhà máy",
+  "plate": "cái đĩa; biển số xe",
+  "pool": "bể bơi; gộp chung",
+  "post": "bưu phẩm; đăng bài",
+  "pound": "cân Anh; đồng bảng Anh",
+  "pounds": "cân Anh; đồng bảng Anh",
+  "power": "sức mạnh; nguồn điện",
+  "present": "hiện tại; món quà; trình bày",
+  "press": "nhấn; báo chí",
+  "project": "dự án; chiếu lên",
+  "race": "cuộc đua; chủng tộc",
+  "range": "phạm vi; dãy núi",
+  "record": "ghi lại; kỷ lục",
+  "rest": "nghỉ ngơi; phần còn lại",
+  "right": "đúng; bên phải; quyền",
+  "ring": "cái nhẫn; rung chuông",
+  "rock": "hòn đá; nhạc rock",
+  "row": "hàng; chèo thuyền",
+  "run": "chạy; điều hành",
+  "save": "cứu; tiết kiệm",
+  "scale": "quy mô; cái cân",
+  "season": "mùa; nêm gia vị",
+  "set": "bộ; thiết lập",
+  "share": "chia sẻ; cổ phần",
+  "ship": "tàu thủy; vận chuyển",
+  "shoot": "bắn; chụp ảnh",
+  "short": "ngắn; thiếu",
+  "sign": "biển báo; ký tên",
+  "sound": "âm thanh; nghe có vẻ",
+  "spell": "đánh vần; phép thuật",
+  "spring": "mùa xuân; lò xo",
+  "stand": "đứng; quầy hàng",
+  "state": "bang; trạng thái; nêu rõ",
+  "stick": "cây gậy; dính",
+  "store": "cửa hàng; lưu trữ",
+  "strike": "đình công; đánh",
+  "subject": "môn học; chủ đề",
+  "suit": "bộ com lê; phù hợp",
+  "table": "cái bàn; bảng số liệu",
+  "tank": "bể chứa; xe tăng",
+  "tap": "vòi nước; gõ nhẹ",
+  "term": "học kỳ; thuật ngữ",
+  "tie": "cà vạt; buộc; hòa",
+  "tip": "lời khuyên; tiền boa",
+  "top": "đỉnh; áo",
+  "train": "tàu hỏa; huấn luyện",
+  "treat": "điều trị; đối xử",
+  "trip": "chuyến đi; vấp ngã",
+  "trunk": "thân cây; cốp xe",
+  "turn": "lượt; rẽ",
+  "type": "loại; đánh máy",
+  "wave": "làn sóng; vẫy tay",
+  "way": "cách; con đường",
+  "wear": "mặc; hao mòn",
+  "well": "khỏe; cái giếng",
+  "wing": "cánh; cánh gà",
+  "work": "công việc; có tác dụng",
+  "yard": "sân; thước Anh",
+};
+
+const normalize = (word: string): string =>
+  word.trim().toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ');
+
+/** Removes the notes and punctuation a pasted list carries: "bank (n.)", "to run". */
+const stripAnnotations = (key: string): string =>
+  key
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[.,;:!?"“”]/g, '')
+    .replace(/^to\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Forms a pasted list may carry instead of the dictionary's base form: plurals
+ * ("berries"), participles ("running"), comparatives ("bigger"), adverbs ("happily")
+ * and hyphen/space spellings ("ice-cream"). Pure string work over the two bundled
+ * maps, so a hit costs nothing — no translation API is contacted.
+ */
+const wordForms = (key: string): string[] => {
+  const forms: string[] = [];
+  const add = (form: string) => {
+    if (form && form !== key && !forms.includes(form)) forms.push(form);
+  };
+
+  add(key.replace(/-/g, ' ').replace(/\s+/g, ' ').trim());
+  add(key.replace(/\s+/g, '-'));
+  if (/'s$/.test(key)) add(key.slice(0, -2));
+
+  // Plurals / third person: berries → berry, boxes → box, bags → bag.
+  if (/ies$/.test(key)) add(key.slice(0, -3) + 'y');
+  if (/(ches|shes|sses|xes|zes|oes)$/.test(key)) add(key.slice(0, -2));
+  if (/[^s]s$/.test(key)) add(key.slice(0, -1));
+
+  // -ves plurals: wolves → wolf, halves → half, shelves → shelf, lives → life.
+  if (/ves$/.test(key)) {
+    const stem = key.slice(0, -3);
+    add(stem + 'f');
+    add(stem + 'fe');
+  }
+  // The one plural no suffix rule reaches.
+  if (key === 'geese') add('goose');
+
+  // Plurals English borrows from Latin and Greek, which a unit list uses as readily as
+  // the singular: analyses → analysis, phenomena → phenomenon, stimuli → stimulus,
+  // formulae → formula. Both stems are offered and only a hit is used, so a wrong one
+  // costs nothing.
+  if (/es$/.test(key)) add(key.slice(0, -2) + 'is');
+  if (/a$/.test(key)) {
+    add(key.slice(0, -1) + 'on');
+    add(key.slice(0, -1) + 'um');
+  }
+  if (/i$/.test(key)) add(key.slice(0, -1) + 'us');
+  if (/ae$/.test(key)) add(key.slice(0, -2) + 'a');
+
+  // -ing / -ed: running → run, making → make, studied → study.
+  for (const [suffix, cut] of [['ing', 3], ['ed', 2]] as const) {
+    if (!key.endsWith(suffix) || key.length <= cut + 1) continue;
+    const stem = key.slice(0, -cut);
+    add(stem);
+    add(stem + 'e');
+    if (key.endsWith('ied')) add(key.slice(0, -3) + 'y');
+    if (/([b-df-hj-np-tv-z])\1$/.test(stem)) add(stem.slice(0, -1));
+  }
+
+  // Comparatives / superlatives: bigger → big, happier → happy.
+  if (/ier$/.test(key)) add(key.slice(0, -3) + 'y');
+  if (/iest$/.test(key)) add(key.slice(0, -4) + 'y');
+  if (/(er|est)$/.test(key)) {
+    const stem = key.replace(/(er|est)$/, '');
+    add(stem);
+    add(stem + 'e');
+    if (/([b-df-hj-np-tv-z])\1$/.test(stem)) add(stem.slice(0, -1));
+  }
+
+  // Adverbs: happily → happy, quickly → quick.
+  if (/ily$/.test(key)) add(key.slice(0, -3) + 'y');
+  else if (/ly$/.test(key)) add(key.slice(0, -2));
+
+  return forms;
+};
+
+// Most specific first: a multi-sense entry beats the hand-curated single sense, which
+// beats the generated gloss. Kept as one chain so every caller resolves a word the same
+// way — the solo hint, the deck builder and the flashcard back all read through here.
+const lookup = (key: string): string | undefined =>
+  POLYSEMOUS_MEANINGS[key] ?? VIETNAMESE_MEANINGS[key] ?? GENERATED_VIETNAMESE_MEANINGS[key];
+
+/**
+ * British and American spellings of the same word: "apologise"/"apologize",
+ * "behaviour"/"behavior", "centre"/"center", "catalogue"/"catalog". Textbooks here use
+ * the British forms while the bundled lists came from an American corpus, so a word the
+ * teacher just taught would miss on spelling alone. Candidates are only used when they
+ * hit an entry, so a wrong guess is free and cannot invent a meaning.
+ */
+const spellingVariants = (key: string): string[] => {
+  const forms: string[] = [];
+  const add = (form: string) => {
+    if (form && form !== key && !forms.includes(form)) forms.push(form);
+  };
+
+  // -ise / -ize, including the inflected endings a pasted list carries.
+  add(
+    key
+      .replace(/isation(s?)$/, 'ization$1')
+      .replace(/ise(s|d)?$/, 'ize$1')
+      .replace(/ising$/, 'izing'),
+  );
+  add(
+    key
+      .replace(/ization(s?)$/, 'isation$1')
+      .replace(/ize(s|d)?$/, 'ise$1')
+      .replace(/izing$/, 'ising'),
+  );
+
+  // -our / -or: colour, favourite, neighbour, honour.
+  add(key.replace(/our(s?)$/, 'or$1'));
+  add(key.replace(/or(s?)$/, 'our$1'));
+
+  // -re / -er: centre, metre, theatre, fibre.
+  add(key.replace(/re(s?)$/, 'er$1'));
+  add(key.replace(/er(s?)$/, 're$1'));
+
+  // -ogue / -og: catalogue, dialogue.
+  add(key.replace(/ogue(s?)$/, 'og$1'));
+  add(key.replace(/og(s?)$/, 'ogue$1'));
+
+  return forms;
+};
+
+// Lookup that accepts either spelling. Kept separate from wordForms because spelling and
+// morphology are independent: "apologised" needs the -ed stripped *and* the s turned
+// into a z, so each form is retried through both.
+const lookupAny = (key: string): string | undefined => {
+  const direct = lookup(key);
+  if (direct) return direct;
+  for (const variant of spellingVariants(key)) {
+    const hit = lookup(variant);
+    if (hit) return hit;
+  }
+  return undefined;
+};
 
 // Returns the Vietnamese gloss for a word: the hand-curated entry first, then the
 // generated map, or undefined when the word is in neither. Both maps ship with the app,
 // so this is synchronous and offline — there is no runtime translation to fall back on.
+// Misses are retried against the word's other forms before giving up, which is where a
+// pasted list ("journeys", "running", "bank (n.)") usually lands.
 export const getVietnameseMeaning = (word: string | undefined | null): string | undefined => {
   if (!word) return undefined;
   const key = normalize(word);
-  return VIETNAMESE_MEANINGS[key] ?? GENERATED_VIETNAMESE_MEANINGS[key];
+  if (!key) return undefined;
+
+  const direct = lookupAny(key);
+  if (direct) return direct;
+
+  const cleaned = stripAnnotations(key);
+  if (!cleaned) return undefined;
+  if (cleaned !== key) {
+    const stripped = lookupAny(cleaned);
+    if (stripped) return stripped;
+  }
+
+  for (const form of wordForms(cleaned)) {
+    const hit = lookupAny(form);
+    if (hit) return hit;
+  }
+  return undefined;
+};
+
+/**
+ * The gloss to show as an in-game hint. A borrowed word comes back unchanged ("pizza" →
+ * "pizza"): a correct meaning for the deck, but a hint that says nothing, so it is
+ * treated as no hint and the game falls through to the next rung.
+ */
+export const getHintMeaning = (word: string | undefined | null): string | undefined => {
+  const meaning = getVietnameseMeaning(word);
+  if (!meaning || !word) return undefined;
+  return meaning.trim().toLowerCase() === normalize(word) ? undefined : meaning;
 };

@@ -13,17 +13,21 @@
 //   node scripts/generate-announcer.mjs
 //   node scripts/generate-announcer.mjs --speaker=orion
 //   node scripts/generate-announcer.mjs --only=combo,hurry-up
+//   node scripts/generate-announcer.mjs --dry-run        print the cost estimate and stop
 //
-// Voices worth trying for an announcer read: zeus (energetic), orion (deep,
-// confident), thalia (bright, cheerful), hera (confident female).
+// Four lines also print a cost estimate before rendering (planBudget in
+// lib/workers-ai.mjs). Aura bills by the second of audio, so the figure below is a
+// generous ceiling for a one-word line rather than a measured price — small enough that
+// the free daily allowance always covers the whole set.
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readDevVars } from './lib/workers-ai.mjs';
+import { planBudget, readDevVars } from './lib/workers-ai.mjs';
 
 const MODEL = '@cf/deepgram/aura-1';
 const DEFAULT_SPEAKER = 'zeus';
 const OUT_DIR = join('public', 'audio');
+const NEURONS_PER_LINE = 10;
 
 // WAV rather than MP3 on purpose: Aura's MP3 encoder is capped at 22.05 kHz /
 // 48 kbps, which makes a hero line sound like a phone call. A 48 kHz WAV costs
@@ -63,6 +67,9 @@ const lines = only ? LINES.filter((line) => only.has(line.key)) : LINES;
 if (!lines.length) {
   throw new Error(`No lines matched --only=${args.get('only')}. Known keys: ${LINES.map((l) => l.key).join(', ')}`);
 }
+
+const plan = planBudget({ label: 'announcer lines', items: lines.length, neuronsPerItem: NEURONS_PER_LINE });
+if (!plan.allowed) process.exit(plan.dryRun ? 0 : 1);
 
 const { CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID } = readDevVars();
 const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${MODEL}`;

@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
-import { TeacherTestScreen } from './TeacherTestScreen';
+import { QuizWork } from './work/QuizWork';
+import { VocabularyWork } from './work/VocabularyWork';
+import { WritingWork } from './work/WritingWork';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
 import {
-  assignmentWords,
   percent,
   submitWork,
   type ClassAssignment,
@@ -14,7 +15,7 @@ import {
   type VocabAnswer,
   type WorkDetail,
 } from '../services/classes';
-import type { TeacherAnswer, TeacherSession } from '../services/teacherDeck';
+import type { TeacherAnswer } from '../services/teacherDeck';
 
 interface ClassWorkScreenProps {
   classId: string;
@@ -22,22 +23,13 @@ interface ClassWorkScreenProps {
   onClose: () => void;
 }
 
-const shuffle = <T,>(input: T[]): T[] => {
-  const array = [...input];
-  for (let i = array.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
-};
-
 /**
  * A homework run: one assignment, one student, no scoreboard.
  *
- * The question order and the option order are shuffled per student, so two people sitting
- * together cannot trade "number 3 is B" — the letter means something different on each
- * screen. Nothing is revealed mid-test; the result screen is the only place answers appear,
- * which keeps the pass line honest when the student retries.
+ * This screen is only the shell — heading, submission, and the result. The work itself
+ * belongs to a tool: VocabularyWork is Check Vocabulary (Tool 1), QuizWork is multiple
+ * choice, WritingWork is the essay. Adding a fourth tool later means adding one module and
+ * one branch here, not touching the other three.
  */
 export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assignment, onClose }) => {
   const t = useT('myClass');
@@ -124,15 +116,10 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
   }
 
   if (assignment.kind === 'vocabulary') {
-    const session: TeacherSession = {
-      title: assignment.title,
-      source: t.work.sessionSource(assignment.words.length),
-      words: assignmentWords(assignment),
-    };
     return shell(
-      <TeacherTestScreen
+      <VocabularyWork
         key={roundKey}
-        session={session}
+        assignment={assignment}
         onFinish={(answers: TeacherAnswer[]) => {
           const correct = answers.filter((answer) => answer.correct).length;
           const detail: WorkDetail = {
@@ -154,190 +141,28 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
 
   if (assignment.kind === 'quiz') {
     return shell(
-      <QuizRunner
+      <QuizWork
         key={roundKey}
         assignment={assignment}
-        onSubmit={(responses, correct) =>
+        onSubmit={(responses) => {
+          const correct = responses.filter(
+            (response, at) => response === assignment.questions[at]?.answer,
+          ).length;
           void submit(
             { answers: [], responses, text: '' },
             percent(correct, assignment.questions.length),
-          )
-        }
+          );
+        }}
       />,
     );
   }
 
   return shell(
-    <WritingRunner
+    <WritingWork
       key={roundKey}
       assignment={assignment}
       onSubmit={(text) => void submit({ answers: [], responses: [], text }, 0)}
     />,
-  );
-};
-
-// ── Quiz ───────────────────────────────────────────────────────────────────
-
-interface QuizRunnerProps {
-  assignment: ClassAssignment;
-  onSubmit: (responses: number[], correct: number) => void;
-}
-
-const QuizRunner: React.FC<QuizRunnerProps> = ({ assignment, onSubmit }) => {
-  const t = useT('myClass');
-  const common = useT('common');
-
-  // The display order is fixed for this attempt: questions shuffled, options shuffled,
-  // and every option remembers the index it had in the teacher's own list.
-  const view = useMemo(
-    () =>
-      shuffle(assignment.questions).map((question) => {
-        const order = shuffle(question.choices.map((_, index) => index));
-        return {
-          prompt: question.prompt,
-          answer: question.answer,
-          choices: order.map((original) => ({ text: question.choices[original], original })),
-        };
-      }),
-    [assignment],
-  );
-
-  const [index, setIndex] = useState(0);
-  const [responses, setResponses] = useState<number[]>(() => view.map(() => -1));
-
-  const question = view[index];
-  const picked = responses[index];
-  const last = index + 1 >= view.length;
-  const answered = responses.filter((value) => value >= 0).length;
-
-  const choose = (original: number) => {
-    setResponses((prev) => prev.map((value, at) => (at === index ? original : value)));
-  };
-
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3">
-      <div className="flex items-center justify-between text-xs text-muted-text">
-        <span>{t.work.quiz.counter(index + 1, view.length)}</span>
-        <span>{t.work.quiz.answered(answered)}</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
-        <span
-          className="block h-full rounded-full bg-electric-blue transition-[width] duration-300"
-          style={{ width: `${Math.round((answered / view.length) * 100)}%` }}
-        />
-      </div>
-
-      <div className="flex flex-1 flex-col gap-3 rounded-xl border-2 border-electric-blue/30 bg-dark-metal/60 p-4">
-        <p className="text-lg font-semibold leading-snug text-light-text">{question.prompt}</p>
-        <div className="flex flex-col gap-2">
-          {question.choices.map((choice, at) => {
-            const selected = picked === choice.original;
-            return (
-              <button
-                key={choice.original}
-                type="button"
-                onClick={() => choose(choice.original)}
-                aria-pressed={selected}
-                className={`flex min-h-[52px] items-center gap-3 rounded-lg border px-3 text-left text-sm transition-colors ${
-                  selected
-                    ? 'border-electric-blue bg-electric-blue/15 text-light-text'
-                    : 'border-[var(--hairline-strong)] text-muted-text hover:border-electric-blue/60 hover:text-light-text'
-                }`}
-              >
-                <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
-                    selected ? 'border-electric-blue text-electric-blue' : 'border-[var(--hairline-strong)]'
-                  }`}
-                >
-                  {String.fromCharCode(65 + at)}
-                </span>
-                {choice.text}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setIndex((value) => Math.max(0, value - 1))}
-          disabled={index === 0}
-          className="wc-btn wc-btn-secondary min-h-[48px] flex-1 disabled:opacity-40"
-        >
-          {common.back}
-        </button>
-        {last ? (
-          <button
-            type="button"
-            onClick={() =>
-              onSubmit(responses, responses.filter((response, at) => response === view[at].answer).length)
-            }
-            disabled={picked < 0}
-            className="wc-btn wc-btn-primary min-h-[48px] flex-[2] disabled:opacity-40"
-          >
-            {t.work.quiz.submit}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setIndex((value) => value + 1)}
-            disabled={picked < 0}
-            className="wc-btn wc-btn-primary min-h-[48px] flex-[2] disabled:opacity-40"
-          >
-            {common.next}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ── Writing ────────────────────────────────────────────────────────────────
-
-interface WritingRunnerProps {
-  assignment: ClassAssignment;
-  onSubmit: (text: string) => void;
-}
-
-const countWords = (text: string): number => text.trim().split(/\s+/).filter(Boolean).length;
-
-const WritingRunner: React.FC<WritingRunnerProps> = ({ assignment, onSubmit }) => {
-  const t = useT('myClass');
-  const [text, setText] = useState('');
-  const words = countWords(text);
-  const short = words < assignment.minWords;
-
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3">
-      <div className="rounded-xl border border-[var(--hairline-strong)] bg-dark-metal/60 p-4">
-        <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
-          {t.work.writing.promptLabel}
-        </p>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-light-text">{assignment.prompt}</p>
-      </div>
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        rows={10}
-        placeholder={t.work.writing.placeholder}
-        className="futuristic-input min-h-[14rem] w-full flex-1 px-3 py-2 text-sm leading-relaxed"
-      />
-      <div className="flex items-center justify-between text-xs">
-        <span className={short ? 'text-warning-yellow' : 'text-neon-green'}>
-          {t.work.writing.wordCount(words, assignment.minWords)}
-        </span>
-        <span className="text-muted-text">{t.work.writing.gradedByTeacher}</span>
-      </div>
-      <button
-        type="button"
-        onClick={() => onSubmit(text)}
-        disabled={short}
-        className="wc-btn wc-btn-primary min-h-[48px] w-full disabled:opacity-40"
-      >
-        {short ? t.work.writing.moreWords(assignment.minWords - words) : t.work.writing.submit}
-      </button>
-    </div>
   );
 };
 
@@ -409,6 +234,31 @@ const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRet
                 <span className="text-muted-text"> · {answer.gloss}</span>
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+
+      {assignment.kind === 'quiz' && result.detail.responses.length > 0 && (
+        <div className="w-full rounded-md border border-[var(--hairline-strong)] bg-dark-metal/60 p-3 text-left">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
+            {t.work.result.answersTitle}
+          </p>
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {assignment.questions.map((question, at) => {
+              const picked = result.detail.responses[at] ?? -1;
+              const right = picked === question.answer;
+              return (
+                <li key={at} className="text-xs">
+                  <span className={right ? 'text-light-text' : 'text-danger-red'}>
+                    {at + 1}. {question.prompt}
+                  </span>
+                  <span className="block text-muted-text">
+                    {t.work.result.yourAnswer(picked >= 0 ? question.choices[picked] : null)}
+                    {right ? null : ` · ${t.work.result.correctAnswer(question.choices[question.answer])}`}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

@@ -16,8 +16,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
+  EmailAuthProvider,
+  linkWithCredential,
+  linkWithPopup,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  signInAnonymously,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
@@ -73,7 +77,16 @@ export const displayNameCooldownEndsAt = (profile: UserProfile | null): number |
 };
 
 interface AuthContextValue {
+  /** The signed-in *account*. Guests (anonymous sessions) get `null` here on purpose. */
   user: User | null;
+  /**
+   * The identity behind this device, guest or account. A visitor who never signs in still
+   * gets an anonymous uid once Firebase has one, which is what makes it possible to count
+   * real usage without putting a login screen in front of the game.
+   */
+  uid: string | null;
+  /** True while the device is on a silent anonymous session (no account yet). */
+  isGuest: boolean;
   /** The signed-in account's Firestore profile (name, presence), live. */
   profile: UserProfile | null;
   /** True until Firebase has reported the initial auth state (avoids UI flicker). */
@@ -180,10 +193,28 @@ const syncUserProfile = async (user: User, displayNameOverride?: string): Promis
   }
 };
 
+/**
+ * Linking a guest to an account fails when that account already exists. That is not an
+ * error the reader should see: the caller falls back to a normal sign-in and the guest
+ * identity is simply abandoned.
+ */
+const isLinkConflict = (error: unknown): boolean => {
+  const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : '';
+  return (
+    code === 'auth/credential-already-in-use' ||
+    code === 'auth/email-already-in-use' ||
+    code === 'auth/provider-already-linked'
+  );
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  // Firebase's own user, which may be an anonymous (guest) session. Only a real account is
+  // ever surfaced as `user`, so every "sign in to continue" gate keeps working untouched.
+  const [identity, setIdentity] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(firebaseConfigured);
+
+  const user = identity && !identity.isAnonymous ? identity : null;
 
   useEffect(() => {
     if (!auth) {
@@ -191,11 +222,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     return onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
+      setIdentity(nextUser);
       setLoading(false);
-      if (nextUser) void syncUserProfile(nextUser);
+      if (nextUser && !nextUser.isAnonymous) void syncUserProfile(nextUser);
     });
   }, []);
+
+  // A silent guest session per device: no login screen, no profile document, just a stable
+  // uid we can count usage against. It is best-effort — if the Anonymous provider is not
+  // enabled (or the network is down) the app simply stays signed out, which is exactly how
+  // it behaved before, so nothing breaks.
+  useEffect(() => {
+    if (!auth || loading || identity) return;
+    void signInAnonymously(auth).catch((error) => {
+      // Guests then simply stay signed out. The warning is what tells a developer the
+      // Anonymous provider is not enabled in the Firebase project.
+      console.warn('[WordCrew] Could not open a guest session.', error);
+    });
+  }, [loading, identity]);
 
   // The profile document is live so a rename made here (or by an admin) shows up at
   // once, and so the Account tab can show the cooldown without another read.
@@ -247,12 +291,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const instance = requireAuth();
     if (!googleProvider) throw new AppError('signInNotConfigured');
     try {
+      // A guest who signs in keeps their identity: linking rewrites the anonymous session
+      // into the Google account instead of throwing the uid away.
+      if (instance.currentUser?.isAnonymous) {
+        try {
+          await linkWithPopup(instance.currentUser, googleProvider);
+          return;
+        } catch (error) {
+          if (!isLinkConflict(error)) throw error;
+        }
+      }
       await signInWithPopup(instance, googleProvider);
     } catch (error) {
       throw new AppError(authErrorCode(error));
     }
   }, [requireAuth]);
 
+  // Email sign-in deliberately does *not* link: linking an unused address would create the
+  // account, so a typo on the sign-in form would silently register someone.
   const signInWithEmail = useCallback(
     async (email: string, password: string) => {
       const instance = requireAuth();
@@ -269,10 +325,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (name: string, email: string, password: string) => {
       const instance = requireAuth();
       try {
-        const credential = await createUserWithEmailAndPassword(instance, email.trim(), password);
+        // Registering upgrades the guest session in place, so anything the device stored
+        // against the uid survives the sign-up.
+        const guest = instance.currentUser;
+        const credential = guest?.isAnonymous
+          ? await linkWithCredential(guest, EmailAuthProvider.credential(email.trim(), password))
+          : await createUserWithEmailAndPassword(instance, email.trim(), password);
         if (name.trim()) await updateProfile(credential.user, { displayName: name.trim() });
         await syncUserProfile(credential.user, name);
       } catch (error) {
+        if (isLinkConflict(error)) throw new AppError('emailInUse');
         throw new AppError(authErrorCode(error));
       }
     },
@@ -297,22 +359,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const getIdToken = useCallback(async (): Promise<string | null> => {
-    if (!auth?.currentUser) return null;
+    const current = auth?.currentUser;
+    // A guest token buys nothing on the API (no orders, no entitlements, no classes), so
+    // handing one out would only produce confusing "owns nothing" answers.
+    if (!current || current.isAnonymous) return null;
     try {
-      return await auth.currentUser.getIdToken();
+      return await current.getIdToken();
     } catch {
       return null;
     }
   }, []);
 
   const updateDisplayName = useCallback(async (raw: string) => {
-    if (!db || !auth?.currentUser) throw new AppError('nameSignIn');
+    const current = auth?.currentUser;
+    // A guest has a uid but no profile document, so there is nothing to rename.
+    if (!db || !current || current.isAnonymous) throw new AppError('nameSignIn');
     const name = normalizeDisplayName(raw);
     if (name.length < DISPLAY_NAME_MIN) {
       throw new AppError('nameTooShort', undefined, String(DISPLAY_NAME_MIN));
     }
 
-    const uid = auth.currentUser.uid;
+    const uid = current.uid;
     const ref = doc(db, 'users', uid);
     // Read fresh rather than trusting the cached profile: another device (or the admin)
     // may have renamed the account since this tab loaded.
@@ -340,6 +407,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      uid: identity?.uid ?? null,
+      isGuest: Boolean(identity?.isAnonymous),
       profile,
       loading,
       configured: firebaseConfigured,
@@ -353,6 +422,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }),
     [
       user,
+      identity?.uid,
+      identity?.isAnonymous,
       profile,
       loading,
       signInWithGoogle,

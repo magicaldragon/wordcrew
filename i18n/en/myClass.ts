@@ -49,6 +49,11 @@ export const myClass = {
     removeAsk: (name: string) => `Remove ${name} from this class? Their submitted work stays.`,
     removeAria: (name: string) => `Remove ${name}`,
     removeFailed: 'Could not remove that student.',
+    moveAria: (name: string) => `Move ${name} to another class`,
+    moveTo: 'Move to…',
+    movedMember: (name: string, className: string) => `${name} moved to ${className}.`,
+    alreadyInClass: (name: string) => `That student is already in ${name}.`,
+    moveFailed: 'Could not move that student.',
     joined: 'Joined',
     invited: 'Invited',
 
@@ -71,6 +76,7 @@ export const myClass = {
     deleteAssignmentAria: (title: string) => `Delete ${title}`,
     deleteAssignmentAsk: (title: string) => `Delete “${title}”? Submitted answers go with it.`,
     assignmentSent: 'Assignment sent to the class.',
+    assignmentSentMany: (count: number) => `Assignment sent to ${count} classes.`,
     deleteAssignmentFailed: 'Could not delete that assignment.',
   },
 
@@ -99,6 +105,12 @@ export const myClass = {
     waitingForTeacher: 'Waiting for teacher',
     overdue: 'Overdue',
     todo: 'To do',
+    dueInHours: (hours: number) => `Due in ${hours} ${hours === 1 ? 'hour' : 'hours'}`,
+    dueInDays: (days: number) => `Due in ${days} ${days === 1 ? 'day' : 'days'}`,
+    dueTomorrow: 'Due tomorrow',
+    reminderTitle: (count: number) =>
+      `${count} ${count === 1 ? 'assignment needs' : 'assignments need'} you before the deadline`,
+    reminderBody: 'Open one to start. Late work is still collected, but it is marked overdue.',
     teacherFeedback: 'Teacher: ',
     attempt: (attempts: number) => `Attempt ${attempts}`,
     notStarted: 'Not started',
@@ -122,6 +134,11 @@ export const myClass = {
     quiz: {
       counter: (current: number, total: number) => `Question ${current} / ${total}`,
       answered: (answered: number) => `${answered} answered`,
+      review: 'Review answers',
+      reviewTitle: 'Check before you submit',
+      reviewHint: 'Tap a question to change the answer.',
+      skipped: 'Not answered',
+      backToQuestions: 'Keep editing',
       submit: 'Submit answers',
     },
 
@@ -131,6 +148,7 @@ export const myClass = {
       wordCount: (words: number, min: number) => `${words} / ${min} words`,
       gradedByTeacher: 'Your teacher grades this one.',
       moreWords: (count: number) => `Write ${count} more ${count === 1 ? 'word' : 'words'}`,
+      confirmAsk: 'Submit this now? Your teacher will see it straight away.',
       submit: 'Submit to my teacher',
     },
 
@@ -145,6 +163,9 @@ export const myClass = {
       attemptLine: (attempts: number, questions: number) =>
         `Attempt ${attempts} · ${questions} ${questions === 1 ? 'question' : 'questions'}`,
       worthAnotherLook: 'Worth another look',
+      answersTitle: 'How each answer went',
+      yourAnswer: (answer: string | null) => (answer === null ? 'No answer' : `You: ${answer}`),
+      correctAnswer: (answer: string) => `Answer: ${answer}`,
     },
   },
 
@@ -197,6 +218,9 @@ export const myClass = {
       'Write 80–100 words to a friend about your last holiday. Use the past simple.',
     assigning: 'Assigning…',
     assign: 'Assign to class',
+    assignTo: (count: number) => (count > 1 ? `Assign to ${count} classes` : 'Assign to class'),
+    classesLabel: 'Classes',
+    pickClass: 'Pick at least one class.',
     problems: {
       title: 'Give the assignment a title.',
       tooFewWords: 'A word set needs at least three words.',

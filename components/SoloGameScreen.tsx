@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CircularTimer from './CircularTimer';
 import { CustomSoundFile } from '../types';
 import { playSound, playAnnouncer, CORRECT_SOUNDS, ANNOUNCER_CALLOUTS, ANNOUNCER_STREAK_MILESTONES } from '../constants';
-import { getVietnameseMeaning } from '../vietnameseMeanings';
+import { getHintMeaning } from '../vietnameseMeanings';
 import {
   buildLetterBoxes,
   buildSpellingHint,
@@ -35,7 +35,7 @@ import { monthId } from '../services/periods';
 import { addMissedWords, markReviewCorrect, readDueReviews, REVIEW_PER_RUN } from '../services/review';
 import { Icon } from './Icon';
 import { SpeakButton } from './SpeakButton';
-import { stopSpeaking } from '../services/speech';
+import { stopPlayback } from '../services/tts';
 import { cloudSpeechSupported, listenOnce, type CloudListen } from '../services/asr';
 import { useT } from '../i18n/useT';
 import { trackText } from '../i18n/tracks';
@@ -518,7 +518,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
   const [points, setPoints] = useState<{ value: number; bonus: number; key: number } | null>(null);
   // The gloss ships with the app, so it is ready the moment the word changes — there is
   // nothing to load and no request to race.
-  const vietnamese = getVietnameseMeaning(current.word);
+  const vietnamese = getHintMeaning(current.word);
   // Describe mode only: the rendered clue, and how far up the help ladder the player is
   // (0 = the description alone, 1 = the contrast hint, 2 = the Vietnamese meaning).
   const [hint, setHint] = useState<HintClue | null>(null);
@@ -587,7 +587,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     if (wrongTimer.current) window.clearTimeout(wrongTimer.current);
     // Leaving the run must not leave a pronunciation talking over the results screen.
-    stopSpeaking();
+    stopPlayback();
   }, []);
 
   // Updates state and the mirror together so the timer callbacks never read stale values.

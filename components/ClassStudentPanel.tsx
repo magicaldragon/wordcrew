@@ -55,6 +55,25 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
       ? t.meta.noDueDate
       : new Date(dueAt).toLocaleDateString(locale, { day: 'numeric', month: 'short' });
 
+  /** Everything worth saying about a deadline that is still missing — days out, hours out,
+   *  or already gone. A date three weeks away is left to the metadata line. */
+  const dueState = (assignment: ClassAssignment): string | null => {
+    if (assignment.dueAt === null) return null;
+    const left = assignment.dueAt - Date.now();
+    if (left < 0) return t.student.overdue;
+    const hours = Math.ceil(left / 3_600_000);
+    if (hours < 24) return t.student.dueInHours(hours);
+    const days = Math.ceil(left / 86_400_000);
+    if (days === 1) return t.student.dueTomorrow;
+    return days <= 3 ? t.student.dueInDays(days) : null;
+  };
+
+  /** Work that still needs the student: untouched, or attempted without clearing the line. */
+  const owesWork = (assignment: ClassAssignment): boolean => {
+    const submission = submissions.find((item) => item.assignmentId === assignment.id);
+    return !submission || (!submission.passed && !submission.graded);
+  };
+
   // Both doors lead here: the roster line the teacher wrote, or the one this student
   // created with the code. One query covers them, so a class added a minute ago appears
   // without the student having to type anything.
@@ -158,6 +177,12 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
   if (!active) return null;
 
   const done = submissions.filter((item) => item.passed || item.graded).length;
+  // The reminder only names work that is both unfinished and close to its deadline — a
+  // banner that lists everything is a banner nobody reads.
+  const reminders = assignments.filter(
+    (assignment) => owesWork(assignment) && dueState(assignment) !== null,
+  );
+  const overdue = reminders.some((assignment) => isOverdue(assignment));
 
   return (
     <div className="flex flex-col gap-4">
@@ -204,13 +229,41 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
 
       {showJoin && joinForm}
 
+      {reminders.length > 0 && (
+        <section
+          className={`wc-card flex flex-col gap-1.5 border p-4 ${
+            overdue ? 'border-danger-red/40' : 'border-warning-yellow/40'
+          }`}
+        >
+          <p className={`text-sm font-bold ${overdue ? 'text-danger-red' : 'text-warning-yellow'}`}>
+            {t.student.reminderTitle(reminders.length)}
+          </p>
+          <ul className="flex flex-col gap-1">
+            {reminders.map((assignment) => (
+              <li key={assignment.id} className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate text-[var(--wn-11)]">{assignment.title}</span>
+                <span
+                  className={`shrink-0 font-semibold ${
+                    isOverdue(assignment) ? 'text-danger-red' : 'text-warning-yellow'
+                  }`}
+                >
+                  {dueState(assignment)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-[var(--wn-9)]">{t.student.reminderBody}</p>
+        </section>
+      )}
+
       {assignments.length === 0 ? (
         <p className="text-sm text-[var(--wn-9)]">{t.student.noAssignments}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {assignments.map((assignment) => {
             const submission = submissions.find((item) => item.assignmentId === assignment.id);
-            const overdue = isOverdue(assignment);
+            const late = isOverdue(assignment);
+            const due = owesWork(assignment) ? dueState(assignment) : null;
             return (
               <li key={assignment.id} className="wc-card p-4">
                 <div className="flex items-start justify-between gap-2">
@@ -223,6 +276,15 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
                         assignment.passScore,
                       )}
                     </p>
+                    {due && (
+                      <p
+                        className={`text-xs font-semibold ${
+                          late ? 'text-danger-red' : 'text-warning-yellow'
+                        }`}
+                      >
+                        {due}
+                      </p>
+                    )}
                   </div>
                   {submission ? (
                     <span
@@ -241,10 +303,10 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
                   ) : (
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-bold ${
-                        overdue ? 'bg-danger-red/15 text-danger-red' : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
+                        late ? 'bg-danger-red/15 text-danger-red' : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
                       }`}
                     >
-                      {overdue ? t.student.overdue : t.student.todo}
+                      {late ? t.student.overdue : t.student.todo}
                     </span>
                   )}
                 </div>

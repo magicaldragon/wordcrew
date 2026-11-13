@@ -15,6 +15,7 @@ export const auth = {
     heroBodyAfter: 'on a single screen.',
     playFull: 'Play Full Version',
     playDemo: 'Play Free Demo',
+    play: 'Play now',
     freeBadges: 'Free · No sign-up · Works offline',
     unlockedNote: 'Full version unlocked on this device',
     alreadyBought: 'Already bought? Enter your licence key',
@@ -81,6 +82,15 @@ export const auth = {
 
   purchase: {
     oneTime: 'one-time · yours forever',
+    perMonth: 'per month',
+    perYear: 'per year',
+    choosePlan: 'Choose a term',
+    planNames: {
+      pro: 'Full version (one-off)',
+      month: '1 month',
+      year: '1 year',
+      lifetime: 'Lifetime',
+    } as Record<string, string>,
     continueToPayment: 'Continue to payment',
     signInAndContinue: 'Sign in and continue',
     bankTransferNote: 'Bank transfer — a QR code appears on the next step.',

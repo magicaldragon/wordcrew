@@ -36,6 +36,7 @@ export const errors: Dictionary['errors'] = {
   emailOwnsProduct: 'Email này đã sở hữu sản phẩm.',
   invalidLicenceKey: 'Đây không giống một mã bản quyền.',
   licenceNotFound: 'Không tìm thấy mã bản quyền. Hãy kiểm tra lại mã trong email mua hàng.',
+  licenceExpired: 'Mã bản quyền đã hết hạn. Gia hạn ở tab Tài khoản để tiếp tục dùng bản đầy đủ.',
   notFound: 'Không tìm thấy.',
 
   // Lớp học

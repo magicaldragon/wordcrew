@@ -54,6 +54,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const [busy, setBusy] = useState(false);
 
   const [newClassName, setNewClassName] = useState('');
+  const [creating, setCreating] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
 
@@ -116,6 +117,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
         teacherName: viewer.name,
       });
       setNewClassName('');
+      setCreating(false);
       await loadClasses();
       setActiveId(created.id);
       toast(t.teacher.classCreated(created.joinCode), 'success');
@@ -184,12 +186,42 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     }
   };
 
-  const handleCreateAssignment = async (input: NewAssignment) => {
+  const handleCreateAssignment = async (input: NewAssignment, classIds: string[]) => {
     if (!active) return;
-    await createAssignment(active.id, input);
-    await loadClassData(active.id);
+    // The same work is written into each chosen roster; one wait covers them all.
+    await Promise.all(classIds.map((classId) => createAssignment(classId, input)));
+    if (classIds.includes(active.id)) await loadClassData(active.id);
     setMode({ kind: 'overview' });
-    toast(t.teacher.assignmentSent, 'success');
+    toast(
+      classIds.length > 1
+        ? t.teacher.assignmentSentMany(classIds.length)
+        : t.teacher.assignmentSent,
+      'success',
+    );
+  };
+
+  const handleMove = async (member: ClassMember, destId: string) => {
+    if (!active || !destId) return;
+    const dest = classes?.find((item) => item.id === destId);
+    if (!dest) return;
+    setBusy(true);
+    try {
+      const destRoster = await fetchMembers(destId);
+      if (destRoster.some((entry) => entry.email === member.email)) {
+        toast(t.teacher.alreadyInClass(dest.name), 'error');
+        return;
+      }
+      // A roster line is the only membership record, so copy it across before
+      // deleting the old one — a failed second write would otherwise lose the student.
+      await addMember(destId, { email: member.email, name: member.name });
+      await removeMember(active.id, member.email);
+      await loadClassData(active.id);
+      toast(t.teacher.movedMember(member.name, dest.name), 'success');
+    } catch {
+      toast(t.teacher.moveFailed, 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleDeleteAssignment = async (assignment: ClassAssignment) => {
@@ -264,7 +296,12 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   if (mode.kind === 'editor') {
     return (
       <div className="wc-card p-4">
-        <ClassAssignmentEditor onCancel={() => setMode({ kind: 'overview' })} onCreate={handleCreateAssignment} />
+        <ClassAssignmentEditor
+          classes={classes.map((item) => ({ id: item.id, name: item.name }))}
+          activeClassId={active.id}
+          onCancel={() => setMode({ kind: 'overview' })}
+          onCreate={handleCreateAssignment}
+        />
       </div>
     );
   }
@@ -286,28 +323,79 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
 
   return (
     <div className="flex flex-col gap-4">
-      {classes.length > 1 && (
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t.teacher.classesAria}>
-          {classes.map((item) => (
+      <div className="flex items-center gap-2">
+        {classes.length > 1 && (
+          <div className="flex min-w-0 flex-1 flex-wrap gap-1.5" role="tablist" aria-label={t.teacher.classesAria}>
+            {classes.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={item.id === active.id}
+                onClick={() => {
+                  setActiveId(item.id);
+                  setMode({ kind: 'overview' });
+                }}
+                className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold transition-colors ${
+                  item.id === active.id
+                    ? 'border-neon-green/60 bg-neon-green/10 text-neon-green'
+                    : 'border-[var(--wn-4)] text-[var(--wn-10)]'
+                }`}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* A teacher runs several rooms and years at once, so a second class must be
+            one tap away — not hidden behind having none. */}
+        <button
+          type="button"
+          onClick={() => setCreating((open) => !open)}
+          aria-expanded={creating}
+          className="ml-auto flex min-h-[44px] shrink-0 items-center gap-1 rounded-full border border-dashed border-[var(--wn-6)] px-3 text-xs font-semibold text-[var(--wn-10)] transition-colors hover:border-neon-green/60 hover:text-neon-green"
+        >
+          <Icon name="plus" size={14} />
+          {t.teacher.createClass}
+        </button>
+      </div>
+
+      {creating && (
+        <form
+          className="wc-card flex flex-col gap-2 p-4 sm:flex-row sm:items-center"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleCreateClass();
+          }}
+        >
+          <input
+            value={newClassName}
+            onChange={(event) => setNewClassName(event.target.value)}
+            maxLength={CLASS_NAME_MAX}
+            placeholder={t.teacher.classNamePlaceholder}
+            aria-label={t.teacher.createClass}
+            className="futuristic-input min-h-[44px] w-full px-3 text-sm sm:flex-1"
+          />
+          <div className="flex gap-2">
             <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={item.id === active.id}
-              onClick={() => {
-                setActiveId(item.id);
-                setMode({ kind: 'overview' });
-              }}
-              className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold transition-colors ${
-                item.id === active.id
-                  ? 'border-neon-green/60 bg-neon-green/10 text-neon-green'
-                  : 'border-[var(--wn-4)] text-[var(--wn-10)]'
-              }`}
+              type="submit"
+              disabled={busy}
+              className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-3 text-xs disabled:opacity-50 sm:flex-none"
             >
-              {item.name}
+              {t.teacher.createClass}
             </button>
-          ))}
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCreating(false);
+                setNewClassName('');
+              }}
+              className="wc-btn wc-btn-secondary min-h-[44px] flex-1 px-3 text-xs sm:flex-none"
+            >
+              {common.cancel}
+            </button>
+          </div>
+        </form>
       )}
 
       <section className="wc-card flex flex-col gap-3 p-4">
@@ -376,12 +464,32 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
         {members.length > 0 && (
           <ul className="flex flex-col divide-y divide-[var(--wn-4)]">
             {members.map((member) => (
-              <li key={member.email} className="flex items-center justify-between gap-2 py-1.5">
-                <span className="min-w-0">
+              <li key={member.email} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-[var(--wn-11)]">{member.name}</span>
                   <span className="block truncate text-xs text-[var(--wn-9)]">{member.email}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
+                  {classes.length > 1 && (
+                    /* A student can sit in several classes at once, so moving one is a
+                       copy-then-remove, not a transfer that empties this roster. */
+                    <select
+                      value=""
+                      onChange={(event) => void handleMove(member, event.target.value)}
+                      disabled={busy}
+                      aria-label={t.teacher.moveAria(member.name)}
+                      className="futuristic-input h-9 min-h-[36px] px-2 text-xs"
+                    >
+                      <option value="">{t.teacher.moveTo}</option>
+                      {classes
+                        .filter((item) => item.id !== active.id)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
                   <span
                     className={`rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider ${
                       member.status === 'active'

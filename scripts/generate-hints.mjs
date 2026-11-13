@@ -19,15 +19,19 @@
 // a hole rather than silently shipped.
 //
 // Usage:
-//   node scripts/generate-hints.mjs                     the whole bank
+//   node scripts/generate-hints.mjs                     the whole bank, within today's free allowance
 //   node scripts/generate-hints.mjs --sample=50         a balanced 50-word pilot
 //   node scripts/generate-hints.mjs --level=PET         one CEFR band
 //   node scripts/generate-hints.mjs --only=breakfast    one word
 //   node scripts/generate-hints.mjs --concurrency=16    words rendered at once (default 10)
 //   node scripts/generate-hints.mjs --force             ignore the cache and redo
+//   node scripts/generate-hints.mjs --dry-run           print the cost estimate and stop
+//   node scripts/generate-hints.mjs --max-usd=2 --yes   pay for more than the free allowance
 //
 // Progress is cached in scripts/.cache/hint-clues.<prompt>.<gate>.json, so an interrupted
-// run resumes where it stopped instead of paying for the same words again.
+// run resumes where it stopped instead of paying for the same words again. That cache is
+// also what makes the default cap cheap: a run stops at the 10,000 free neurons a day
+// covers, and the next day's run picks up the words it did not reach.
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -36,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createJudge, GATE_ID } from './lib/hint-judge.mjs';
 import { HINT_EXAMPLES, HINT_PROMPT, HINT_SCHEMA, HINT_TEMPERATURE, hintMessages } from './lib/hint-prompt.mjs';
-import { createWorkersAi, readDevVars } from './lib/workers-ai.mjs';
+import { createWorkersAi, planBudget, readDevVars } from './lib/workers-ai.mjs';
 import { checkClue, readWordLists } from './hint-validators.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,6 +71,11 @@ const CONCURRENCY = Number(arg('concurrency') ?? 10);
 // told. A retry costs a fraction of a cent and fires only for words already failing; the
 // alternative is a hole, and a hole is a word with no clue at all.
 const ATTEMPTS = 8;
+
+// Measured over the 2026-10 whole-bank render: ~561k neurons for 2,727 words. Only the
+// estimate and the daily slice depend on it; the cache makes a wrong guess cost time,
+// not money, because a run stops at its cap either way.
+const NEURONS_PER_WORD = 206;
 
 // ── target selection ────────────────────────────────────────────────────────
 
@@ -147,7 +156,9 @@ const render = async (ai, judge, entry) => {
       });
     } catch (error) {
       // A whole-bank render runs for hours; one dead model node must cost a word, not
-      // the batch. The client already retried, so treat this as a failed attempt.
+      // the batch. The client already retried, so treat this as a failed attempt. A cap
+      // is different: no retry can lift it, so it ends the run instead of the word.
+      if (error.budget) throw error;
       rejected = `api: ${error.message}`;
       continue;
     }
@@ -167,6 +178,7 @@ const render = async (ai, judge, entry) => {
     try {
       guess = await judge(entry, clue);
     } catch (error) {
+      if (error.budget) throw error;
       rejected = `judge api: ${error.message}`;
       continue;
     }
@@ -272,8 +284,6 @@ const draw = (line) => (isTty ? process.stdout.write(`\r${line}   `) : console.l
 const lists = readWordLists();
 const targets = selectTargets(lists);
 const { CLOUDFLARE_API_TOKEN: token, CLOUDFLARE_ACCOUNT_ID: accountId } = readDevVars();
-const ai = createWorkersAi({ token, accountId });
-const judge = createJudge({ ai, lists });
 
 mkdirSync(dirname(CACHE_FILE), { recursive: true });
 const cache = has('force') || !existsSync(CACHE_FILE) ? {} : JSON.parse(readFileSync(CACHE_FILE, 'utf8'));
@@ -285,6 +295,16 @@ if (!todo.length) {
   console.log(`Nothing to do. Wrote ${Object.keys(cache).length} entries to ${OUT_FILE}`);
   process.exit(0);
 }
+
+// The whole bank is thousands of words and roughly $6 of neurons, so what this run may
+// spend is decided before the first request rather than discovered at the end.
+const plan = planBudget({ label: 'hint clues', items: todo.length, neuronsPerItem: NEURONS_PER_WORD });
+if (!plan.allowed) process.exit(plan.dryRun ? 0 : 1);
+const run = todo.slice(0, plan.items);
+if (run.length < todo.length) console.log(`${run.length} of ${todo.length} rendered in this run; the cache resumes the rest.`);
+
+const ai = createWorkersAi({ token, accountId, maxNeurons: plan.cap });
+const judge = createJudge({ ai, lists });
 
 const flush = () => {
   writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 0), 'utf8');
@@ -302,28 +322,43 @@ const holes = [];
 let done = 0;
 let retried = 0;
 const startedAt = Date.now();
-for (let i = 0; i < todo.length; i += CONCURRENCY) {
-  const batch = todo.slice(i, i + CONCURRENCY);
-  const results = await Promise.all(
-    batch.map(async (entry) => ({ entry, ...(await render(ai, judge, entry)) })),
-  );
-  for (const { entry, clue, attempts, rejected, last } of results) {
-    done += 1;
-    if (clue) {
-      cache[entry.word] = { nearest: clue.nearest, defs: clue.defs, example: clue.example };
-      if (attempts > 1) retried += 1;
-    } else {
-      holes.push({ word: entry.word, rejected, last });
+try {
+  for (let i = 0; i < run.length; i += CONCURRENCY) {
+    const batch = run.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (entry) => ({ entry, ...(await render(ai, judge, entry)) })),
+    );
+    for (const { entry, clue, attempts, rejected, last } of results) {
+      done += 1;
+      if (clue) {
+        cache[entry.word] = { nearest: clue.nearest, defs: clue.defs, example: clue.example };
+        if (attempts > 1) retried += 1;
+      } else {
+        holes.push({ word: entry.word, rejected, last });
+      }
     }
+    writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 0), 'utf8');
+    const stats = `${Object.keys(cache).length} ok · ${retried} retry · ${holes.length} holes`;
+    draw(`${progress(done, run.length, startedAt)} · ${stats}`);
   }
-  writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 0), 'utf8');
-  const stats = `${Object.keys(cache).length} ok · ${retried} retry · ${holes.length} holes`;
-  draw(`${progress(done, todo.length, startedAt)} · ${stats}`);
+} catch (error) {
+  if (!error.budget) throw error;
+  // The cap is the point, not a failure: save what was rendered and say how to go on.
+  if (isTty) process.stdout.write('\n');
+  flush();
+  console.log(`\n${error.message}`);
+  console.log(`${Object.keys(cache).length} clues cached. Re-run the same command tomorrow for the next free allowance.`);
+  console.log(`\n${ai.report()}`);
+  process.exit(0);
 }
 
 if (isTty) process.stdout.write('\n');
 
 flush();
+
+if (run.length < todo.length) {
+  console.log(`${todo.length - run.length} words left for the next run; the cache resumes them.`);
+}
 
 console.log(`\n\n${Object.keys(cache).length} clues in ${OUT_FILE}`);
 if (retried) console.log(`${retried} of ${done} needed more than one attempt.`);
