@@ -30,7 +30,7 @@ export const teacher = {
     levelLocked: (level: string) => `Level-locked: every word comes from ${level} only.`,
 
     modeTitle: 'How to ask each word',
-    modeHint: 'The same words, asked three ways. Pick one for this run.',
+    modeHint: 'The same words, asked four ways. Pick one for this run.',
     modes: {
       listen: {
         label: 'Listen & write',
@@ -44,9 +44,13 @@ export const teacher = {
         label: 'Meaning → letters',
         hint: 'The meaning, the first letter and one box per letter.',
       },
+      read: {
+        label: 'Look & read',
+        hint: 'The word, its sound and its IPA; the student reads it aloud. Practice — never scored.',
+      },
     },
 
-    savedOnDevice: 'Saved on this device',
+    savedOnDevice: 'Saved to your account',
     newDeck: 'New deck',
     noDecksTitle: 'No decks yet',
     noDecksBody:
@@ -61,10 +65,11 @@ export const teacher = {
     deleteDeckAria: (name: string) => `Delete ${name}`,
     testDeck: 'Review this deck',
 
-    savedToast: 'Deck saved on this device.',
+    savedToast: 'Deck saved to your account.',
     deletedToast: 'Deck deleted.',
+    syncFailed: 'Could not reach your account — the deck is safe on this device and will sync later.',
     deckLimit: (max: number) =>
-      `This device holds up to ${max} decks. Delete one before adding another.`,
+      `An account holds up to ${max} decks. Delete one before adding another.`,
     deleteAsk: (name: string, count: number) => `Delete “${name}” and its ${count} words?`,
   },
 
@@ -161,6 +166,14 @@ export const teacher = {
     hint: 'Hint',
     hintClue: (first: string, count: number) =>
       `Starts with “${first}” · ${count} ${count === 1 ? 'letter' : 'letters'}`,
+    readPrompt: 'Say the word out loud',
+    readStart: 'Tap the mic and read',
+    readListening: 'Listening…',
+    readRetry: 'Try the mic again',
+    readHeard: (heard: string) => `Heard “${heard}”`,
+    readNotHeard: 'Nothing heard — check the microphone',
+    readNoMic: 'This browser cannot listen. Read the word out loud, then continue.',
+    readPractice: 'Practice only — reading aloud never affects the score.',
   },
 
   report: {
@@ -171,6 +184,8 @@ export const teacher = {
     noAnswer: 'No answer',
     spellingTag: 'Spelling',
     spellingNote: (count: number) => `· ${count} right word, misspelled`,
+    practisedReading: (count: number) =>
+      `Also practised reading aloud: ${count} ${count === 1 ? 'word' : 'words'} (not scored)`,
     attemptTag: (attempts: number) => `Attempt ${attempts}`,
     hintTag: (hints: number) => `${hints} ${hints === 1 ? 'hint' : 'hints'}`,
     skippedTag: 'Skipped',

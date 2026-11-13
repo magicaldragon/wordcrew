@@ -121,7 +121,7 @@ export const myClass: Dictionary['myClass'] = {
     inProgress: 'Đang làm',
     continueWork: 'Làm tiếp',
     pendingLine: (attempts: number, score: number) =>
-      `Lần ${attempts} · ${score}% · chưa nộp`,
+      attempts > 0 ? `Lần ${attempts} · ${score}% · chưa nộp` : `Đang làm · ${score}% · chưa nộp`,
   },
 
   work: {
@@ -134,6 +134,25 @@ export const myClass: Dictionary['myClass'] = {
       return parts.join(' · ');
     },
     notSignedIn: 'Đăng nhập bằng email mà giáo viên đã thêm vào lớp để làm bài này.',
+
+    tabs: {
+      progress: (done: number, total: number) => `Đã xong ${done}/${total} phần`,
+      overall: (percent: number) => `Hoàn thành ${percent}%`,
+      breakTitle: 'Nghỉ một chút',
+      breakBody:
+        'Mỗi phần được lưu ngay khi làm xong, nên bạn dừng ở đây cũng không mất gì. Mở phần tiếp theo khi đã sẵn sàng.',
+      practice: 'Luyện tập — không tính điểm',
+      done: 'Đã xong',
+      todo: 'Chưa làm',
+      score: (correct: number, total: number) => `${correct}/${total}`,
+      review: 'Xem lại thẻ từ',
+      next: (label: string) => `Tiếp · ${label}`,
+      submit: 'Nộp bài cho giáo viên',
+      needsAll: (parts: number) => `Còn ${parts} phần chưa làm`,
+      pendingHint: 'Nộp là giáo viên thấy kết quả tốt nhất của bạn — sau đó vẫn luyện lại được.',
+      submitBelow: (score: number) => `Cần ${score}% mới nộp được. Làm lại phần nào cũng được.`,
+      part: (index: number, total: number) => `Phần ${index} / ${total}`,
+    },
 
     quiz: {
       counter: (current: number, total: number) => `Câu ${current} / ${total}`,

@@ -31,6 +31,28 @@ const cardTone = (answer: TeacherAnswer | null): string => {
 
 const isLetter = (char: string): boolean => /[a-zA-Z]/.test(char);
 
+/** The slice of the Web Speech API this screen needs — not in the DOM lib we compile against. */
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+/** Chrome and Edge ship it under two names; Safari/Firefox do not ship it at all. */
+const speechRecognition = (): (new () => SpeechRecognitionLike) | null => {
+  if (typeof window === 'undefined') return null;
+  const scope = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
+};
+
 /**
  * The test itself. The words are fixed; the question style is chosen before the run:
  *
@@ -62,6 +84,11 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   /** Hint presses on the current word. */
   const [hints, setHints] = useState(0);
   const [ipaTick, setIpaTick] = useState(0);
+  /** What the microphone heard on the current read-aloud card; null = nothing tried yet. */
+  const [heard, setHeard] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [canListen] = useState(() => speechRecognition() !== null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const total = session.words.length;
@@ -83,6 +110,16 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   }, [session.words]);
 
   useEffect(() => () => stopPlayback(), []);
+
+  // Reading aloud has nothing to score, but the microphone from the previous card must not
+  // keep listening into this one.
+  useEffect(() => {
+    recognitionRef.current?.stop();
+    setHeard(null);
+    setListening(false);
+  }, [index]);
+
+  useEffect(() => () => recognitionRef.current?.stop(), []);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -187,6 +224,55 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
     setHints(0);
   };
 
+  /** Opens the mic for one reading. Whatever it hears is shown, never graded. */
+  const startListening = () => {
+    const Recognition = speechRecognition();
+    if (!Recognition) return;
+    recognitionRef.current?.stop();
+    const recognition = new Recognition();
+    recognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setHeard(null);
+    setListening(true);
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? '';
+      setHeard(transcript.trim());
+      setListening(false);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+    }
+  };
+
+  /**
+   * Reading aloud ends the card no matter what the mic caught — there is nothing to judge,
+   * and a student on a device without speech support must not be stuck.
+   */
+  const recordReading = () => {
+    if (!word) return;
+    const answer: TeacherAnswer = {
+      word,
+      guess: heard ?? '',
+      correct: false,
+      attempts: 1,
+      hints: 0,
+      mode: 'read',
+      practice: true,
+    };
+    setAnswers((prev) => [...prev, answer]);
+    if (index + 1 >= total) {
+      onFinish([...answers, answer]);
+      return;
+    }
+    setIndex((current) => current + 1);
+  };
+
   // Enter moves on once the answer is on screen. Buttons keep their own Enter handling,
   // so the focused Continue button is not clicked twice.
   const advanceRef = useRef(advance);
@@ -245,6 +331,92 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
   const progress = Math.round((index / total) * 100);
   const correctCount = answers.filter((answer) => answer.correct).length;
 
+  /** Heading, word counter and the bar every mode shares. */
+  const header = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => void handleExit()}
+          className="flex h-11 w-11 items-center justify-center rounded-full text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
+          aria-label={t.test.leaveAria}
+        >
+          <Icon name="close" size={18} />
+        </button>
+        <div className="min-w-0 flex-1 text-center">
+          <p className="truncate text-sm font-semibold text-light-text">{title}</p>
+          <p className="text-[0.7rem] text-muted-text">
+            {source} · {index + 1} / {total}
+          </p>
+        </div>
+        <div className="w-11 shrink-0 text-right text-sm font-bold tabular-nums text-neon-green">
+          {correctCount}
+        </div>
+      </div>
+
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+        <span
+          className="block h-full rounded-full bg-neon-green transition-[width] duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </>
+  );
+
+  // Reading aloud is a practice card, not a question: no answer to type, no verdict, and
+  // the word, its IPA and its sound are all on screen. The student reads, then moves on.
+  if (mode === 'read') {
+    return (
+      <div className="flex min-h-0 flex-grow flex-col gap-3 p-3 sm:p-4">
+        {header}
+
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border-2 border-electric-blue/30 bg-dark-metal/60 p-4 text-center">
+          <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
+            {t.setup.modes.read.label}
+          </span>
+          <p className="break-words font-heading text-3xl font-bold tracking-wide text-light-text sm:text-4xl">
+            {word.word}
+          </p>
+          {ipa && <p className="font-mono text-base text-electric-blue">/{ipa}/</p>}
+          <SpeakButton word={word.word} size="lg" label={t.test.play} />
+          <p className="text-sm font-semibold text-light-text">{t.test.readPrompt}</p>
+
+          <div className="w-full max-w-sm">
+            {canListen ? (
+              <button
+                type="button"
+                onClick={startListening}
+                disabled={listening}
+                className="wc-btn wc-btn-secondary min-h-[48px] w-full disabled:opacity-60"
+              >
+                <Icon name="mic" size={16} />
+                {listening ? t.test.readListening : heard === null ? t.test.readStart : t.test.readRetry}
+              </button>
+            ) : (
+              <p className="rounded-md border border-white/10 px-3 py-2 text-[0.7rem] leading-relaxed text-muted-text">
+                {t.test.readNoMic}
+              </p>
+            )}
+            {heard !== null && (
+              <p className="mt-1.5 text-xs text-light-text" role="status" aria-live="polite">
+                {heard ? t.test.readHeard(heard) : t.test.readNotHeard}
+              </p>
+            )}
+            <p className="mt-1.5 text-[0.7rem] text-muted-text">{t.test.readPractice}</p>
+            <button
+              type="button"
+              onClick={recordReading}
+              className="wc-btn wc-btn-primary mt-2 min-h-[48px] w-full"
+            >
+              {index + 1 >= total ? t.test.finish : t.test.continue}
+              <Icon name="arrowRight" size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   /** One box per letter of the target; the first one is given, the input fills the rest. */
   const letterSlots = (target: string) => {
     const typed = input.replace(/[^a-zA-Z]/g, '');
@@ -275,32 +447,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
 
   return (
     <div className="flex min-h-0 flex-grow flex-col gap-3 p-3 sm:p-4">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => void handleExit()}
-          className="flex h-11 w-11 items-center justify-center rounded-full text-muted-text hover:bg-danger-red/20 hover:text-danger-red"
-          aria-label={t.test.leaveAria}
-        >
-          <Icon name="close" size={18} />
-        </button>
-        <div className="min-w-0 flex-1 text-center">
-          <p className="truncate text-sm font-semibold text-light-text">{title}</p>
-          <p className="text-[0.7rem] text-muted-text">
-            {source} · {index + 1} / {total}
-          </p>
-        </div>
-        <div className="w-11 shrink-0 text-right text-sm font-bold tabular-nums text-neon-green">
-          {correctCount}
-        </div>
-      </div>
-
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
-        <span
-          className="block h-full rounded-full bg-neon-green transition-[width] duration-300"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
+      {header}
 
       <div
         className={`flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border-2 bg-dark-metal/60 p-4 text-center transition-colors ${cardTone(revealed)}`}

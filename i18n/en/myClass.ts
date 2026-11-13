@@ -120,7 +120,9 @@ export const myClass = {
     inProgress: 'In progress',
     continueWork: 'Continue',
     pendingLine: (attempts: number, score: number) =>
-      `Attempt ${attempts} · ${score}% · not handed in`,
+      attempts > 0
+        ? `Attempt ${attempts} · ${score}% · not handed in`
+        : `In progress · ${score}% · not handed in`,
   },
 
   work: {
@@ -133,6 +135,25 @@ export const myClass = {
       return parts.join(' · ');
     },
     notSignedIn: 'Sign in with the email your teacher added to the class to do this assignment.',
+
+    tabs: {
+      progress: (done: number, total: number) => `${done} of ${total} parts done`,
+      overall: (percent: number) => `${percent}% complete`,
+      breakTitle: 'Take a breather',
+      breakBody:
+        'Each part is saved the moment you finish it, so you can stop here. Open the next part whenever you are ready.',
+      practice: 'Practice — never scored',
+      done: 'Done',
+      todo: 'Not started',
+      score: (correct: number, total: number) => `${correct}/${total}`,
+      review: 'Re-read the cards',
+      next: (label: string) => `Next · ${label}`,
+      submit: 'Submit to my teacher',
+      needsAll: (parts: number) => `${parts} ${parts === 1 ? 'part' : 'parts'} still to do`,
+      pendingHint: 'Submitting shows your teacher your best result — you can keep practising after.',
+      submitBelow: (score: number) => `You need ${score}% to submit. Retry any part.`,
+      part: (index: number, total: number) => `Part ${index} / ${total}`,
+    },
 
     quiz: {
       counter: (current: number, total: number) => `Question ${current} / ${total}`,

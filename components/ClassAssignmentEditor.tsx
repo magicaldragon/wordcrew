@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
 import { useAuth } from '../contexts/AuthContext';
@@ -19,9 +19,10 @@ import {
   countLevelWords,
   deckStatus,
   deckWarnings,
+  loadTeacherDecks,
   orderTeacherModes,
   parseTeacherWords,
-  readTeacherDecks,
+  type TeacherDeck,
   type TeacherLevelId,
   type TeacherTestMode,
 } from '../services/teacherDeck';
@@ -92,10 +93,17 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
   const [deckId, setDeckId] = useState('');
   const [pasted, setPasted] = useState('');
   // Only finished decks can be assigned; drafts stay in My decks until the teacher is ready.
-  const decks = useMemo(
-    () => readTeacherDecks(owner).filter((deck) => deckStatus(deck) === 'ready'),
-    [owner],
-  );
+  // The shelf lives on the teacher's account, so it arrives a moment after the tab opens.
+  const [decks, setDecks] = useState<TeacherDeck[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void loadTeacherDecks(owner).then((list) => {
+      if (alive) setDecks(list.filter((deck) => deckStatus(deck) === 'ready'));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [owner]);
 
   // quiz
   const [questions, setQuestions] = useState<QuizQuestion[]>([emptyQuestion()]);
@@ -438,7 +446,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
             <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
               {teacherT.setup.modeTitle}
             </span>
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {TEACHER_TEST_MODES.map((id) => {
                 const active = modes.includes(id);
                 return (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from './Icon';
 import { useT } from '../i18n/useT';
-import type { TeacherAnswer, TeacherSession } from '../services/teacherDeck';
+import { isScoredAnswer, type TeacherAnswer, type TeacherSession } from '../services/teacherDeck';
 
 interface TeacherReportScreenProps {
   session: TeacherSession;
@@ -23,16 +23,19 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
   onHome,
 }) => {
   const t = useT('teacher');
-  const total = answers.length;
-  const correct = answers.filter((answer) => answer.correct).length;
-  const spelling = answers.filter((answer) => !answer.correct && answer.spelling).length;
+  // Reading aloud is practice: it is listed separately and never moves the score.
+  const scored = answers.filter(isScoredAnswer);
+  const practised = answers.length - scored.length;
+  const total = scored.length;
+  const correct = scored.filter((answer) => answer.correct).length;
+  const spelling = scored.filter((answer) => !answer.correct && answer.spelling).length;
   const missed = total - correct;
   const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
   const tone = accuracy >= 80 ? 'text-neon-green' : accuracy >= 50 ? 'text-warning-yellow' : 'text-danger-red';
   // How much help it took — a right answer after two tries is not the same as a first-try one.
-  const retried = answers.filter((answer) => answer.attempts > 1).length;
-  const hintsUsed = answers.reduce((sum, answer) => sum + answer.hints, 0);
-  const skipped = answers.filter((answer) => answer.skipped).length;
+  const retried = scored.filter((answer) => answer.attempts > 1).length;
+  const hintsUsed = scored.reduce((sum, answer) => sum + answer.hints, 0);
+  const skipped = scored.filter((answer) => answer.skipped).length;
   const effort = t.report.effort(retried, hintsUsed, skipped);
   const heading =
     session.origin.kind === 'level' ? t.test.levelTitle(session.origin.levelId) : session.origin.name;
@@ -52,7 +55,7 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
         t.report.csv.hints,
         t.report.csv.skipped,
       ],
-      ...answers.map((answer) => [
+      ...scored.map((answer) => [
         answer.word.word,
         answer.word.meaning,
         answer.guess,
@@ -96,13 +99,18 @@ export const TeacherReportScreen: React.FC<TeacherReportScreenProps> = ({
           </p>
         )}
         {effort && <p className="mt-0.5 text-[0.7rem] text-muted-text">{effort}</p>}
+        {practised > 0 && (
+          <p className="mt-0.5 text-[0.7rem] text-electric-blue">
+            {t.report.practisedReading(practised)}
+          </p>
+        )}
         <div className="mx-auto mt-2 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-white/10" aria-hidden="true">
           <span className={`block h-full rounded-full ${accuracy >= 80 ? 'bg-neon-green' : accuracy >= 50 ? 'bg-warning-yellow' : 'bg-danger-red'}`} style={{ width: `${accuracy}%` }} />
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        {answers.map((answer, index) => {
+        {scored.map((answer, index) => {
           const near = !answer.correct && Boolean(answer.spelling);
           return (
             <div

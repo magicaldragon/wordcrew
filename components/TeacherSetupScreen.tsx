@@ -6,14 +6,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
 import {
+  cachedTeacherDecks,
   clampTestWords,
   countLevelWords,
   deckStatus,
   deleteTeacherDeck,
+  loadTeacherDecks,
   MAX_DECKS,
   MAX_TEST_WORDS,
   MIN_TEST_WORDS,
-  readTeacherDecks,
   saveTeacherDeck,
   TEACHER_LEVELS,
   TEACHER_TEST_MODES,
@@ -44,7 +45,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   onRequireSignIn,
 }) => {
   const t = useT('teacher');
-  const { delete: deleteLabel } = useT('common');
+  const { delete: deleteLabel, loading: loadingLabel } = useT('common');
   const { user } = useAuth();
   const locale = useLocale();
   const owner = user?.uid ?? 'guest';
@@ -55,13 +56,26 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   // The box is a draft so the teacher can clear it and retype without the value
   // snapping back mid-keystroke; it is clamped on blur and before the test starts.
   const [countDraft, setCountDraft] = useState('10');
-  const [decks, setDecks] = useState<TeacherDeck[]>(() => readTeacherDecks(owner));
+  const [decks, setDecks] = useState<TeacherDeck[]>(() => cachedTeacherDecks(owner));
+  const [decksLoading, setDecksLoading] = useState(true);
   // null = list, 'new' = a deck being built, a deck = that deck being edited.
   const [editing, setEditing] = useState<TeacherDeck | 'new' | null>(null);
 
-  // The signed-in account owns its decks; signing in (even mid-edit) reloads that shelf.
+  // The account owns its decks. The device cache paints first, the account shelf replaces
+  // it a moment later — signing in (even mid-edit) reloads that shelf.
   useEffect(() => {
-    setDecks(readTeacherDecks(owner));
+    let alive = true;
+    setDecksLoading(true);
+    void loadTeacherDecks(owner)
+      .then((list) => {
+        if (alive) setDecks(list);
+      })
+      .finally(() => {
+        if (alive) setDecksLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [owner]);
 
   /** The level's real pool — A1 has fewer usable words than the 300 ceiling. */
@@ -101,9 +115,14 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       toast(t.setup.deckLimit(MAX_DECKS), 'error');
       return false;
     }
-    setDecks(saveTeacherDeck(owner, deck));
+    // The shelf updates on the spot and the account copy is written behind it, so a slow
+    // network never keeps the editor open on a deck that is already safe on this device.
+    setDecks((prev) => [deck, ...prev.filter((item) => item.id !== deck.id)]);
     setEditing(null);
     toast(t.setup.savedToast, 'success');
+    void saveTeacherDeck(owner, deck)
+      .then(setDecks)
+      .catch(() => toast(t.setup.syncFailed, 'error'));
     return true;
   };
 
@@ -113,9 +132,14 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       destructive: true,
     });
     if (!ok) return;
-    setDecks(deleteTeacherDeck(owner, deck.id));
+    setDecks((prev) => prev.filter((item) => item.id !== deck.id));
     setEditing(null);
-    toast(t.setup.deletedToast, 'success');
+    try {
+      setDecks(await deleteTeacherDeck(owner, deck.id));
+      toast(t.setup.deletedToast, 'success');
+    } catch {
+      toast(t.setup.syncFailed, 'error');
+    }
   };
 
   if (editing) {
@@ -226,7 +250,7 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
             <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
               {t.setup.modeTitle}
             </p>
-            <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t.setup.modeTitle}>
+            <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t.setup.modeTitle}>
               {TEACHER_TEST_MODES.map((id) => {
                 const active = id === mode;
                 return (
@@ -285,7 +309,15 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
             )}
           </div>
 
-          {decks.length === 0 ? (
+          {decksLoading && decks.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 p-5">
+              <span
+                className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--hairline-strong)] border-t-electric-blue"
+                aria-hidden="true"
+              />
+              <p className="text-xs text-muted-text">{loadingLabel}</p>
+            </div>
+          ) : decks.length === 0 ? (
             <div className="rounded-lg border border-dashed border-white/15 p-5 text-center">
               <p className="text-sm font-semibold text-light-text">{t.setup.noDecksTitle}</p>
               <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-muted-text">

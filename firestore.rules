@@ -7,7 +7,7 @@ rules_version = '2';
 // firebase.json / Firebase CLI: console mới là nguồn thật, còn file này để
 // versioned và để lần sau biết đang có gì mà chỉnh cho khớp.
 //
-// Client chỉ chạm đúng hai nhánh:
+// Client chỉ chạm đúng những nhánh sau:
 //
 //   users/{uid}
 //     Hồ sơ người chơi + các counter tiến độ mà tab "My progress" đọc:
@@ -64,6 +64,12 @@ rules_version = '2';
 //     classCodes là danh bạ công khai trong phạm vi đã đăng nhập: biết mã thì tra
 //     ra classId, nhưng muốn đọc dữ liệu vẫn phải có email trong members. Không ai
 //     list được toàn bộ mã (chống thu thập code).
+//
+//   teacherDecks/{uid}                      bộ từ của giáo viên (Teacher Mode → My decks)
+//     Cả "kệ" bộ từ nằm trong MỘT doc: decks[] + updatedAt, nên mở tab chỉ tốn một
+//     lần đọc. Chỉ chủ tài khoản đọc/ghi. localStorage chỉ còn là cache offline (và
+//     là nơi duy nhất một khách chưa đăng nhập dùng được); máy dùng chung không thể
+//     lộ danh sách từ của giáo viên trước cho người đăng nhập sau.
 //
 // ⚠️ ADMIN: sửa danh sách trong adminEmails() bên dưới cho khớp ĐÚNG giá trị
 //    secret ADMIN_EMAILS của Cloudflare Worker. Firestore rules không đọc được
@@ -204,6 +210,35 @@ service cloud.firestore {
             || request.time >= resource.data.displayNameUpdatedAt + duration.value(30, 'd')
           )
         );
+    }
+
+    // ── Bộ từ của giáo viên (Teacher Mode → My decks) ─────────────────────
+
+    // Cả kệ bộ từ nằm trong một document của chủ tài khoản, nên không ai khác —
+    // kể cả một giáo viên khác — đọc được danh sách từ của ai.
+    match /teacherDecks/{userId} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidDeckShelf();
+    }
+
+    // Hình dạng tối thiểu để client hỏng không ghi rác vào tài khoản. Client đã cắt
+    // ở MAX_DECKS/MAX_DECK_WORDS; rule kiểm lại để sửa client cũng không vượt được.
+    function isValidDeckShelf() {
+      return request.resource.data.keys().hasOnly(['decks', 'updatedAt'])
+        && request.resource.data.decks is list
+        && request.resource.data.decks.size() <= 40
+        && request.resource.data.updatedAt is number
+        && request.resource.data.decks.all(deck,
+            deck is map
+            && deck.keys().hasOnly(['id', 'name', 'createdAt', 'updatedAt', 'status', 'words'])
+            && deck.id is string
+            && deck.id.size() > 0
+            && deck.name is string
+            && deck.createdAt is number
+            && deck.updatedAt is number
+            && (!deck.keys().hasAny(['status']) || deck.status in ['draft', 'ready'])
+            && deck.words is list
+            && deck.words.size() <= 300);
     }
 
     // ── Bảng xếp hạng Solo (theo tháng / theo ngày) ──────────────────────

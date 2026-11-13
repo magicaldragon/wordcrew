@@ -12,8 +12,10 @@
 // review pass is deliberate — a word can carry several senses, and the gloss that
 // matters is the one from the lesson, not the most common one.
 
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { CEFRLevel, cefrWordLists } from '../cefrWordLists';
 import { getVietnameseMeaning } from '../vietnameseMeanings';
+import { db } from './firebase';
 import { levenshtein, normalizeAnswer } from './solo';
 
 /** The four levels a teacher can test, mapped onto the bands the app ships. */
@@ -120,21 +122,26 @@ export const deckStatus = (deck: TeacherDeck): TeacherDeckStatus => deck.status 
  *   listen  — the word is spoken, the student writes it (listening + spelling)
  *   choice  — the word is shown, the student picks its Vietnamese meaning
  *   letters — the meaning is shown with the first letter and one box per letter
+ *   read    — the word, its IPA and its sound; the student reads it aloud (practice)
  */
-export type TeacherTestMode = 'listen' | 'choice' | 'letters';
+export type TeacherTestMode = 'listen' | 'choice' | 'letters' | 'read';
 
-export const TEACHER_TEST_MODES: TeacherTestMode[] = ['listen', 'choice', 'letters'];
+export const TEACHER_TEST_MODES: TeacherTestMode[] = ['listen', 'choice', 'letters', 'read'];
 
 export const isTeacherTestMode = (value: string): value is TeacherTestMode =>
   (TEACHER_TEST_MODES as string[]).includes(value);
 
+/** Reading aloud is practice: it is recorded, but never counted in a score. */
+export const isPracticeMode = (mode: TeacherTestMode): boolean => mode === 'read';
+
 /**
- * The three styles build on each other: recognising a meaning is easier than recalling a
- * word from a Vietnamese prompt, which is easier than hearing it and spelling it. A class
- * set that includes several modes is always asked in this order, whatever order the
- * teacher ticked them.
+ * The styles build on each other: recognising a meaning is easier than recalling a word
+ * from a Vietnamese prompt, which is easier than hearing it and spelling it. Reading the
+ * word aloud comes last — it consolidates the word once the others have established it,
+ * and it is never scored. A set that includes several modes is always asked in this
+ * order, whatever order the teacher ticked them.
  */
-export const TEACHER_MODE_LADDER: TeacherTestMode[] = ['choice', 'letters', 'listen'];
+export const TEACHER_MODE_LADDER: TeacherTestMode[] = ['choice', 'letters', 'listen', 'read'];
 
 /** Keeps the chosen styles, drops duplicates and unknown values, and sorts them by ladder. */
 export const orderTeacherModes = (modes: TeacherTestMode[]): TeacherTestMode[] =>
@@ -169,7 +176,12 @@ export interface TeacherAnswer {
   skipped?: boolean;
   /** Which question style produced this answer — a class set may ask several. */
   mode?: TeacherTestMode;
+  /** Reading aloud: recorded for the log, left out of every score. */
+  practice?: boolean;
 }
+
+/** True when an answer counts towards the score. Practice rows are kept out of it. */
+export const isScoredAnswer = (answer: TeacherAnswer): boolean => !answer.practice;
 
 // ── Level tests ────────────────────────────────────────────────────────────
 const shuffle = <T,>(input: T[], rng: () => number): T[] => {
@@ -487,9 +499,15 @@ export const partOfSpeech = (entry: TeacherWord): TeacherPos | '' =>
 
 // ── Decks ──────────────────────────────────────────────────────────────────
 // Decks belong to an account, not just to a device: a shared classroom laptop must
-// never show one teacher's lists to the next person who signs in.
+// never show one teacher's lists to the next person who signs in, and a deck built at
+// school must be there at home.
+//
+// The account copy lives in Firestore at `teacherDecks/{uid}` — one document holding the
+// whole shelf. A teacher keeps at most MAX_DECKS lists, so opening the tab costs one read.
+// localStorage stays as the offline cache, and as the only store a guest can use.
 const DECKS_KEY_PREFIX = 'wordcrew_teacher_decks_v2';
 const LEGACY_DECKS_KEY = 'wordcrew_teacher_decks_v1';
+const DECKS_COLLECTION = 'teacherDecks';
 const decksKey = (owner: string): string => `${DECKS_KEY_PREFIX}:${owner || 'guest'}`;
 
 // One word per line. The separator is a tab, a colon/equals sign, or a spaced dash —
@@ -694,42 +712,127 @@ const adoptLegacyDecks = (owner: string): void => {
   }
 };
 
-/** Decks saved for this account, newest first. */
-export const readTeacherDecks = (owner: string): TeacherDeck[] => {
-  adoptLegacyDecks(owner);
+const sortDecks = (decks: TeacherDeck[]): TeacherDeck[] =>
+  [...decks].sort((a, b) => b.updatedAt - a.updatedAt);
+
+/** The cache on this device — what the tab can paint before the account answers. */
+const readLocalDecks = (owner: string): TeacherDeck[] => {
   try {
     const raw = localStorage.getItem(decksKey(owner));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isDeck).sort((a, b) => b.updatedAt - a.updatedAt);
+    return sortDecks(parsed.filter(isDeck));
   } catch {
     return [];
+  }
+};
+
+const writeLocalDecks = (owner: string, decks: TeacherDeck[]): void => {
+  try {
+    localStorage.setItem(decksKey(owner), JSON.stringify(decks));
+  } catch {
+    /* Storage blocked — the account copy is still the source of truth. */
+  }
+};
+
+/** Firestore refuses `undefined` inside an array, so every word is rebuilt with no holes. */
+const plainDeck = (deck: TeacherDeck): TeacherDeck => ({
+  id: deck.id,
+  name: deck.name,
+  createdAt: deck.createdAt,
+  updatedAt: deck.updatedAt,
+  ...(deck.status ? { status: deck.status } : {}),
+  words: deck.words.map((entry) => ({
+    word: entry.word,
+    meaning: entry.meaning,
+    ...(entry.pos ? { pos: entry.pos } : {}),
+    ...(entry.level ? { level: entry.level } : {}),
+  })),
+});
+
+/** A guest has no account to write to; without a configured project there is nowhere to write. */
+const canSync = (owner: string): boolean => Boolean(db) && Boolean(owner) && owner !== 'guest';
+
+/** The account shelf, or null when this account has never saved one. */
+const fetchRemoteDecks = async (owner: string): Promise<TeacherDeck[] | null> => {
+  const snap = await getDoc(doc(db!, DECKS_COLLECTION, owner));
+  if (!snap.exists()) return null;
+  const data = snap.data() as Record<string, unknown>;
+  const raw = Array.isArray(data.decks) ? data.decks : [];
+  return sortDecks(raw.filter(isDeck));
+};
+
+const writeRemoteDecks = async (owner: string, decks: TeacherDeck[]): Promise<void> => {
+  await setDoc(doc(db!, DECKS_COLLECTION, owner), {
+    decks: decks.slice(0, MAX_DECKS).map(plainDeck),
+    updatedAt: Date.now(),
+  });
+};
+
+/**
+ * Decks already cached on this device, for an instant first paint. Never the final word:
+ * `loadTeacherDecks` follows and replaces it with the account shelf.
+ */
+export const cachedTeacherDecks = (owner: string): TeacherDeck[] => {
+  adoptLegacyDecks(owner);
+  return readLocalDecks(owner);
+};
+
+/**
+ * The shelf for this account: the account copy when there is one, the cached copy offline.
+ * A deck that only exists on this device (saved before lists synced, or while the network
+ * was down) is pushed up rather than dropped, and a deck edited later on either side wins.
+ */
+export const loadTeacherDecks = async (owner: string): Promise<TeacherDeck[]> => {
+  adoptLegacyDecks(owner);
+  const local = readLocalDecks(owner);
+  if (!canSync(owner)) return local;
+
+  try {
+    const remote = await fetchRemoteDecks(owner);
+    if (remote === null) {
+      if (local.length > 0) await writeRemoteDecks(owner, local);
+      return local;
+    }
+
+    const byId = new Map(remote.map((deck) => [deck.id, deck]));
+    let changed = false;
+    for (const deck of local) {
+      const stored = byId.get(deck.id);
+      if (!stored || stored.updatedAt < deck.updatedAt) {
+        byId.set(deck.id, deck);
+        changed = true;
+      }
+    }
+    const merged = sortDecks([...byId.values()]);
+    writeLocalDecks(owner, merged);
+    if (changed) await writeRemoteDecks(owner, merged);
+    return merged;
+  } catch {
+    // Offline, or the rules have not been published yet — the cached shelf still opens.
+    return local;
   }
 };
 
 /**
  * Saves (or replaces) a deck and returns the full, persisted list. The caller enforces
  * `MAX_DECKS` before calling this, so saving never silently drops the oldest list.
+ *
+ * The device copy is written first so the tab never loses the save, then the account copy;
+ * a rejected sync throws, and the caller can say so while the deck stays cached.
  */
-export const saveTeacherDeck = (owner: string, deck: TeacherDeck): TeacherDeck[] => {
-  const rest = readTeacherDecks(owner).filter((item) => item.id !== deck.id);
-  const next = [deck, ...rest];
-  try {
-    localStorage.setItem(decksKey(owner), JSON.stringify(next));
-  } catch {
-    /* Storage blocked — the deck simply will not survive a reload. */
-  }
+export const saveTeacherDeck = async (owner: string, deck: TeacherDeck): Promise<TeacherDeck[]> => {
+  const next = sortDecks([deck, ...readLocalDecks(owner).filter((item) => item.id !== deck.id)]);
+  writeLocalDecks(owner, next);
+  if (canSync(owner)) await writeRemoteDecks(owner, next);
   return next;
 };
 
-export const deleteTeacherDeck = (owner: string, id: string): TeacherDeck[] => {
-  const next = readTeacherDecks(owner).filter((item) => item.id !== id);
-  try {
-    localStorage.setItem(decksKey(owner), JSON.stringify(next));
-  } catch {
-    /* Storage blocked. */
-  }
+export const deleteTeacherDeck = async (owner: string, id: string): Promise<TeacherDeck[]> => {
+  const next = readLocalDecks(owner).filter((item) => item.id !== id);
+  writeLocalDecks(owner, next);
+  if (canSync(owner)) await writeRemoteDecks(owner, next);
   return next;
 };
 

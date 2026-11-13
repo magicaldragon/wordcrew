@@ -195,7 +195,7 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
             </p>
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t.setup.modeTitle}>
+              <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label={t.setup.modeTitle}>
                 {TEACHER_TEST_MODES.map((id) => {
                   const active = id === mode;
                   return (

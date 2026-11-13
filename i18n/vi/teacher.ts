@@ -31,7 +31,7 @@ export const teacher: Dictionary['teacher'] = {
     levelLocked: (level: string) => `Giới hạn trình độ: mọi từ trong bài đều thuộc ${level}.`,
 
     modeTitle: 'Cách hỏi mỗi từ',
-    modeHint: 'Cùng một danh sách từ, hỏi theo ba cách. Chọn một cách cho lượt này.',
+    modeHint: 'Cùng một danh sách từ, hỏi theo bốn cách. Chọn một cách cho lượt này.',
     modes: {
       listen: {
         label: 'Nghe & viết',
@@ -45,9 +45,13 @@ export const teacher: Dictionary['teacher'] = {
         label: 'Nghĩa → ô chữ',
         hint: 'Cho nghĩa, chữ cái đầu và số ô — điền nốt từ.',
       },
+      read: {
+        label: 'Nhìn & đọc',
+        hint: 'Hiện từ, phiên âm và âm thanh; học sinh đọc to. Chỉ luyện, không tính điểm.',
+      },
     },
 
-    savedOnDevice: 'Đã lưu trên thiết bị này',
+    savedOnDevice: 'Đã lưu vào tài khoản',
     newDeck: 'Bộ từ mới',
     noDecksTitle: 'Chưa có bộ từ nào',
     noDecksBody:
@@ -62,10 +66,11 @@ export const teacher: Dictionary['teacher'] = {
     deleteDeckAria: (name: string) => `Xóa ${name}`,
     testDeck: 'Học bộ từ này',
 
-    savedToast: 'Đã lưu bộ từ trên thiết bị này.',
+    savedToast: 'Đã lưu bộ từ vào tài khoản.',
     deletedToast: 'Đã xóa bộ từ.',
+    syncFailed: 'Chưa kết nối được tài khoản — bộ từ vẫn an toàn trên thiết bị này và sẽ đồng bộ sau.',
     deckLimit: (max: number) =>
-      `Thiết bị này lưu tối đa ${max} bộ từ. Hãy xóa bớt một bộ trước khi thêm bộ mới.`,
+      `Mỗi tài khoản lưu tối đa ${max} bộ từ. Hãy xóa bớt một bộ trước khi thêm bộ mới.`,
     deleteAsk: (name: string, count: number) => `Xóa “${name}” và ${count} từ của bộ này?`,
   },
 
@@ -160,6 +165,14 @@ export const teacher: Dictionary['teacher'] = {
     skip: 'Bỏ qua — xem đáp án',
     hint: 'Gợi ý',
     hintClue: (first: string, count: number) => `Bắt đầu bằng “${first}” · ${count} chữ cái`,
+    readPrompt: 'Đọc to từ này',
+    readStart: 'Bật mic và đọc',
+    readListening: 'Đang nghe…',
+    readRetry: 'Thử mic lại',
+    readHeard: (heard: string) => `Nghe được “${heard}”`,
+    readNotHeard: 'Không nghe được gì — kiểm tra micro',
+    readNoMic: 'Trình duyệt này không nghe được. Hãy đọc to rồi bấm tiếp tục.',
+    readPractice: 'Chỉ luyện tập — đọc to không ảnh hưởng điểm.',
   },
 
   report: {
@@ -170,6 +183,7 @@ export const teacher: Dictionary['teacher'] = {
     noAnswer: 'Không trả lời',
     spellingTag: 'Chính tả',
     spellingNote: (count: number) => `· ${count} câu đúng từ nhưng sai chính tả`,
+    practisedReading: (count: number) => `Có luyện đọc to ${count} từ (không tính điểm)`,
     attemptTag: (attempts: number) => `Lần thử ${attempts}`,
     hintTag: (hints: number) => `${hints} gợi ý`,
     skippedTag: 'Bỏ qua',

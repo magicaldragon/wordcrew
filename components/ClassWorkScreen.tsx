@@ -10,6 +10,7 @@ import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
 import {
   assignmentWords,
+  fetchSubmissions,
   handInWork,
   percent,
   submitWork,
@@ -47,17 +48,75 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
   const [result, setResult] = useState<ClassSubmission | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** A vocabulary draft left half-done on this or another device, waiting to be continued. */
+  const [draft, setDraft] = useState<TeacherAnswer[] | null>(null);
+  const [draftLoading, setDraftLoading] = useState(assignment.kind === 'vocabulary');
 
   const student = user?.email
     ? { uid: user.uid, email: user.email, name: profile?.displayName || user.displayName || user.email }
     : null;
 
-  /** Stores one attempt. Pending, unless `submit` says the student is handing it in. */
-  const record = async (detail: WorkDetail, score: number, submit = false) => {
+  // Each part of a vocabulary assignment is saved as it finishes, so "Continue" on another
+  // device must reopen the parts already done instead of asking for them again.
+  useEffect(() => {
+    if (assignment.kind !== 'vocabulary' || !student) {
+      setDraftLoading(false);
+      return;
+    }
+    let alive = true;
+    void fetchSubmissions(classId, student.uid)
+      .then((list) => {
+        const mine = list.find((item) => item.assignmentId === assignment.id);
+        if (!alive || !mine || mine.status !== 'pending') return;
+        const byTerm = new Map(assignmentWords(assignment).map((word) => [word.word, word]));
+        const restored = mine.detail.answers.flatMap<TeacherAnswer>((row) => {
+          const word = byTerm.get(row.term);
+          if (!word) return [];
+          return [{
+            word,
+            guess: row.guess,
+            correct: row.correct,
+            attempts: row.attempts ?? 1,
+            hints: row.hints ?? 0,
+            skipped: row.skipped,
+            mode: row.mode,
+            practice: row.practice,
+          }];
+        });
+        if (restored.length > 0) setDraft(restored);
+      })
+      .catch(() => {
+        // Offline: start the run again rather than block the homework.
+      })
+      .finally(() => {
+        if (alive) setDraftLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // Only the assignment identity matters — `assignmentWords` is derived from it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classId, assignment.id, student?.uid]);
+
+  /** Stores one attempt. A working copy is saved quietly; a finished run takes the screen. */
+  const record = async (
+    detail: WorkDetail,
+    score: number,
+    { submit = false, countAttempt = true }: { submit?: boolean; countAttempt?: boolean } = {},
+  ) => {
     if (!student || busy) return;
     setBusy(true);
     try {
-      setResult(await submitWork({ classId, assignment, student, detail, score, submit }));
+      const saved = await submitWork({
+        classId,
+        assignment,
+        student,
+        detail,
+        score,
+        submit,
+        countAttempt,
+      });
+      if (countAttempt) setResult(saved);
     } catch {
       toast(t.work.submitFailed, 'error');
     } finally {
@@ -177,28 +236,50 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
   }
 
   if (assignment.kind === 'vocabulary') {
+    // Undefined fields never travel to Firestore — it refuses them inside arrays.
+    const detailOf = (answers: TeacherAnswer[]): WorkDetail => ({
+      answers: answers.map<VocabAnswer>((answer) => {
+        const row: VocabAnswer = {
+          term: answer.word.word,
+          gloss: answer.word.meaning,
+          guess: answer.guess,
+          correct: answer.correct,
+          attempts: answer.attempts,
+          hints: answer.hints,
+        };
+        if (answer.skipped) row.skipped = true;
+        if (answer.mode) row.mode = answer.mode;
+        if (answer.practice) row.practice = true;
+        return row;
+      }),
+      responses: [],
+      text: '',
+    });
+
+    if (draftLoading) {
+      return shell(
+        <div className="flex flex-1 items-center justify-center">
+          <span
+            className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--hairline-strong)] border-t-electric-blue"
+            aria-hidden="true"
+          />
+        </div>,
+      );
+    }
+
     return shell(
       <VocabularyWork
         key={roundKey}
         assignment={assignment}
-        onFinish={(answers: TeacherAnswer[]) => {
-          const correct = answers.filter((answer) => answer.correct).length;
-          const detail: WorkDetail = {
-            answers: answers.map<VocabAnswer>((answer) => ({
-              term: answer.word.word,
-              gloss: answer.word.meaning,
-              guess: answer.guess,
-              correct: answer.correct,
-              attempts: answer.attempts,
-              hints: answer.hints,
-              skipped: answer.skipped,
-              mode: answer.mode,
-            })),
-            responses: [],
-            text: '',
-          };
-          void record(detail, percent(correct, answers.length));
-        }}
+        initialAnswers={roundKey === 0 ? draft ?? undefined : undefined}
+        onDraft={(answers, score) =>
+          void record(detailOf(answers), score, { countAttempt: false })
+        }
+        // The Submit button on the rest screen is the hand-in itself: it only appears once
+        // every part is done and the pass line is cleared.
+        onSubmit={(answers, score) =>
+          void record(detailOf(answers), score, { submit: true })
+        }
         onExit={onClose}
       />,
     );
@@ -228,7 +309,7 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
       assignment={assignment}
       // An essay is not a test: there is no pass line to beat, so handing it in is the
       // end of the work and the teacher grades what was written.
-      onSubmit={(text) => void record({ answers: [], responses: [], text }, 0, true)}
+      onSubmit={(text) => void record({ answers: [], responses: [], text }, 0, { submit: true })}
     />,
   );
 };
@@ -291,12 +372,15 @@ const ResultView: React.FC<ResultViewProps> = ({
       : null;
   // A multi-round assignment asks the same word several ways, so the "worth another look"
   // list is by word, not by answer row.
+  // Reading aloud is practice and is never counted, so it cannot appear in the "worth
+  // another look" list or in the word count.
+  const scored = result.detail.answers.filter((answer) => !answer.practice);
   const missed = Array.from(
     new Map(
-      result.detail.answers.filter((answer) => !answer.correct).map((answer) => [answer.term, answer]),
+      scored.filter((answer) => !answer.correct).map((answer) => [answer.term, answer]),
     ).values(),
   );
-  const wordCount = new Set(result.detail.answers.map((answer) => answer.term)).size;
+  const wordCount = new Set(scored.map((answer) => answer.term)).size;
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 text-center">

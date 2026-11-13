@@ -123,6 +123,8 @@ export interface VocabAnswer {
   skipped?: boolean;
   /** Which of the assignment's question styles produced this answer. */
   mode?: TeacherTestMode;
+  /** Reading aloud — kept for the log, never counted in a score. */
+  practice?: boolean;
 }
 
 export interface WorkDetail {
@@ -284,6 +286,7 @@ const toSubmission = (id: string, data: Record<string, unknown>): ClassSubmissio
           hints: asNumber(row.hints, 0),
           skipped: row.skipped === true,
           mode: isTeacherTestMode(asString(row.mode)) ? (row.mode as TeacherTestMode) : undefined,
+          practice: row.practice === true,
         };
       }),
       responses: Array.isArray(detail.responses) ? detail.responses.map((n) => asNumber(n, -1)) : [],
@@ -546,6 +549,11 @@ export interface SubmitInput {
    * only the student sees it, and they may keep retrying.
    */
   submit?: boolean;
+  /**
+   * false for a working copy saved between parts. The answers are stored, but an attempt
+   * is only counted when a full run is finished, so the tally means what it says.
+   */
+  countAttempt?: boolean;
 }
 
 /**
@@ -565,13 +573,19 @@ export const submitWork = async ({
   detail,
   score,
   submit = false,
+  countAttempt = true,
 }: SubmitInput): Promise<ClassSubmission> => {
   const id = submissionId(assignment.id, student.uid);
   const ref = doc(db!, CLASSES, classId, 'submissions', id);
   const existing = await getDoc(ref);
   const previous = existing.exists() ? toSubmission(id, existing.data() as Record<string, unknown>) : null;
-  const passed = assignment.passScore === null ? false : score >= assignment.passScore;
-  const keepBestDetail = assignment.kind !== 'writing' && previous !== null && score < previous.score;
+  // A working copy never clears the pass line and never loses its detail to a better
+  // earlier score — it is the half-finished work itself, not a finished attempt.
+  const passed = !countAttempt || assignment.passScore === null
+    ? false
+    : score >= assignment.passScore;
+  const keepBestDetail =
+    countAttempt && assignment.kind !== 'writing' && previous !== null && score < previous.score;
   // Once handed in, the row stays handed in — practising afterwards adds a better score
   // to the same submission instead of opening a new draft.
   const status: SubmissionStatus =
@@ -585,7 +599,7 @@ export const submitWork = async ({
     kind: assignment.kind,
     score: Math.max(score, previous?.score ?? 0),
     passed: passed || (previous?.passed ?? false),
-    attempts: (previous?.attempts ?? 0) + 1,
+    attempts: (previous?.attempts ?? 0) + (countAttempt ? 1 : 0),
     detail: keepBestDetail && previous ? previous.detail : detail,
     status,
     autoSubmitted: previous?.autoSubmitted ?? false,
