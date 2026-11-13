@@ -176,6 +176,212 @@ export const VIETNAMESE_MEANINGS: Record<string, string> = {
   "gap year": "năm nghỉ học tạm thời",
   "peer pressure": "áp lực đồng trang lứa",
 
+  // Both animals came back as plain "rùa", so a FLYERS lesson could not tell the land
+  // one from the sea one — and "rùa" alone is what a Vietnamese student pictures for
+  // both. Textbooks here split them, so the gloss does too.
+  "tortoise": "rùa cạn",
+  "turtle": "rùa biển",
+
+};
+
+// ── Phrasal verbs ──────────────────────────────────────────────────────────
+//
+// The generator translates one word at a time, and a phrasal verb is the one place
+// where that always fails: it turned "go down with" into "đi xuống với" (word for word)
+// and "put off" into "cởi ra", which is "take off". Both reached the review table as if
+// they were answers, and a teacher who trusts the column would ship them to a class.
+//
+// So every phrasal verb in the PET and B1 Preliminary appendix is curated here — the
+// two packs whose lists carry them. The meaning that matters for the exam comes first;
+// a second sense follows after "; " only when a school text uses it too. Machine
+// translations of the remaining single words are still fine, because a noun or a verb
+// keeps its sense outside a phrase.
+export const PHRASAL_VERB_MEANINGS: Record<string, string> = {
+  // ── B1 Preliminary ────────────────────────────────────────────────────────
+  "be over": "kết thúc",
+  "break down": "hỏng (máy móc); suy sụp",
+  "break in": "đột nhập",
+  "break up": "chia tay; tan học",
+  "bring up": "nuôi dạy; nêu ra (vấn đề)",
+  "call for": "đòi hỏi, cần có; đến đón",
+  "carry on": "tiếp tục",
+  "carry out": "thực hiện (kế hoạch)",
+  "check out": "trả phòng (khách sạn); kiểm tra",
+  "come on": "thôi nào; đi nào",
+  "cross out": "gạch bỏ",
+  "cut up": "cắt nhỏ",
+  "deal with": "xử lý, giải quyết",
+  "depend on": "phụ thuộc vào",
+  "end up": "cuối cùng thì (ở trong tình trạng nào)",
+  "fill in": "điền vào (mẫu đơn)",
+  "fill up": "đổ đầy",
+  "find out": "phát hiện ra, tìm hiểu",
+  "get along": "hòa thuận với nhau",
+  "get back": "trở về; lấy lại",
+  "get down": "xuống khỏi; ghi lại",
+  "get in": "lên (xe); vào trong",
+  "get off": "xuống (xe)",
+  "get on": "lên (xe); hòa thuận; tiếp tục",
+  "get rid of": "vứt bỏ, loại bỏ",
+  "give back": "trả lại",
+  "give in": "nhượng bộ, đầu hàng",
+  "give out": "phân phát",
+  "give up": "từ bỏ",
+  "give way": "nhường đường",
+  "go for": "chọn; đi (dạo, bơi…)",
+  "go off": "nổ; kêu (chuông); ôi thiu",
+  "go on": "tiếp tục",
+  "go out": "đi ra ngoài; tắt (đèn)",
+  "go with": "đi cùng; hợp với",
+  "go together": "đi cùng nhau; hợp nhau",
+  "grow up": "lớn lên",
+  "hand in": "nộp (bài)",
+  "hand out": "phát, phân phát",
+  "hang out": "đi chơi với bạn",
+  "hang up": "cúp máy",
+  "hold up": "trì hoãn; cướp (ngân hàng)",
+  "keep in": "giữ ở trong nhà",
+  "keep on": "tiếp tục",
+  "keep up": "theo kịp",
+  "knock down": "đánh ngã; đâm đổ",
+  "lie down": "nằm xuống",
+  "look after": "chăm sóc",
+  "look for": "tìm kiếm",
+  "look forward to": "mong chờ",
+  "look out": "coi chừng!",
+  "look up": "tra cứu",
+  "pass on": "truyền lại, chuyển (tin nhắn)",
+  "pick up": "nhặt lên; đón (ai)",
+  "put away": "cất đi",
+  "put down": "đặt xuống; ghi lại",
+  "put off": "trì hoãn; làm nản lòng",
+  "put on": "mặc vào; bật (đèn)",
+  "put out": "dập tắt (lửa)",
+  "put through": "nối máy (điện thoại)",
+  "put up": "dựng lên, treo lên",
+  "ring back": "gọi lại",
+  "ring up": "gọi điện",
+  "run out": "hết (run out of)",
+  "set off": "khởi hành",
+  "set out": "lên đường; trình bày (mục tiêu)",
+  "set up": "thiết lập, thành lập",
+  "show up": "xuất hiện, đến",
+  "sit down": "ngồi xuống",
+  "split up": "chia tay; chia nhóm",
+  "stay behind": "ở lại (sau khi người khác về)",
+  "take off": "cất cánh; cởi ra",
+  "take up": "bắt đầu (chơi môn gì); chiếm (thời gian)",
+  "throw away": "vứt đi",
+  "tidy up": "dọn dẹp",
+  "try on": "mặc thử",
+  "turn down": "từ chối; vặn nhỏ",
+  "turn into": "biến thành",
+  "turn off": "tắt",
+  "turn on": "bật",
+  "turn up": "đến, xuất hiện; vặn to",
+  "wake up": "thức dậy",
+  "wash up": "rửa bát đĩa",
+  "wear out": "làm mòn; kiệt sức",
+  "work out": "tập thể dục; tính ra",
+  "wrap up": "gói lại; mặc ấm",
+  "write down": "ghi lại",
+
+  // ── B2 First ──────────────────────────────────────────────────────────────
+  "back up": "sao lưu; ủng hộ",
+  "blow up": "nổ tung; nổi giận",
+  "break off": "kết thúc đột ngột; bẻ gãy",
+  "break out": "bùng nổ (chiến tranh, dịch bệnh); trốn thoát",
+  "break through": "vượt qua, phá vỡ",
+  "bring out": "ra mắt (sản phẩm); làm nổi bật",
+  "build up": "tích lũy, tăng dần",
+  "burst out": "bật ra (cười, khóc)",
+  "call off": "hủy bỏ",
+  "care for": "chăm sóc",
+  "catch up with": "bắt kịp",
+  "check on": "xem tình hình, kiểm tra",
+  "clear up": "dọn dẹp; làm sáng tỏ; tạnh",
+  "come across": "tình cờ gặp; vượt qua",
+  "come along": "đi theo, đến",
+  "come down with": "bị mắc (bệnh)",
+  "come off": "bong ra; thành công",
+  "come out": "ra mắt, xuất bản; lộ ra",
+  "come round": "tỉnh lại; ghé thăm",
+  "come up with": "nghĩ ra (ý tưởng)",
+  "count on": "trông cậy vào",
+  "cut down": "cắt giảm",
+  "do away with": "loại bỏ",
+  "do up": "sửa sang; cài (khuy áo)",
+  "do without": "nhịn, không cần",
+  "draw up": "soạn thảo; dừng (xe)",
+  "fall out": "cãi nhau; rơi ra",
+  "fall through": "thất bại (kế hoạch)",
+  "fit in with": "phù hợp với",
+  "get across": "truyền đạt (ý)",
+  "get away with": "làm mà không bị phạt",
+  "get down to": "bắt tay vào (việc)",
+  "get into": "đi vào; bắt đầu thích",
+  "get on with": "hòa thuận với; tiếp tục (việc)",
+  "get out of": "thoát khỏi",
+  "get over": "vượt qua; bình phục",
+  "get round to": "thu xếp được thời gian để làm",
+  "get through": "hoàn thành; liên lạc được",
+  "get together": "gặp nhau, tụ họp",
+  "get up": "thức dậy",
+  "give away": "tặng; tiết lộ",
+  "go ahead": "tiến hành, cứ làm đi",
+  "go down with": "bị mắc (bệnh)",
+  "go over": "xem lại, kiểm tra",
+  "go through": "trải qua; xem xét kỹ",
+  "hand over": "bàn giao",
+  "head for": "hướng về phía",
+  "hold back": "kìm lại, giữ lại",
+  "hold on": "chờ đã; giữ chặt",
+  "keep up with": "theo kịp",
+  "knock out": "hạ gục",
+  "leave out": "bỏ sót",
+  "let down": "làm thất vọng",
+  "let off": "tha, không phạt",
+  "live up to": "sống xứng với (kỳ vọng)",
+  "look back": "nhìn lại (quá khứ)",
+  "look into": "điều tra, xem xét",
+  "look through": "xem lướt qua",
+  "look up to": "kính trọng",
+  "make out": "hiểu ra; nhìn ra",
+  "make up": "bịa (chuyện); làm hòa; trang điểm",
+  "make up for": "bù đắp cho",
+  "miss out on": "bỏ lỡ",
+  "mix up": "nhầm lẫn; trộn lẫn",
+  "pass away": "qua đời",
+  "pass out": "bất tỉnh",
+  "pay off": "trả hết (nợ); mang lại kết quả",
+  "pick on": "bắt nạt; chọn ai để phê bình",
+  "point out": "chỉ ra",
+  "pull out": "rút ra, rút lui",
+  "pull over": "tấp xe vào lề",
+  "put up with": "chịu đựng",
+  "run into": "tình cờ gặp; đâm vào",
+  "run over": "cán qua, đè lên",
+  "see off": "tiễn (ai)",
+  "show off": "khoe khoang",
+  "stand by": "ủng hộ; sẵn sàng",
+  "stand for": "đại diện cho; viết tắt của",
+  "stand out": "nổi bật",
+  "stand up for": "bênh vực",
+  "stand up to": "chống lại, đương đầu",
+  "stay up": "thức khuya",
+  "stick to": "kiên trì với; bám vào",
+  "take after": "giống (người thân)",
+  "take on": "đảm nhận; thuê (người)",
+  "take over": "tiếp quản",
+  "talk into": "thuyết phục (ai làm gì)",
+  "think over": "cân nhắc kỹ",
+  "throw out": "vứt đi",
+  "try out": "thử (nghiệm)",
+  "turn out": "hóa ra; đến (đông)",
+  "turn to": "tìm đến (ai để giúp)",
+  "watch out": "coi chừng",
+  "wear off": "phai dần, mất tác dụng",
+  "work on": "làm việc vào; cải thiện",
 };
 
 // ── Words with more than one sense ──────────────────────────────────────────
@@ -196,6 +402,38 @@ export const VIETNAMESE_MEANINGS: Record<string, string> = {
 // Only senses worth teaching are listed — not every dictionary meaning. Order matters:
 // the first sense is the one the hint shows alone in game modes.
 export const POLYSEMOUS_MEANINGS: Record<string, string> = {
+  // One word, two packs, two parts of speech. These sit in a PET bucket and a B1
+  // bucket under different labels ("account" is a noun at PET, a verb at B1), and the
+  // bank keeps one gloss per word — so a single-sense entry would hand a B1 class the
+  // noun meaning of a verb. Both senses are listed here; the class picks the one in
+  // the lesson.
+  "academic": "học thuật; học giả",
+  "account": "tài khoản; giải thích, chiếm (account for)",
+  "alarm": "báo động; làm lo lắng",
+  "battle": "trận chiến; chiến đấu",
+  "beat": "đánh bại; nhịp",
+  "border": "biên giới; giáp với",
+  "challenge": "thử thách; thách thức",
+  "complex": "phức tạp; khu phức hợp",
+  "divide": "chia; sự chia rẽ",
+  "equal": "bằng nhau; ngang bằng",
+  "favour": "ủng hộ; ân huệ",
+  "fold": "gấp lại; nếp gấp",
+  "fuel": "nhiên liệu; tiếp thêm",
+  "function": "chức năng; hoạt động",
+  "hire": "thuê",
+  "host": "chủ nhà; tổ chức, đăng cai",
+  "hunt": "đi săn; cuộc săn",
+  "medium": "trung bình; phương tiện",
+  "official": "chính thức; quan chức",
+  "package": "gói; đóng gói",
+  "plot": "cốt truyện; âm mưu",
+  "sample": "mẫu; nếm thử",
+  "shift": "ca làm; sự thay đổi; dịch chuyển",
+  "spread": "lây lan; sự lan rộng",
+  "switch": "chuyển đổi; công tắc",
+  "value": "giá trị; coi trọng",
+
   "bank": "ngân hàng; bờ sông",
   "bark": "vỏ cây; tiếng sủa",
   "bat": "con dơi; gậy đánh bóng",
@@ -405,10 +643,14 @@ const wordForms = (key: string): string[] => {
 };
 
 // Most specific first: a multi-sense entry beats the hand-curated single sense, which
-// beats the generated gloss. Kept as one chain so every caller resolves a word the same
-// way — the solo hint, the deck builder and the flashcard back all read through here.
+// beats a phrasal verb's curated sense, which beats the generated gloss. Kept as one
+// chain so every caller resolves a word the same way — the solo hint, the deck builder
+// and the flashcard back all read through here.
 const lookup = (key: string): string | undefined =>
-  POLYSEMOUS_MEANINGS[key] ?? VIETNAMESE_MEANINGS[key] ?? GENERATED_VIETNAMESE_MEANINGS[key];
+  POLYSEMOUS_MEANINGS[key] ??
+  VIETNAMESE_MEANINGS[key] ??
+  PHRASAL_VERB_MEANINGS[key] ??
+  GENERATED_VIETNAMESE_MEANINGS[key];
 
 /**
  * British and American spellings of the same word: "apologise"/"apologize",
