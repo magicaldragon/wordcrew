@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
+import { FlashcardReviewScreen } from './FlashcardReviewScreen';
 import { QuizWork } from './work/QuizWork';
 import { VocabularyWork } from './work/VocabularyWork';
 import { WritingWork } from './work/WritingWork';
@@ -8,6 +9,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
 import {
+  assignmentWords,
+  handInWork,
   percent,
   submitWork,
   type ClassAssignment,
@@ -15,7 +18,7 @@ import {
   type VocabAnswer,
   type WorkDetail,
 } from '../services/classes';
-import type { TeacherAnswer } from '../services/teacherDeck';
+import type { TeacherAnswer, TeacherDeck } from '../services/teacherDeck';
 
 interface ClassWorkScreenProps {
   classId: string;
@@ -30,6 +33,10 @@ interface ClassWorkScreenProps {
  * belongs to a tool: VocabularyWork is Vocabulary Check (Tool 1), QuizWork is multiple
  * choice, WritingWork is the essay. Adding a fourth tool later means adding one module and
  * one branch here, not touching the other three.
+ *
+ * Finishing a round does not hand anything to the teacher. Every attempt is saved as a
+ * pending submission the student can beat, and only the Submit button — or the deadline —
+ * turns the best attempt in. That is the difference between practising and being graded.
  */
 export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assignment, onClose }) => {
   const t = useT('myClass');
@@ -38,23 +45,55 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
   const { user, profile } = useAuth();
   const [roundKey, setRoundKey] = useState(0);
   const [result, setResult] = useState<ClassSubmission | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const student = user?.email
     ? { uid: user.uid, email: user.email, name: profile?.displayName || user.displayName || user.email }
     : null;
 
-  const submit = async (detail: WorkDetail, score: number) => {
+  /** Stores one attempt. Pending, unless `submit` says the student is handing it in. */
+  const record = async (detail: WorkDetail, score: number, submit = false) => {
     if (!student || busy) return;
     setBusy(true);
     try {
-      setResult(await submitWork({ classId, assignment, student, detail, score }));
+      setResult(await submitWork({ classId, assignment, student, detail, score, submit }));
     } catch {
       toast(t.work.submitFailed, 'error');
     } finally {
       setBusy(false);
     }
   };
+
+  /** The student's decision — or the clock's — that the best attempt is final. */
+  const handIn = async (auto = false) => {
+    if (!result || busy) return;
+    setBusy(true);
+    try {
+      const handedIn = await handInWork(classId, result, auto);
+      setResult(handedIn);
+      if (!auto) toast(t.work.result.handedIn, 'success');
+    } catch {
+      toast(t.work.submitFailed, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The deadline can arrive while the result is on screen. Hand in what the student has
+  // already earned rather than lose the attempt — nothing on the server watches the clock.
+  useEffect(() => {
+    if (!result || result.status === 'submitted' || assignment.dueAt === null) return;
+    const left = assignment.dueAt - Date.now();
+    if (left <= 0) {
+      void handIn(true);
+      return;
+    }
+    const timer = window.setTimeout(() => void handIn(true), Math.min(left, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+    // `handIn` reads the result this effect depends on, so re-arming on result change is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, assignment.dueAt]);
 
   const shell = (children: React.ReactNode) => (
     <div className="fixed inset-0 z-50 flex flex-col bg-dark-metal">
@@ -100,6 +139,26 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
     );
   }
 
+  // Revisiting the cards after the work is in: nothing is scored, and leaving puts the
+  // student back on the result they came from.
+  if (reviewing) {
+    const deck: TeacherDeck = {
+      id: assignment.id,
+      name: assignment.title,
+      words: assignmentWords(assignment),
+      createdAt: assignment.createdAt,
+      updatedAt: assignment.createdAt,
+    };
+    return shell(
+      <FlashcardReviewScreen
+        deck={deck}
+        reviewOnly
+        onStartTest={() => setReviewing(false)}
+        onExit={() => setReviewing(false)}
+      />,
+    );
+  }
+
   if (result) {
     return shell(
       <ResultView
@@ -110,6 +169,8 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
           setResult(null);
           setRoundKey((key) => key + 1);
         }}
+        onReview={() => setReviewing(true)}
+        onHandIn={() => void handIn()}
         onClose={onClose}
       />,
     );
@@ -131,11 +192,12 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
               attempts: answer.attempts,
               hints: answer.hints,
               skipped: answer.skipped,
+              mode: answer.mode,
             })),
             responses: [],
             text: '',
           };
-          void submit(detail, percent(correct, answers.length));
+          void record(detail, percent(correct, answers.length));
         }}
         onExit={onClose}
       />,
@@ -151,7 +213,7 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
           const correct = responses.filter(
             (response, at) => response === assignment.questions[at]?.answer,
           ).length;
-          void submit(
+          void record(
             { answers: [], responses, text: '' },
             percent(correct, assignment.questions.length),
           );
@@ -164,7 +226,9 @@ export const ClassWorkScreen: React.FC<ClassWorkScreenProps> = ({ classId, assig
     <WritingWork
       key={roundKey}
       assignment={assignment}
-      onSubmit={(text) => void submit({ answers: [], responses: [], text }, 0)}
+      // An essay is not a test: there is no pass line to beat, so handing it in is the
+      // end of the work and the teacher grades what was written.
+      onSubmit={(text) => void record({ answers: [], responses: [], text }, 0, true)}
     />,
   );
 };
@@ -176,12 +240,25 @@ interface ResultViewProps {
   result: ClassSubmission;
   busy: boolean;
   onRetry: () => void;
+  /** Vocabulary only — reopen the cards without scoring anything. */
+  onReview: () => void;
+  /** Hand the best attempt to the teacher. */
+  onHandIn: () => void;
   onClose: () => void;
 }
 
-const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRetry, onClose }) => {
+const ResultView: React.FC<ResultViewProps> = ({
+  assignment,
+  result,
+  busy,
+  onRetry,
+  onReview,
+  onHandIn,
+  onClose,
+}) => {
   const t = useT('myClass');
   const common = useT('common');
+  const locale = useLocale();
 
   if (assignment.kind === 'writing') {
     return (
@@ -203,7 +280,23 @@ const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRet
 
   const passLine = assignment.passScore ?? 0;
   const passed = result.passed;
-  const missed = result.detail.answers.filter((answer) => !answer.correct);
+  // A pending attempt is practice: the teacher sees nothing until it is handed in.
+  const pending = result.status === 'pending';
+  // No pass line at all (an older assignment) must never trap the student — there is
+  // nothing to clear, so Submit stays available.
+  const canHandIn = assignment.passScore === null || passed;
+  const dueLabel =
+    assignment.dueAt !== null
+      ? new Date(assignment.dueAt).toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+      : null;
+  // A multi-round assignment asks the same word several ways, so the "worth another look"
+  // list is by word, not by answer row.
+  const missed = Array.from(
+    new Map(
+      result.detail.answers.filter((answer) => !answer.correct).map((answer) => [answer.term, answer]),
+    ).values(),
+  );
+  const wordCount = new Set(result.detail.answers.map((answer) => answer.term)).size;
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -221,9 +314,29 @@ const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRet
       <p className="text-xs text-muted-text">
         {t.work.result.attemptLine(
           result.attempts,
-          Math.max(0, result.detail.answers.length || assignment.questions.length),
+          Math.max(0, wordCount || assignment.questions.length),
         )}
       </p>
+
+      {pending ? (
+        <div className="w-full rounded-md border border-[var(--hairline-strong)] bg-dark-metal/60 p-3 text-left">
+          <p className="text-xs font-bold text-light-text">{t.work.result.pendingTitle}</p>
+          <p className="mt-1 text-xs text-muted-text">
+            {canHandIn
+              ? t.work.result.pendingPassed
+              : t.work.result.pendingBelow(passLine)}
+          </p>
+          {dueLabel !== null && (
+            <p className="mt-1 text-xs text-muted-text">{t.work.result.autoNote(dueLabel)}</p>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs font-semibold text-neon-green">
+          {result.autoSubmitted
+            ? t.work.result.autoHandedIn(dueLabel)
+            : t.work.result.handedIn}
+        </p>
+      )}
 
       {missed.length > 0 && (
         <div className="w-full rounded-md border border-[var(--hairline-strong)] bg-dark-metal/60 p-3 text-left">
@@ -267,20 +380,44 @@ const ResultView: React.FC<ResultViewProps> = ({ assignment, result, busy, onRet
       )}
 
       <div className="flex w-full flex-col gap-2 sm:flex-row">
-        {!passed && (
+        {assignment.kind === 'vocabulary' && (
           <button
             type="button"
-            onClick={onRetry}
+            onClick={onReview}
             disabled={busy}
             className="wc-btn wc-btn-secondary min-h-[48px] flex-1 disabled:opacity-50"
           >
-            {common.tryAgain}
+            {t.work.result.reviewWords}
           </button>
         )}
-        <button type="button" onClick={onClose} className="wc-btn wc-btn-primary min-h-[48px] flex-1">
-          {t.work.result.backToClass}
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="wc-btn wc-btn-secondary min-h-[48px] flex-1 disabled:opacity-50"
+        >
+          {pending ? common.tryAgain : t.work.result.practiseAgain}
         </button>
+        {pending ? (
+          <button
+            type="button"
+            onClick={onHandIn}
+            disabled={busy || !canHandIn}
+            className="wc-btn wc-btn-primary min-h-[48px] flex-1 disabled:opacity-40"
+          >
+            {t.work.result.handIn}
+          </button>
+        ) : (
+          <button type="button" onClick={onClose} className="wc-btn wc-btn-primary min-h-[48px] flex-1">
+            {t.work.result.backToClass}
+          </button>
+        )}
       </div>
+      {pending && (
+        <button type="button" onClick={onClose} className="text-xs text-muted-text underline">
+          {t.work.result.later}
+        </button>
+      )}
     </div>
   );
 };

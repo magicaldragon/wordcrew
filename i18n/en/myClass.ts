@@ -116,6 +116,11 @@ export const myClass = {
     notStarted: 'Not started',
     readFeedback: 'Read feedback',
     retryForPass: 'Retry for the pass line',
+    practiceAgain: 'Practise again',
+    inProgress: 'In progress',
+    continueWork: 'Continue',
+    pendingLine: (attempts: number, score: number) =>
+      `Attempt ${attempts} · ${score}% · not handed in`,
   },
 
   work: {
@@ -160,6 +165,22 @@ export const myClass = {
       passLine: (score: number) => `Pass line is ${score}%`,
       attemptLine: (attempts: number, questions: number) =>
         `Attempt ${attempts} · ${questions} ${questions === 1 ? 'question' : 'questions'}`,
+      reviewWords: 'Review the words',
+      practiseAgain: 'Practise again',
+      pendingTitle: 'Not handed in',
+      pendingPassed:
+        'You have cleared the pass line. Retry as often as you like — your teacher only sees this when you press Submit.',
+      pendingBelow: (score: number) =>
+        `You need ${score}% to hand this in. Retry as often as you like; nothing leaves your device yet.`,
+      autoNote: (due: string) =>
+        `On ${due} it is handed in automatically, with your best result.`,
+      handIn: 'Submit to my teacher',
+      handedIn: 'Handed in to your teacher',
+      autoHandedIn: (due: string | null) =>
+        due === null
+          ? 'Handed in automatically when the deadline passed.'
+          : `Handed in automatically when the deadline passed (${due}).`,
+      later: 'Leave it for now',
       worthAnotherLook: 'Worth another look',
       answersTitle: 'How each answer went',
       yourAnswer: (answer: string | null) => (answer === null ? 'No answer' : `You: ${answer}`),

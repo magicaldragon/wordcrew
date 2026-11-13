@@ -117,6 +117,11 @@ export const myClass: Dictionary['myClass'] = {
     notStarted: 'Chưa bắt đầu',
     readFeedback: 'Xem nhận xét',
     retryForPass: 'Làm lại để đạt',
+    practiceAgain: 'Luyện tập lại',
+    inProgress: 'Đang làm',
+    continueWork: 'Làm tiếp',
+    pendingLine: (attempts: number, score: number) =>
+      `Lần ${attempts} · ${score}% · chưa nộp`,
   },
 
   work: {
@@ -161,6 +166,20 @@ export const myClass: Dictionary['myClass'] = {
       passLine: (score: number) => `Cần đạt ${score}%`,
       attemptLine: (attempts: number, questions: number) =>
         `Lần ${attempts} · ${questions} câu hỏi`,
+      reviewWords: 'Ôn lại từ vựng',
+      practiseAgain: 'Luyện lại bài',
+      pendingTitle: 'Chưa nộp',
+      pendingPassed:
+        'Bạn đã đạt mức yêu cầu. Làm lại bao nhiêu lần cũng được — chỉ khi bấm Nộp bài thì giáo viên mới nhận được.',
+      pendingBelow: (score: number) =>
+        `Cần đạt ${score}% mới nộp được. Cứ làm lại tùy ý, giáo viên chưa thấy gì cả.`,
+      autoNote: (due: string) =>
+        `Hết hạn ${due}, bài sẽ tự nộp với kết quả tốt nhất.`,
+      handIn: 'Nộp bài',
+      handedIn: 'Đã nộp cho giáo viên',
+      autoHandedIn: (due: string | null) =>
+        due === null ? 'Đã tự nộp khi hết hạn.' : `Đã tự nộp khi hết hạn ${due}.`,
+      later: 'Để sau, làm tiếp',
       worthAnotherLook: 'Cần xem lại',
       answersTitle: 'Từng câu đã làm',
       yourAnswer: (answer: string | null) => (answer === null ? 'Không trả lời' : `Bạn chọn: ${answer}`),

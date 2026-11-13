@@ -127,6 +127,7 @@ export const teacher: Dictionary['teacher'] = {
     previous: 'Trước',
     next: 'Sau',
     startTest: (count: number) => `Bắt đầu bài kiểm tra · ${count} từ`,
+    done: 'Xong — quay lại kết quả',
   },
 
   test: {

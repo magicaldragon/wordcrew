@@ -17,9 +17,11 @@
 //   quiz        four-choice questions, order and options shuffled per student
 //   writing     a prompt with a minimum word count, graded by the teacher
 //
-// Vocabulary and quiz are scored on submit; writing waits for the teacher. Every kind keeps
-// the best attempt, so a student can retry until the pass line is met without losing an
-// earlier, better result.
+// Vocabulary and quiz are scored as the student finishes each attempt, but the attempt is
+// only *pending*: the student may retry until they are happy and then hand it in, and the
+// deadline hands in the best attempt for anyone who never pressed the button. Writing is
+// handed in straight away and waits for the teacher. Every kind keeps the best attempt, so
+// a retry can never lower a score, and a pass is stuck to the student once earned.
 
 import {
   addDoc,
@@ -36,7 +38,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { AppError } from './apiError';
-import { isTeacherTestMode, type TeacherTestMode, type TeacherWord } from './teacherDeck';
+import { isTeacherTestMode, orderTeacherModes, type TeacherTestMode, type TeacherWord } from './teacherDeck';
 
 const CLASSES = 'classes';
 const CODES = 'classCodes';
@@ -86,8 +88,12 @@ export interface QuizQuestion {
 export interface ClassAssignment {
   id: string;
   kind: ClassKind;
-  /** vocabulary only — how the teacher wants the words asked. */
+  /**
+   * vocabulary only — how the teacher wants the words asked. Assignments made before the
+   * class could ask several styles carry a single `mode`; new ones carry the list.
+   */
   mode?: TeacherTestMode;
+  modes?: TeacherTestMode[];
   title: string;
   /** Teacher's note shown above the work. */
   instructions: string;
@@ -115,6 +121,8 @@ export interface VocabAnswer {
   hints?: number;
   /** The student asked to see the answer instead of answering. */
   skipped?: boolean;
+  /** Which of the assignment's question styles produced this answer. */
+  mode?: TeacherTestMode;
 }
 
 export interface WorkDetail {
@@ -125,6 +133,12 @@ export interface WorkDetail {
   /** writing */
   text: string;
 }
+
+/**
+ * `pending` is the student's own working copy: they may retry as often as they like and
+ * nothing reaches the teacher until they press Submit — or the deadline does it for them.
+ */
+export type SubmissionStatus = 'pending' | 'submitted';
 
 export interface ClassSubmission {
   id: string;
@@ -138,6 +152,10 @@ export interface ClassSubmission {
   passed: boolean;
   attempts: number;
   detail: WorkDetail;
+  /** Pending work is invisible to the teacher; only `submitted` rows are on the report. */
+  status: SubmissionStatus;
+  /** The deadline handed it in rather than the student. */
+  autoSubmitted: boolean;
   submittedAt: number;
   graded: boolean;
   feedback: string;
@@ -146,6 +164,8 @@ export interface ClassSubmission {
 export interface NewAssignment {
   kind: ClassKind;
   mode?: TeacherTestMode;
+  /** vocabulary only — one to three question styles, asked in ladder order. */
+  modes?: TeacherTestMode[];
   title: string;
   instructions: string;
   dueAt: number | null;
@@ -161,6 +181,15 @@ const emptyDetail = (): WorkDetail => ({ answers: [], responses: [], text: '' })
 /** Percent, rounded — the only score format the UI ever shows. */
 export const percent = (correct: number, total: number): number =>
   total > 0 ? Math.round((correct / total) * 100) : 0;
+
+/**
+ * The question styles a vocabulary assignment asks, in the order the student meets them.
+ * Older homework has one style and still works; a set with several runs them as rounds.
+ */
+export const assignmentModes = (assignment: ClassAssignment): TeacherTestMode[] =>
+  assignment.modes && assignment.modes.length > 0
+    ? orderTeacherModes(assignment.modes)
+    : [assignment.mode ?? 'letters'];
 
 // ── Reading documents ──────────────────────────────────────────────────────
 
@@ -193,10 +222,20 @@ const toAssignment = (id: string, data: Record<string, unknown>): ClassAssignmen
     data.kind === 'quiz' || data.kind === 'writing' ? data.kind : 'vocabulary';
   const rawWords = Array.isArray(data.words) ? data.words : [];
   const rawQuestions = Array.isArray(data.questions) ? data.questions : [];
+  // Documents written before multi-mode assignments store one `mode`; reading both keeps
+  // old homework working without a migration.
+  const storedModes = Array.isArray(data.modes)
+    ? data.modes.map(asString).filter(isTeacherTestMode)
+    : [];
+  const legacyMode = isTeacherTestMode(asString(data.mode))
+    ? (data.mode as TeacherTestMode)
+    : 'letters';
+  const modes = orderTeacherModes(storedModes.length > 0 ? storedModes : [legacyMode]);
   return {
     id,
     kind,
-    mode: isTeacherTestMode(asString(data.mode)) ? (data.mode as TeacherTestMode) : 'letters',
+    mode: modes[0],
+    modes,
     title: asString(data.title),
     instructions: asString(data.instructions),
     createdAt: asNumber(data.createdAt),
@@ -244,11 +283,16 @@ const toSubmission = (id: string, data: Record<string, unknown>): ClassSubmissio
           attempts: asNumber(row.attempts, 1),
           hints: asNumber(row.hints, 0),
           skipped: row.skipped === true,
+          mode: isTeacherTestMode(asString(row.mode)) ? (row.mode as TeacherTestMode) : undefined,
         };
       }),
       responses: Array.isArray(detail.responses) ? detail.responses.map((n) => asNumber(n, -1)) : [],
       text: asString(detail.text),
     },
+    // Submissions written before the pending flow have no status, and every one of them
+    // was already handed in — a missing field must read as submitted, never as pending.
+    status: data.status === 'pending' ? 'pending' : 'submitted',
+    autoSubmitted: data.autoSubmitted === true,
     submittedAt: asNumber(data.submittedAt),
     graded: data.graded === true,
     feedback: asString(data.feedback),
@@ -451,9 +495,15 @@ export const createAssignment = async (
   classId: string,
   input: NewAssignment,
 ): Promise<void> => {
+  const modes =
+    input.kind === 'vocabulary'
+      ? orderTeacherModes(input.modes ?? (input.mode ? [input.mode] : ['letters']))
+      : [];
   await addDoc(collection(db!, CLASSES, classId, 'assignments'), {
     kind: input.kind,
-    mode: input.kind === 'vocabulary' ? (input.mode ?? 'letters') : '',
+    // Both fields: `modes` is the full list, `mode` keeps single-style readers working.
+    mode: modes[0] ?? '',
+    modes,
     title: input.title.trim(),
     instructions: input.instructions.trim(),
     createdAt: Date.now(),
@@ -491,18 +541,41 @@ export interface SubmitInput {
   student: { uid: string; email: string; name: string };
   detail: WorkDetail;
   score: number;
+  /**
+   * true when the student presses Submit. Without it the attempt is stored as pending:
+   * only the student sees it, and they may keep retrying.
+   */
+  submit?: boolean;
 }
 
 /**
- * Records an attempt. The best score survives, the answer detail is always the latest
- * attempt, and a pass is sticky — a student who once cleared the line keeps the badge.
+ * Records an attempt. The best score survives, the answer detail travels with that best
+ * score (a casual practice round must not overwrite the work the score came from), and a
+ * pass is sticky — a student who once cleared the line keeps the badge. Writing is the
+ * exception: its text is always the latest draft, because the grade is added by hand.
+ *
+ * An attempt is *pending* unless the student hands it in. Nothing is lost by leaving it
+ * pending: the same document is updated on every retry, so a student who switches device
+ * finds their best score and their last answers waiting for them.
  */
-export const submitWork = async ({ classId, assignment, student, detail, score }: SubmitInput): Promise<ClassSubmission> => {
+export const submitWork = async ({
+  classId,
+  assignment,
+  student,
+  detail,
+  score,
+  submit = false,
+}: SubmitInput): Promise<ClassSubmission> => {
   const id = submissionId(assignment.id, student.uid);
   const ref = doc(db!, CLASSES, classId, 'submissions', id);
   const existing = await getDoc(ref);
   const previous = existing.exists() ? toSubmission(id, existing.data() as Record<string, unknown>) : null;
   const passed = assignment.passScore === null ? false : score >= assignment.passScore;
+  const keepBestDetail = assignment.kind !== 'writing' && previous !== null && score < previous.score;
+  // Once handed in, the row stays handed in — practising afterwards adds a better score
+  // to the same submission instead of opening a new draft.
+  const status: SubmissionStatus =
+    submit || previous?.status === 'submitted' ? 'submitted' : 'pending';
 
   const next: Omit<ClassSubmission, 'id'> = {
     assignmentId: assignment.id,
@@ -513,13 +586,38 @@ export const submitWork = async ({ classId, assignment, student, detail, score }
     score: Math.max(score, previous?.score ?? 0),
     passed: passed || (previous?.passed ?? false),
     attempts: (previous?.attempts ?? 0) + 1,
-    detail,
+    detail: keepBestDetail && previous ? previous.detail : detail,
+    status,
+    autoSubmitted: previous?.autoSubmitted ?? false,
     submittedAt: Date.now(),
     graded: previous?.graded ?? false,
     feedback: previous?.feedback ?? '',
   };
   await setDoc(ref, next, { merge: true });
   return { id, ...next };
+};
+
+/**
+ * Hands in work the student already has — the Submit button, or the deadline. No new
+ * attempt is counted, because no new answers were given.
+ */
+export const handInWork = async (
+  classId: string,
+  submission: ClassSubmission,
+  auto = false,
+): Promise<ClassSubmission> => {
+  const submittedAt = Date.now();
+  await setDoc(
+    doc(db!, CLASSES, classId, 'submissions', submission.id),
+    { status: 'submitted', autoSubmitted: auto, submittedAt },
+    { merge: true },
+  );
+  return {
+    ...submission,
+    status: 'submitted',
+    autoSubmitted: auto || submission.autoSubmitted,
+    submittedAt,
+  };
 };
 
 /** Writing submissions wait for a human; the teacher sets the score and a note. */
@@ -556,7 +654,7 @@ export interface WeakWord {
 export const weakestWords = (submissions: ClassSubmission[], limit = 6): WeakWord[] => {
   const tally = new Map<string, WeakWord>();
   for (const submission of submissions) {
-    if (submission.kind !== 'vocabulary') continue;
+    if (submission.kind !== 'vocabulary' || submission.status !== 'submitted') continue;
     for (const answer of submission.detail.answers) {
       const key = answer.term.toLowerCase();
       const row = tally.get(key) ?? { term: answer.term, gloss: answer.gloss, missed: 0, attempts: 0 };
@@ -581,7 +679,11 @@ export const assignmentStats = (
   submissions: ClassSubmission[],
   assignmentId: string,
 ): AssignmentStats => {
-  const rows = submissions.filter((item) => item.assignmentId === assignmentId);
+  // Pending work is not handed in yet, so it must not lift the class average or the
+  // "submitted" count — the report shows what the teacher actually received.
+  const rows = submissions.filter(
+    (item) => item.assignmentId === assignmentId && item.status === 'submitted',
+  );
   const gradedRows = rows.filter((item) => item.kind !== 'writing' || item.graded);
   const total = gradedRows.reduce((sum, item) => sum + item.score, 0);
   return {
@@ -605,6 +707,10 @@ export const pendingAssignments = (
   assignments: ClassAssignment[],
   submissions: ClassSubmission[],
 ): ClassAssignment[] => {
-  const done = new Set(submissions.filter((item) => item.passed || item.graded).map((item) => item.assignmentId));
+  const done = new Set(
+    submissions
+      .filter((item) => item.status === 'submitted' && (item.passed || item.graded))
+      .map((item) => item.assignmentId),
+  );
   return assignments.filter((item) => !done.has(item.id));
 };

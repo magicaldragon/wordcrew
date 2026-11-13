@@ -17,6 +17,8 @@ import {
   fetchMembers,
   fetchSubmissions,
   fetchTeacherClasses,
+  handInWork,
+  isOverdue,
   removeMember,
   type ClassAssignment,
   type ClassMember,
@@ -87,9 +89,23 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
         fetchAssignments(classId),
         fetchSubmissions(classId),
       ]);
+      // The deadline is enforced from whichever side is online first. A student who never
+      // comes back still has their last attempt handed in when the teacher opens the class,
+      // instead of the report quietly showing the work as never done.
+      const late = results.filter(
+        (item) =>
+          item.status === 'pending' &&
+          work.some(
+            (assignment) => assignment.id === item.assignmentId && isOverdue(assignment),
+          ),
+      );
+      const settled = await Promise.all(
+        late.map((item) => handInWork(classId, item, true).catch(() => item)),
+      );
+      const byId = new Map(settled.map((item) => [item.id, item]));
       setMembers(roster);
       setAssignments(work);
-      setSubmissions(results);
+      setSubmissions(results.map((item) => byId.get(item.id) ?? item));
     } catch {
       toast(t.teacher.loadClassFailed, 'error');
     }

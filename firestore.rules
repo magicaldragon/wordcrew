@@ -47,6 +47,9 @@ rules_version = '2';
 //     members/{emailKey}                    danh sách lớp, email viết thường
 //     assignments/{assignmentId}            bài giao: vocabulary | quiz | writing
 //     submissions/{assignmentId__uid}       bài nộp, mỗi học sinh một doc
+//         status = 'pending' | 'submitted'. Học sinh làm lại bao nhiêu lần cũng được;
+//         bài chỉ lên báo cáo của giáo viên khi status = 'submitted' (học sinh bấm
+//         Nộp, hoặc hết hạn thì app tự nộp). Doc cũ không có status được đọc là đã nộp.
 //   classCodes/{CODE}                       danh bạ mã lớp: code → classId, không gì khác
 //
 //     Quyền trong My Class suy ra TỪ DOC LỚP, không từ users/{uid} của ai:
@@ -351,6 +354,10 @@ service cloud.firestore {
 
         // Làm lại: điểm và trạng thái pass chỉ được tăng (client đã giữ max), còn
         // field chấm bài thì bất động. Giáo viên chấm writing đi qua nhánh riêng.
+        //
+        // Một lần đã nộp thì không rút lại được: `status` chỉ đi từ pending → submitted,
+        // không bao giờ ngược lại. Học sinh vẫn ghi đè bài làm của mình sau khi nộp
+        // (luyện thêm), nhưng bài đó vẫn nằm trên báo cáo của giáo viên.
         allow update: if isClassTeacher(classId) || isAdmin()
           || (isClassMember(classId)
               && request.resource.data.uid == request.auth.uid
@@ -359,7 +366,10 @@ service cloud.firestore {
               && request.resource.data.email == resource.data.email
               && request.resource.data.score >= resource.data.score
               && request.resource.data.graded == resource.data.graded
-              && request.resource.data.feedback == resource.data.feedback);
+              && request.resource.data.feedback == resource.data.feedback
+              && (!resource.data.keys().hasAny(['status'])
+                  || resource.data.status != 'submitted'
+                  || request.resource.data.status == 'submitted'));
 
         allow delete: if isClassTeacher(classId) || isAdmin();
       }
@@ -443,7 +453,7 @@ service cloud.firestore {
 
     function isValidSubmission(data) {
       return data.keys().hasAll(['assignmentId', 'uid', 'email', 'name', 'kind', 'score', 'passed', 'attempts', 'detail', 'submittedAt', 'graded', 'feedback'])
-        && data.keys().hasOnly(['assignmentId', 'uid', 'email', 'name', 'kind', 'score', 'passed', 'attempts', 'detail', 'submittedAt', 'graded', 'feedback'])
+        && data.keys().hasOnly(['assignmentId', 'uid', 'email', 'name', 'kind', 'score', 'passed', 'attempts', 'detail', 'status', 'autoSubmitted', 'submittedAt', 'graded', 'feedback'])
         && data.assignmentId is string && data.assignmentId.size() <= 128
         && data.uid is string
         && data.email is string
@@ -453,6 +463,10 @@ service cloud.firestore {
         && data.passed is bool
         && data.attempts is number && data.attempts >= 1 && data.attempts <= 1000
         && data.detail is map
+        // `status` và `autoSubmitted` là field của luồng pending → submit, nên bài nộp
+        // cũ (chưa có hai field này) vẫn hợp lệ và được đọc là "đã nộp".
+        && (!data.keys().hasAny(['status']) || data.status in ['pending', 'submitted'])
+        && (!data.keys().hasAny(['autoSubmitted']) || data.autoSubmitted is bool)
         && data.submittedAt is number
         && data.graded is bool
         && data.feedback is string && data.feedback.size() <= 2000;

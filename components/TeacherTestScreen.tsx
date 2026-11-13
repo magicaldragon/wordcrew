@@ -150,6 +150,7 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
       attempts: attempt,
       hints,
       skipped: skipped || undefined,
+      mode,
     };
     setAnswers((prev) => [...prev, answer]);
     setRevealed(answer);

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FlashcardReviewScreen } from '../FlashcardReviewScreen';
 import { TeacherTestScreen } from '../TeacherTestScreen';
-import { assignmentWords, type ClassAssignment } from '../../services/classes';
+import { assignmentModes, assignmentWords, type ClassAssignment } from '../../services/classes';
 import type { TeacherAnswer, TeacherDeck, TeacherSession } from '../../services/teacherDeck';
 
 interface VocabularyWorkProps {
@@ -17,9 +17,10 @@ interface VocabularyWorkProps {
  * list to the same study-then-test flow the Teaching tools screen uses, so a student who
  * practised a deck this morning meets the same cards tonight.
  *
- * The question style is the teacher's choice, made on the assignment (`mode`), so every
- * student in the class answers the same kind of question. Old assignments predate the
- * field and default to the letter boxes they used to show.
+ * The teacher may ask the set one, two or three ways. The cards always come first — a
+ * Vietnamese prompt with no prior exposure measures memory, not vocabulary — and then the
+ * rounds run from recognition to recall to listening, so each round leans on the last.
+ * Answers from every round are collected and scored as one submission.
  *
  * This file is the whole of "vocabulary homework". A multiple-choice assignment and a
  * writing assignment each have their own module (QuizWork, WritingWork); ClassWorkScreen
@@ -30,8 +31,11 @@ export const VocabularyWork: React.FC<VocabularyWorkProps> = ({
   onFinish,
   onExit,
 }) => {
+  const modes = useMemo(() => assignmentModes(assignment), [assignment]);
   const [studying, setStudying] = useState(true);
-  const mode = assignment.mode ?? 'letters';
+  const [stage, setStage] = useState(0);
+  // Answers from the rounds already finished; the last round is held in the test screen.
+  const [collected, setCollected] = useState<TeacherAnswer[]>([]);
 
   const deck = useMemo<TeacherDeck>(
     () => ({
@@ -43,6 +47,8 @@ export const VocabularyWork: React.FC<VocabularyWorkProps> = ({
     }),
     [assignment],
   );
+
+  const mode = modes[Math.min(stage, modes.length - 1)];
 
   const session = useMemo<TeacherSession>(
     () => ({
@@ -57,12 +63,28 @@ export const VocabularyWork: React.FC<VocabularyWorkProps> = ({
     return (
       <FlashcardReviewScreen
         deck={deck}
-        lockedMode={mode}
+        lockedMode={modes[0]}
         onStartTest={() => setStudying(false)}
         onExit={onExit}
       />
     );
   }
 
-  return <TeacherTestScreen session={session} onFinish={onFinish} onExit={onExit} />;
+  return (
+    <TeacherTestScreen
+      key={mode}
+      session={session}
+      onFinish={(answers) => {
+        const all = [...collected, ...answers];
+        // Another style still to ask: start its first word straight away.
+        if (stage + 1 < modes.length) {
+          setCollected(all);
+          setStage(stage + 1);
+          return;
+        }
+        onFinish(all);
+      }}
+      onExit={onExit}
+    />
+  );
 };

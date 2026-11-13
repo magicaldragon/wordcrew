@@ -128,6 +128,18 @@ export const TEACHER_TEST_MODES: TeacherTestMode[] = ['listen', 'choice', 'lette
 export const isTeacherTestMode = (value: string): value is TeacherTestMode =>
   (TEACHER_TEST_MODES as string[]).includes(value);
 
+/**
+ * The three styles build on each other: recognising a meaning is easier than recalling a
+ * word from a Vietnamese prompt, which is easier than hearing it and spelling it. A class
+ * set that includes several modes is always asked in this order, whatever order the
+ * teacher ticked them.
+ */
+export const TEACHER_MODE_LADDER: TeacherTestMode[] = ['choice', 'letters', 'listen'];
+
+/** Keeps the chosen styles, drops duplicates and unknown values, and sorts them by ladder. */
+export const orderTeacherModes = (modes: TeacherTestMode[]): TeacherTestMode[] =>
+  TEACHER_MODE_LADDER.filter((mode) => modes.includes(mode));
+
 /** Where a session's words came from. Screens turn this into localized text. */
 export type TeacherSessionOrigin =
   | { kind: 'level'; levelId: TeacherLevelId }
@@ -155,6 +167,8 @@ export interface TeacherAnswer {
   hints: number;
   /** The student chose to see the answer instead of answering. */
   skipped?: boolean;
+  /** Which question style produced this answer — a class set may ask several. */
+  mode?: TeacherTestMode;
 }
 
 // ── Level tests ────────────────────────────────────────────────────────────

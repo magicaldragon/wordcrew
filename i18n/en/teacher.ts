@@ -127,6 +127,7 @@ export const teacher = {
     previous: 'Previous',
     next: 'Next',
     startTest: (count: number) => `Start the test · ${count} words`,
+    done: 'Done — back to results',
   },
 
   test: {

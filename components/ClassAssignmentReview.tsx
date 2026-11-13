@@ -37,6 +37,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
 }) => {
   const t = useT('myClass');
   const common = useT('common');
+  const teacherT = useT('teacher');
   const locale = useLocale();
 
   const [openId, setOpenId] = useState<string | null>(null);
@@ -51,7 +52,11 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
     });
 
   const rows = useMemo(() => {
-    const mine = submissions.filter((item) => item.assignmentId === assignment.id);
+    // Pending work stays with the student until they hand it in (or the deadline does),
+    // so the report only counts rows the teacher actually received.
+    const mine = submissions.filter(
+      (item) => item.assignmentId === assignment.id && item.status === 'submitted',
+    );
     return members.map((member) => ({
       member,
       submission: mine.find((item) => item.email === member.email) ?? null,
@@ -59,7 +64,10 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
   }, [members, submissions, assignment.id]);
 
   const mine = useMemo(
-    () => submissions.filter((item) => item.assignmentId === assignment.id),
+    () =>
+      submissions.filter(
+        (item) => item.assignmentId === assignment.id && item.status === 'submitted',
+      ),
     [submissions, assignment.id],
   );
   const stats = assignmentStats(submissions, assignment.id);
@@ -189,11 +197,19 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
 
                   {submission.kind === 'vocabulary' && (
                     <ul className="flex flex-col gap-1">
-                      {submission.detail.answers.map((answer) => (
-                        <li key={answer.term} className="flex items-baseline justify-between gap-2 text-xs">
+                      {submission.detail.answers.map((answer, index) => (
+                        <li
+                          key={`${answer.term}-${index}`}
+                          className="flex items-baseline justify-between gap-2 text-xs"
+                        >
                           <span className={answer.correct ? 'text-[var(--wn-10)]' : 'text-danger-red'}>
                             {answer.term}
                             <span className="text-[var(--wn-8)]"> · {answer.gloss}</span>
+                            {answer.mode && (
+                              <span className="ml-1.5 rounded bg-[var(--wn-3)] px-1 py-0.5 text-[0.6rem] font-semibold text-[var(--wn-9)]">
+                                {teacherT.setup.modes[answer.mode].label}
+                              </span>
+                            )}
                           </span>
                           <span className="shrink-0 text-right text-[var(--wn-9)]">
                             <span className="block">

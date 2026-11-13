@@ -8,6 +8,7 @@ import {
   fetchAssignments,
   fetchMyClasses,
   fetchSubmissions,
+  handInWork,
   isOverdue,
   joinClassByCode,
   normalizeCode,
@@ -68,10 +69,14 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
     return days <= 3 ? t.student.dueInDays(days) : null;
   };
 
-  /** Work that still needs the student: untouched, or attempted without clearing the line. */
+  /** Work that still needs the student: untouched, pending, or attempted without clearing the line. */
   const owesWork = (assignment: ClassAssignment): boolean => {
     const submission = submissions.find((item) => item.assignmentId === assignment.id);
-    return !submission || (!submission.passed && !submission.graded);
+    return (
+      !submission ||
+      submission.status === 'pending' ||
+      (!submission.passed && !submission.graded)
+    );
   };
 
   // Both doors lead here: the roster line the teacher wrote, or the one this student
@@ -91,8 +96,22 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
         fetchAssignments(classId),
         fetchSubmissions(classId, viewer.uid),
       ]);
+      // A deadline that passed while the app was closed hands in the pending attempt the
+      // moment the student comes back. Nothing on the server watches the clock, so this is
+      // the only chance to save that work.
+      const late = results.filter(
+        (item) =>
+          item.status === 'pending' &&
+          work.some(
+            (assignment) => assignment.id === item.assignmentId && isOverdue(assignment),
+          ),
+      );
+      const settled = await Promise.all(
+        late.map((item) => handInWork(classId, item, true).catch(() => item)),
+      );
+      const byId = new Map(settled.map((item) => [item.id, item]));
       setAssignments(work);
-      setSubmissions(results);
+      setSubmissions(results.map((item) => byId.get(item.id) ?? item));
     } catch {
       toast(t.student.loadFailed, 'error');
     }
@@ -176,7 +195,9 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
   if (!classes.length) return joinForm;
   if (!active) return null;
 
-  const done = submissions.filter((item) => item.passed || item.graded).length;
+  const done = submissions.filter(
+    (item) => item.status === 'submitted' && (item.passed || item.graded),
+  ).length;
   // The reminder only names work that is both unfinished and close to its deadline — a
   // banner that lists everything is a banner nobody reads.
   const reminders = assignments.filter(
@@ -289,16 +310,20 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
                   {submission ? (
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-bold ${
-                        submission.passed
-                          ? 'bg-neon-green/15 text-neon-green'
-                          : submission.graded
-                            ? 'bg-warning-yellow/15 text-warning-yellow'
-                            : 'bg-[var(--wn-3)] text-[var(--wn-10)]'
+                        submission.status === 'pending'
+                          ? 'bg-[var(--wn-3)] text-[var(--wn-10)]'
+                          : submission.passed
+                            ? 'bg-neon-green/15 text-neon-green'
+                            : submission.graded
+                              ? 'bg-warning-yellow/15 text-warning-yellow'
+                              : 'bg-[var(--wn-3)] text-[var(--wn-10)]'
                       }`}
                     >
-                      {submission.kind === 'writing' && !submission.graded
-                        ? t.student.waitingForTeacher
-                        : `${submission.score}%`}
+                      {submission.status === 'pending'
+                        ? t.student.inProgress
+                        : submission.kind === 'writing' && !submission.graded
+                          ? t.student.waitingForTeacher
+                          : `${submission.score}%`}
                     </span>
                   ) : (
                     <span
@@ -324,26 +349,30 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
 
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="text-xs text-[var(--wn-9)]">
-                    {submission ? t.student.attempt(submission.attempts) : t.student.notStarted}
+                    {!submission
+                      ? t.student.notStarted
+                      : submission.status === 'pending'
+                        ? t.student.pendingLine(submission.attempts, submission.score)
+                        : t.student.attempt(submission.attempts)}
                   </span>
                   <button
                     type="button"
                     onClick={() => onOpenAssignment(active.id, assignment)}
                     className={`wc-btn min-h-[44px] px-3 text-xs ${
-                      !submission || (!submission.passed && !submission.graded)
-                        ? 'wc-btn-primary'
-                        : 'wc-btn-secondary'
+                      owesWork(assignment) ? 'wc-btn-primary' : 'wc-btn-secondary'
                     }`}
                   >
                     {!submission
                       ? common.start
-                      : submission.kind === 'writing'
-                        ? submission.graded
-                          ? t.student.readFeedback
-                          : common.open
-                        : submission.passed
-                          ? common.tryAgain
-                          : t.student.retryForPass}
+                      : submission.status === 'pending'
+                        ? t.student.continueWork
+                        : submission.kind === 'writing'
+                          ? submission.graded
+                            ? t.student.readFeedback
+                            : common.open
+                          : submission.passed
+                            ? t.student.practiceAgain
+                            : t.student.retryForPass}
                   </button>
                 </div>
               </li>
