@@ -17,6 +17,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
+  getRedirectResult,
   linkWithCredential,
   linkWithPopup,
   onAuthStateChanged,
@@ -24,6 +25,7 @@ import {
   signInAnonymously,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   updateProfile,
   type User,
@@ -207,6 +209,20 @@ const isLinkConflict = (error: unknown): boolean => {
   );
 };
 
+/**
+ * A blocked popup is a browser setting, not a dead end: the same Google sign-in works as a
+ * full-page redirect. Safari, in-app browsers and a freshly reset browser profile (clearing
+ * a drive resets the profile too) all report the block here, and asking the reader to hunt
+ * for a popup setting they never changed is a worse answer than finishing the sign-in.
+ */
+const isPopupBlocked = (error: unknown): boolean => {
+  const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : '';
+  return (
+    code === 'auth/popup-blocked' ||
+    code === 'auth/operation-not-supported-in-this-environment'
+  );
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Firebase's own user, which may be an anonymous (guest) session. Only a real account is
   // ever surfaced as `user`, so every "sign in to continue" gate keeps working untouched.
@@ -221,6 +237,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       return;
     }
+    // Consume the result of a redirect sign-in. The signed-in user arrives through
+    // onAuthStateChanged either way, so this only clears Firebase's pending handler and
+    // logs a failed comeback — the dialog that started the flow no longer exists.
+    void getRedirectResult(auth).catch((error) => {
+      console.warn('[WordCrew] Google redirect sign-in did not complete.', error);
+    });
     return onAuthStateChanged(auth, (nextUser) => {
       setIdentity(nextUser);
       setLoading(false);
@@ -298,11 +320,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await linkWithPopup(instance.currentUser, googleProvider);
           return;
         } catch (error) {
+          if (isPopupBlocked(error)) throw error;
           if (!isLinkConflict(error)) throw error;
         }
       }
       await signInWithPopup(instance, googleProvider);
     } catch (error) {
+      if (isPopupBlocked(error)) {
+        // Retry as a redirect — no linking on this path: a redirect cannot report a link
+        // conflict back to the click that started it, and guessing would bounce the reader
+        // through Google twice. The guest identity is dropped instead; the account is the
+        // identity that matters once they sign in.
+        await signInWithRedirect(instance, googleProvider);
+        return;
+      }
       throw new AppError(authErrorCode(error));
     }
   }, [requireAuth]);

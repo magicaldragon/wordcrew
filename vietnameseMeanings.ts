@@ -182,6 +182,17 @@ export const VIETNAMESE_MEANINGS: Record<string, string> = {
   "tortoise": "rùa cạn",
   "turtle": "rùa biển",
 
+  // The generator drops function words on purpose (translated alone, "may" reads as
+  // "tháng Năm"), but these six are taught as vocabulary in the FLYERS and KET packs.
+  // Without an entry they vanished from a level test silently, because a word with no
+  // gloss is skipped rather than shown empty.
+  "may": "có thể; tháng Năm",
+  "only": "chỉ; duy nhất",
+  "own": "của riêng; sở hữu",
+  "please": "làm ơn, vui lòng",
+  "same": "giống nhau, như nhau",
+  "thank": "cảm ơn",
+
 };
 
 // ── Phrasal verbs ──────────────────────────────────────────────────────────
