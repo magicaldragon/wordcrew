@@ -1,6 +1,6 @@
 {
   "name": "wordcrew",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A fun word guessing game for students.",
   "private": true,
   "type": "module",
