@@ -51,8 +51,10 @@ nên có quyền thương mại, nhưng phải lưu bằng chứng.**
 
 ## 5. Việc còn lại phải làm trước khi mở bán
 
-1. Thay 11 tệp SFX lấy từ myinstants. Nguồn thay thế gợi ý: Freesound (lọc CC0), Pixabay Audio,
-   hoặc tự thu/mô phỏng lại bằng DAW. Ghi lại giấy phép của từng tệp mới ngay khi thay.
+1. Thay 11 tệp SFX lấy từ myinstants. Danh sách cần đặt (mô tả âm thanh, độ dài, prompt Suno)
+   nằm trong [danh-sach-thay-the.md](../am-thanh/danh-sach-thay-the.md). Nguồn thay thế gợi ý:
+   Freesound (lọc CC0), Pixabay Audio, hoặc tự thu/mô phỏng lại bằng DAW. Ghi lại giấy phép của
+   từng tệp mới ngay khi thay.
 2. Lưu bộ bằng chứng Suno: hoá đơn gói Pro + bảng ngày tạo/ngày tải của 9 bài. Bài nào không
    chứng minh được là tạo trong kỳ trả phí thì thay.
 3. Đối chiếu điều khoản Cloudflare Workers AI / Deepgram về việc dùng thương mại đầu ra của mô
