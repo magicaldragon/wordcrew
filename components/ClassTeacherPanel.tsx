@@ -53,8 +53,8 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const [assignments, setAssignments] = useState<ClassAssignment[]>([]);
   const [submissions, setSubmissions] = useState<ClassSubmission[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: 'overview' });
-  /** Which half of the open class is showing: the roster or the work. */
-  const [pane, setPane] = useState<'roster' | 'work'>('roster');
+  /** Which half of the open class is showing: the roster, the work, or the class report. */
+  const [pane, setPane] = useState<'roster' | 'work' | 'report'>('roster');
   const [busy, setBusy] = useState(false);
 
   const [newClassName, setNewClassName] = useState('');
@@ -65,6 +65,29 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const active = useMemo(
     () => classes?.find((item) => item.id === activeId) ?? classes?.[0] ?? null,
     [classes, activeId],
+  );
+
+  /**
+   * The report reads one cell per student per assignment, so the rows are indexed once
+   * by assignment and then by email rather than scanned inside every cell.
+   */
+  const cells = useMemo(() => {
+    const index = new Map<string, Map<string, ClassSubmission>>();
+    for (const item of submissions) {
+      const roster = index.get(item.assignmentId) ?? new Map<string, ClassSubmission>();
+      roster.set(item.email, item);
+      index.set(item.assignmentId, roster);
+    }
+    return index;
+  }, [submissions]);
+
+  /** Writing that has been handed in but not scored is the only work waiting on a human. */
+  const toGrade = useMemo(
+    () =>
+      submissions.filter(
+        (item) => item.status === 'submitted' && item.kind === 'writing' && !item.graded,
+      ).length,
+    [submissions],
   );
 
   const formatDue = (dueAt: number | null): string =>
@@ -473,13 +496,14 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
             {([
               ['roster', t.teacher.rosterTab(members.length)],
               ['work', t.teacher.workTab(assignments.length)],
+              ['report', t.teacher.progressTab],
             ] as const).map(([id, label]) => (
               <button
                 key={id}
                 type="button"
                 aria-pressed={pane === id}
                 onClick={() => setPane(id)}
-                className={`min-h-[44px] flex-1 rounded-[calc(var(--r-md)-2px)] px-3 text-sm font-semibold transition-colors ${
+                className={`min-h-[44px] flex-1 truncate rounded-[calc(var(--r-md)-2px)] px-2 text-[0.8125rem] font-semibold transition-colors sm:px-3 sm:text-sm ${
                   pane === id
                     ? 'bg-[var(--card-bg)] text-[var(--wn-12)] shadow-sm'
                     : 'text-[var(--wn-9)] hover:text-[var(--wn-12)]'
@@ -581,7 +605,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
               </ul>
             )}
           </div>
-        ) : (
+        ) : pane === 'work' ? (
           <div className="flex flex-col gap-3 p-4">
             <div className="flex justify-end">
               <button
@@ -647,6 +671,145 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                   );
                 })}
               </ul>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h4 className="text-sm font-bold text-[var(--wn-12)]">{t.teacher.report.title}</h4>
+              <p className="text-xs text-[var(--wn-10)]">
+                {t.teacher.report.summary(members.length, assignments.length, toGrade)}
+              </p>
+            </div>
+
+            {members.length === 0 || assignments.length === 0 ? (
+              <p className="text-sm text-[var(--wn-10)]">
+                {assignments.length === 0 ? t.teacher.report.nothingYet : t.review.noStudents}
+              </p>
+            ) : (
+              <>
+                <p className="text-xs leading-snug text-[var(--wn-10)]">{t.teacher.report.hint}</p>
+                {/* A matrix rather than two lists: every student against every assignment.
+                    The name column stays pinned so a class of thirty never loses its labels. */}
+                <div className="max-h-[65vh] overflow-auto rounded-[var(--r-md)] border border-[var(--wn-4)]">
+                  <table className="w-full border-separate border-spacing-0 text-left">
+                    <thead>
+                      <tr>
+                        <th
+                          scope="col"
+                          className="sticky left-0 top-0 z-30 min-w-[9rem] border-b border-r border-[var(--wn-4)] bg-[var(--field-bg)] px-3 py-2 text-[0.65rem] font-bold uppercase tracking-wider text-[var(--wn-10)]"
+                        >
+                          {t.teacher.report.student}
+                        </th>
+                        {assignments.map((assignment) => (
+                          <th
+                            key={assignment.id}
+                            scope="col"
+                            className="sticky top-0 z-20 min-w-[7rem] border-b border-l border-[var(--wn-4)] bg-[var(--field-bg)] p-0 align-bottom"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setMode({ kind: 'review', assignment })}
+                              title={assignment.title}
+                              className="flex w-full flex-col gap-0.5 px-2.5 py-2 text-left transition-colors hover:bg-[var(--wn-3)]"
+                            >
+                              <span className="line-clamp-2 text-xs font-semibold text-[var(--wn-12)]">
+                                {assignment.title}
+                              </span>
+                              <span className="text-[0.65rem] text-[var(--wn-9)]">
+                                {t.teacher.doneOf(
+                                  assignmentStats(submissions, assignment.id).submitted,
+                                  members.length,
+                                )}
+                              </span>
+                            </button>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="[&>tr:last-child>*]:border-b-0">
+                      {members.map((member) => {
+                        const row = assignments.map(
+                          (assignment) => cells.get(assignment.id)?.get(member.email) ?? null,
+                        );
+                        const handedIn = row.filter((item) => item?.status === 'submitted').length;
+                        return (
+                          <tr key={member.email}>
+                            <th
+                              scope="row"
+                              className="sticky left-0 z-10 min-w-[9rem] border-b border-r border-[var(--wn-4)] bg-[var(--card-bg)] px-3 py-2 text-left align-middle"
+                            >
+                              <span className="block max-w-[8rem] truncate text-sm font-medium text-[var(--wn-12)]">
+                                {member.name}
+                              </span>
+                              <span className="block text-[0.65rem] text-[var(--wn-9)]">
+                                {t.teacher.doneOf(handedIn, assignments.length)}
+                              </span>
+                            </th>
+                            {row.map((submission, index) => {
+                              const assignment = assignments[index];
+                              const submitted = submission?.status === 'submitted';
+                              const label =
+                                submission === null
+                                  ? t.review.notDone
+                                  : !submitted
+                                    ? t.teacher.report.inProgress
+                                    : submission.kind === 'writing' && !submission.graded
+                                      ? t.review.toGrade
+                                      : `${submission.score}%`;
+                              return (
+                                <td
+                                  key={assignment.id}
+                                  className="border-b border-l border-[var(--wn-4)] p-0 text-center"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => setMode({ kind: 'review', assignment })}
+                                    aria-label={t.teacher.report.cellAria(
+                                      member.name,
+                                      assignment.title,
+                                      label,
+                                    )}
+                                    className="flex min-h-[48px] w-full flex-col items-center justify-center gap-0.5 px-2 transition-colors hover:bg-[var(--wn-3)]"
+                                  >
+                                    {submission === null ? (
+                                      <span className="text-sm text-[var(--wn-8)]">–</span>
+                                    ) : !submitted ? (
+                                      <span className="flex items-center gap-1 text-[0.65rem] font-semibold text-warning-yellow">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-warning-yellow" />
+                                        {t.teacher.report.inProgress}
+                                      </span>
+                                    ) : submission.kind === 'writing' && !submission.graded ? (
+                                      <span className="rounded-full bg-electric-blue/15 px-2 py-0.5 text-[0.65rem] font-bold text-electric-blue">
+                                        {t.review.toGrade}
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className={`rounded-full px-2 py-0.5 text-[0.65rem] font-bold tabular-nums ${
+                                          submission.passed
+                                            ? 'bg-neon-green/15 text-neon-green'
+                                            : 'bg-warning-yellow/15 text-warning-yellow'
+                                        }`}
+                                      >
+                                        {submission.score}%
+                                      </span>
+                                    )}
+                                    {submitted && submission.autoSubmitted && (
+                                      <span className="text-[0.6rem] text-[var(--wn-9)]">
+                                        {t.teacher.report.auto}
+                                      </span>
+                                    )}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}

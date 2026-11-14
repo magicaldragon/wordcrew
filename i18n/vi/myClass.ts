@@ -67,7 +67,20 @@ export const myClass: Dictionary['myClass'] = {
     // Hai tab con trong một lớp, để danh sách học sinh dài không đẩy phần bài tập xuống.
     rosterTab: (count: number) => `Học sinh · ${count}`,
     workTab: (count: number) => `Bài tập · ${count}`,
+    progressTab: 'Báo cáo',
     sectionsAria: 'Các mục trong lớp',
+    report: {
+      title: 'Tiến độ lớp',
+      hint: 'Bấm vào cột để mở báo cáo của bài đó. Dấu – là chưa làm, màu vàng là đang làm, có điểm là đã nộp.',
+      student: 'Học sinh',
+      inProgress: 'Đang làm',
+      auto: 'tự động',
+      nothingYet: 'Giao bài rồi bảng này sẽ tự đầy lên.',
+      summary: (students: number, assignments: number, toGrade: number) =>
+        `${students} học sinh · ${assignments} bài tập${toGrade > 0 ? ` · ${toGrade} bài chờ chấm` : ''}`,
+      cellAria: (student: string, assignment: string, status: string) =>
+        `${student} · ${assignment} · ${status}`,
+    },
     noAssignments:
       'Chưa giao bài nào. Bộ từ, trắc nghiệm hay đề viết — cả ba đều kết thúc bằng một báo cáo.',
     metaLine: (kind: string, due: string, words: number | null, questions: number | null) => {

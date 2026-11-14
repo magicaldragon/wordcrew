@@ -65,7 +65,22 @@ export const myClass = {
     // Two panes inside one class tab, so a full roster never pushes the work below it.
     rosterTab: (count: number) => `Students · ${count}`,
     workTab: (count: number) => `Assignments · ${count}`,
+    progressTab: 'Report',
     sectionsAria: 'Class sections',
+    report: {
+      title: 'Class progress',
+      hint: 'Tap a column to open that assignment’s report. A dash means not done, amber means in progress, a score means handed in.',
+      student: 'Student',
+      inProgress: 'In progress',
+      auto: 'auto',
+      nothingYet: 'Set an assignment and this table starts filling in.',
+      summary: (students: number, assignments: number, toGrade: number) =>
+        `${students} ${students === 1 ? 'student' : 'students'} · ${assignments} ${
+          assignments === 1 ? 'assignment' : 'assignments'
+        }${toGrade > 0 ? ` · ${toGrade} to grade` : ''}`,
+      cellAria: (student: string, assignment: string, status: string) =>
+        `${student} · ${assignment} · ${status}`,
+    },
     noAssignments:
       'Nothing set yet. A word set, a multiple-choice quiz or a writing prompt — all three end in a report.',
     metaLine: (kind: string, due: string, words: number | null, questions: number | null) => {
