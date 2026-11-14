@@ -208,12 +208,17 @@ const WordCard = React.memo(WordCardBase);
 
 // ... (other interfaces)
 
+// Why the round stopped. The end cue follows this, not the clock value: Team mode has no
+// clock of its own, so the winning team clearing the deck has to be reported as `completed`
+// even though the results screen treats it as "no time left".
+type RoundEndReason = 'completed' | 'time-up';
+
 interface GameScreenProps {
   settings: GameSettings;
   onGameEnd: (
     details:
-      | { baseScore: number; timeLeftSeconds: number; wordsGuessed: number; bestStreak: number }
-      | { teamAScore: number; teamBScore: number; wordsGuessed: number; bestStreak: number },
+      | { baseScore: number; timeLeftSeconds: number; wordsGuessed: number; bestStreak: number; endReason?: RoundEndReason }
+      | { teamAScore: number; teamBScore: number; wordsGuessed: number; bestStreak: number; endReason?: RoundEndReason },
   ) => void;
   effectsVolume: number; 
   customCorrectSounds: CustomSoundFile[];
@@ -645,8 +650,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   }, []);
 
   // Scores the round exactly once. Every end path (clock, word pool, manual) funnels
-  // through here so a double-fire can never post two results.
-  const endGameOnce = useCallback((details: { baseScore: number; timeLeftSeconds: number } | { teamAScore: number; teamBScore: number }) => {
+  // through here so a double-fire can never post two results. `endReason` rides along so
+  // the results screen can pick the right cue instead of guessing from the clock.
+  const endGameOnce = useCallback((details: { baseScore: number; timeLeftSeconds: number } | { teamAScore: number; teamBScore: number }, endReason: RoundEndReason) => {
     if (endedRef.current) return;
     endedRef.current = true;
     if (gameTimerIdRef.current) clearInterval(gameTimerIdRef.current);
@@ -654,6 +660,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     // The round stats ride along with every end path so the portal receives them once.
     onGameEndRef.current({
       ...details,
+      endReason,
       wordsGuessed: guessedCountRef.current,
       bestStreak: bestStreakRef.current,
     });
@@ -749,7 +756,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 if (isGameOver) {
                     const finalTeamScores = { ...teamScores };
                     finalTeamScores[currentTurn] += awardedPointsThisTurn;
-                    endGameOnce({ teamAScore: finalTeamScores.A, teamBScore: finalTeamScores.B });
+                    endGameOnce({ teamAScore: finalTeamScores.A, teamBScore: finalTeamScores.B }, 'completed');
                 } else {
                     setCurrentWordIndex(prev => prev + 1);
                     setWordKey(prev => prev + 1);
@@ -905,7 +912,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     wordProcessingTimerIdRef.current = setTimeout(() => {
       if (currentWordIndex + 1 >= shuffledWords.length) {
         onSetRushHourActiveVisuals(false); 
-        endGameOnce({ baseScore: newScore, timeLeftSeconds: gameTimeLeft });
+        endGameOnce({ baseScore: newScore, timeLeftSeconds: gameTimeLeft }, 'completed');
       } else {
         setCurrentWordIndex(prevIndex => prevIndex + 1);
         setWordKey(prevKey => prevKey + 1); 
@@ -963,7 +970,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     if (gameTimeLeft > 0) return;
     setTimeUpEffect(true);
     onSetRushHourActiveVisuals(false);
-    endGameOnce({ baseScore: currentScore, timeLeftSeconds: 0 });
+    endGameOnce({ baseScore: currentScore, timeLeftSeconds: 0 }, 'time-up');
   }, [gameTimeLeft, isTeamMode, showGameUI, currentScore, onSetRushHourActiveVisuals, endGameOnce]);
 
   // Hell Mode: Rush Hour is tied to the clock, not to correct guesses — so a player who
@@ -1309,9 +1316,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setShowEndGameConfirm(false);
     setIsPauseMenuOpen(false);
     if (isTeamMode) {
-        endGameOnce({ teamAScore: teamScores.A, teamBScore: teamScores.B });
+        endGameOnce({ teamAScore: teamScores.A, teamBScore: teamScores.B }, 'time-up');
     } else {
-        endGameOnce({ baseScore: currentScore, timeLeftSeconds: 0 });
+        endGameOnce({ baseScore: currentScore, timeLeftSeconds: 0 }, 'time-up');
     }
     setActiveMusicOverrideRef.current(null);
   }, [currentScore, onSetRushHourActiveVisuals, isTeamMode, teamScores, endGameOnce]);
@@ -1356,7 +1363,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         setIsProcessingWord(true); // Prevent clicks during transition
         wordProcessingTimerIdRef.current = setTimeout(() => {
             if (currentWordIndex + 1 >= shuffledWords.length) {
-                endGameOnce({ teamAScore: teamScores.A, teamBScore: teamScores.B });
+                endGameOnce({ teamAScore: teamScores.A, teamBScore: teamScores.B }, 'completed');
             } else {
                 setCurrentWordIndex(prev => prev + 1);
                 setWordKey(prev => prev + 1);

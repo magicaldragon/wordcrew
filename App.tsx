@@ -735,7 +735,7 @@ const App: React.FC = () => {
   }, []);
 
 
-  const handleGameEnd = useCallback((details: { baseScore?: number; timeLeftSeconds?: number; teamAScore?: number; teamBScore?: number; wordsGuessed: number; bestStreak: number; }) => {
+  const handleGameEnd = useCallback((details: { baseScore?: number; timeLeftSeconds?: number; teamAScore?: number; teamBScore?: number; wordsGuessed: number; bestStreak: number; endReason?: 'completed' | 'time-up' }) => {
     let achievedScore = 0;
     // What the progress counters record. For Normal/Hell that is the score the results
     // screen shows (base + time bonus); for Team it is the winning team's points.
@@ -782,13 +782,17 @@ const App: React.FC = () => {
       setDemoRounds(incrementDemoRounds());
     }
 
-    if (timeLeft <= 0 && achievedScore > 0) {
-      playSound(customTimesUpSound?.data || SINGLE_SOUND_EFFECTS.TIMES_UP_WORD, effectsVolume);
-    } else if (timeLeft <= 0 && achievedScore <= 0) {
-      playSound(customTimesUpSound?.data || SINGLE_SOUND_EFFECTS.TIMES_UP_WORD, effectsVolume);
-    } else {
-      playSound(customGameOverSound?.data || SINGLE_SOUND_EFFECTS.GAME_OVER, effectsVolume);
-    }
+    // The end cue follows why the round stopped, not the clock value: Team mode has no
+    // clock, so a winning team that clears the deck is reported as `completed` even though
+    // the results screen treats it as "no time left". Both cues are positive takes; `result`
+    // is the brighter, more heroic one, so it is kept for actually finishing the deck.
+    const endedOnClock = details.endReason ? details.endReason === 'time-up' : timeLeft <= 0;
+    playSound(
+      endedOnClock
+        ? customTimesUpSound?.data || SINGLE_SOUND_EFFECTS.TIMES_UP_WORD
+        : customGameOverSound?.data || SINGLE_SOUND_EFFECTS.GAME_OVER,
+      effectsVolume,
+    );
     // FIX: Removed redundant 'settings' from dependency array.
   }, [customTimesUpSound, customGameOverSound, effectsVolume, gameSettings, user]);
 

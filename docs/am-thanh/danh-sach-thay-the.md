@@ -45,8 +45,8 @@ myinstants.com (11 tệp này không có giấy phép) và làm lại 9 tệp nh
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `correct-sound.wav` | Người chơi đoán đúng một từ | Chuông 2 nốt đi lên (ví dụ C5→G5), tươi nhưng không chói, đuôi ngắn. Không dùng âm thanh nhận diện được từ game khác | 2,4 s | 0,35–0,6 s | **0,50 s** — tổng hợp, 2 chuông C5→G5 |
 | 2 | `skip-sound.mp3` | Bỏ qua một từ | Tiếng “whoosh” mảnh, trung tính, không mang cảm giác thất bại (bỏ qua là chiến thuật, không phải lỗi) | 0,55 s | 0,3–0,5 s | **1,10 s** — bản cũ của `points-doubler`, được đặt lại tên làm tiếng bỏ qua |
-| 3 | `times-up.mp3` | Hết giờ của một từ | Buzz/horn trầm, hụt hẫng, ngắn dứt khoát. Tránh tiếng buzzer quen thuộc của game truyền hình | 3,0 s | 0,8–1,2 s | **7,32 s** — bản gốc đầy đủ, chỉ hạ đỉnh −0,4 → −3,0 dBFS, MP3 320 kbps |
-| 4 | `result.mp3` | Màn kết thúc ván | Fanfare 4–6 nốt, vui nhưng gọn, không phô trương kiểu “Mario” | 3,5 s | 1,5–2,5 s | **5,02 s** — bản gốc đầy đủ, đuôi tự tắt ở 4,2–4,9 s, giữ nguyên |
+| 3 | `times-up.mp3` | Hết giờ (Normal/Hell) hoặc bấm End Game | Buzz/horn trầm, hụt hẫng, ngắn dứt khoát. Tránh tiếng buzzer quen thuộc của game truyền hình | 3,0 s | 0,8–1,2 s | **7,32 s** — bản gốc đầy đủ, chỉ hạ đỉnh −0,4 → −3,0 dBFS, MP3 320 kbps. Prompt lúc tạo đã đổi nên bản này nghe **tích cực**, không còn kiểu buzz hụt hẫng; chỉ kém hào hùng hơn `result` |
+| 4 | `result.mp3` | Xong hết bộ từ (đoán hết từ trước khi hết giờ) | Fanfare 4–6 nốt, vui nhưng gọn, không phô trương kiểu “Mario” | 3,5 s | 1,5–2,5 s | **5,02 s** — bản gốc đầy đủ, đuôi tự tắt ở 4,2–4,9 s, giữ nguyên; đây là bản sáng và hào hùng nhất trong hai tiếng kết thúc |
 | 5 | `start.mp3` | Bấm “Start Game” | Riser ngắn + một cú hit, cảm giác “vào trận” | 3,6 s | 1,0–1,5 s | **1,41 s** — Suno Pro, giữ riser + hit đầu |
 | 6 | `try-again.wav` | Bấm “Play Again” ở màn kết quả | Pop/click mềm + đuôi ngắn, nhẹ hơn `start.mp3` | 1,4 s | 0,6–1,0 s | **0,40 s** — nội dung cũ của `skip-sound` (whoosh mảnh), đặt lại tên |
 | 7 | `countdown-go.mp3` | Tiếng đếm ngược + “GO!” đầu ván | Một hiệu lệnh duy nhất (còi/whistle/horn), **không lời**, không phải bài nhạc | 11,8 s | 0,8–1,2 s | **6,22 s** — bản gốc đầy đủ, chỉ hạ đỉnh −5,3 → −3,0 dBFS; “3/2/1/GO!” vào ở 1,25 / 2,1 / 3,0 / 3,9 s nên app hiện số theo đúng lưới đó (dẫn nhập 1,25 s, bước cuối 1,3 s) |
@@ -57,6 +57,12 @@ myinstants.com (11 tệp này không có giấy phép) và làm lại 9 tệp nh
 
 `noti.wav` (0,60 s, nội dung cũ của `try-again`) đang được giữ trong `public/audio` để dùng cho
 thông báo sau này, hiện chưa có chỗ nào gọi tới.
+
+**Chọn tiếng kết thúc:** xong hết bộ từ → `result` (hào hùng nhất); hết giờ ở Normal/Hell hoặc bấm
+End Game → `times-up` (tích cực nhưng nhẹ hơn). Không random giữa hai tệp — tiếng phải nói đúng lý
+do ván dừng, người chơi nghe 1–2 ván là nhớ. Lý do được `GameScreen` báo sang qua `endReason`;
+Team mode không có đồng hồ riêng nên hết bộ từ giờ cũng báo `completed` (trước đây bị tính là hết
+giờ, nên đội thắng nghe tiếng “hết giờ”).
 
 
 Ba tệp “tổng hợp” vẫn do `node scripts/generate-sfx.mjs` sinh ra (`correct-sound`, `time-freeze`,
