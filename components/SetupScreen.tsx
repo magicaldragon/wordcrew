@@ -11,6 +11,15 @@ import { addWordSet, readWordSets, removeWordSet, type SavedWordSet } from '../s
 import { SOLO_FREE_SKIPS, SOLO_FREE_TRACK_ID, SOLO_START_HEARTS, SOLO_STYLES, SOLO_STYLE_TIME, SOLO_TIMER_FLOOR, SOLO_TRACKS, DAILY_TRACK, isDailyDoneToday, shortLevel, type SoloTrack, type SoloStyle } from '../services/solo';
 import { readLocalSoloBest } from '../services/soloLeaderboard';
 import { readDueReviews, reviewCount } from '../services/review';
+import {
+  DEFAULT_TEAM_A_COLOR,
+  DEFAULT_TEAM_B_COLOR,
+  TEAM_COLORS,
+  readTeamColors,
+  resolveTeamColor,
+  writeTeamColors,
+  type TeamColorId,
+} from '../services/teamColors';
 import { confirmDialog, toast } from './Feedback';
 import { useT } from '../i18n/useT';
 import { useLocale } from '../i18n/useLocale';
@@ -133,6 +142,9 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
   const [selectedWordTypes, setSelectedWordTypes] = useState<SelectedWordTypes>({ ...DEFAULT_SELECTED_WORD_TYPES });
   const [selectedWordCountForPreset, setSelectedWordCountForPreset] = useState<number>(WORD_COUNT_OPTIONS[2]);
   const [gameMode, setGameMode] = useState<SetupMode>(initialGameMode);
+  // Read once: the pair is device-scoped, like the volume sliders and the custom sounds.
+  const [teamAColor, setTeamAColor] = useState<TeamColorId>(() => readTeamColors().a);
+  const [teamBColor, setTeamBColor] = useState<TeamColorId>(() => readTeamColors().b);
   // Solo's track picker is a step of this same wizard, so the choice is held here.
   const [selectedSoloTrackId, setSelectedSoloTrackId] = useState<string>(SOLO_FREE_TRACK_ID);
   // The two Solo play styles train different skills, so the choice is made on the Mode
@@ -230,6 +242,24 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
       setGameMode(GameMode.NORMAL);
     }
   }, [isUnlocked, gameMode]);
+
+  // A preference, not a per-round choice: saved the moment it changes so the next visit
+  // opens with the same two teams.
+  useEffect(() => {
+    writeTeamColors({ a: teamAColor, b: teamBColor });
+  }, [teamAColor, teamBColor]);
+
+  // One palette, two sides: picking the colour the other team already wears swaps them,
+  // because two identically coloured teams are worse than a rejected pick.
+  const pickTeamColor = useCallback((team: 'A' | 'B', id: TeamColorId) => {
+    if (team === 'A') {
+      if (id === teamBColor) setTeamBColor(teamAColor);
+      setTeamAColor(id);
+    } else {
+      if (id === teamAColor) setTeamAColor(teamBColor);
+      setTeamBColor(id);
+    }
+  }, [teamAColor, teamBColor]);
 
   // Words currently in the textarea, used for the live counter, validation and saving.
   const parsedWords = wordsInput
@@ -369,8 +399,8 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     }
 
     setError('');
-    onGameStart({ words: gameWords, totalTimeLimit, gameMode, timePerWord });
-  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPresets, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit, t]);
+    onGameStart({ words: gameWords, totalTimeLimit, gameMode, timePerWord, teamAColor, teamBColor });
+  }, [wordsInput, totalTimeLimit, onGameStart, gameMode, selectedPresets, selectedWordTypes, timePerWord, isUnlocked, effectiveMaxTimeLimit, t, teamAColor, teamBColor]);
 
   // Multi-select: tapping a pack adds or removes it from the pool the suggestions draw on.
   const togglePreset = (level: CEFRLevel) => {
@@ -448,6 +478,44 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     setCustomRushHourMusicLoop(null);
     setCustomCorrectSounds([]);
     setCustomSkipSounds([]);
+  };
+
+  // Two rows over the same six swatches: the palette is closed, so "fits the board" is
+  // guaranteed by construction instead of by validating a hex string the player typed.
+  const renderTeamColorRow = (team: 'A' | 'B') => {
+    const value = team === 'A' ? teamAColor : teamBColor;
+    const current = resolveTeamColor(value, team === 'A' ? DEFAULT_TEAM_A_COLOR : DEFAULT_TEAM_B_COLOR);
+    const teamName = team === 'A' ? t.play.teamA : t.play.teamB;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold" style={{ color: current.hex }}>{teamName}</span>
+        <div
+          className="flex items-center gap-1.5"
+          role="group"
+          aria-label={`${t.setup.teamColors.label} — ${teamName}`}
+        >
+          {TEAM_COLORS.map((color) => {
+            const selected = color.id === value;
+            return (
+              <button
+                key={color.id}
+                type="button"
+                onClick={() => pickTeamColor(team, color.id)}
+                aria-pressed={selected}
+                aria-label={t.setup.teamColors.optionAria(teamName, t.setup.teamColors.names[color.id])}
+                title={t.setup.teamColors.names[color.id]}
+                className={`flex h-7 w-7 items-center justify-center rounded-full border-2 transition ${
+                  selected ? 'scale-110 border-light-text' : 'border-transparent opacity-70 hover:opacity-100'
+                }`}
+                style={{ backgroundColor: color.hex }}
+              >
+                {selected && <Icon name="check" size={13} className="text-dark-metal" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   const renderSoundUploader = (
@@ -1164,6 +1232,24 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
           onEffectsVolumeChange={onEffectsVolumeChange}
         />
       </div>
+
+      {/* Team colours — every pass-and-play mode reaches this step, so the picker is
+          offered outside Solo (a run has no second team). The choice is a preference:
+          it is saved on change and only painted once Team mode is actually played. */}
+      {!isSoloMode && (
+        <div className="w-full rounded-lg border border-electric-blue/30 p-2 sm:p-3">
+          <div className="mb-1.5 flex items-baseline justify-between gap-2">
+            <p className="text-left text-sm font-semibold uppercase tracking-wider text-electric-blue">
+              {t.setup.teamColors.label}
+            </p>
+            <span className="text-sm text-muted-text setup-screen-small-text">{t.setup.teamColors.hint}</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {renderTeamColorRow('A')}
+            {renderTeamColorRow('B')}
+          </div>
+        </div>
+      )}
 
       {/* Custom sounds — folded by default: the 14 uploaders would otherwise push this
           step past one screen. Volume/SFX above stay visible at all times. */}

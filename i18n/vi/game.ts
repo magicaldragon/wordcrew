@@ -47,6 +47,22 @@ export const game: Dictionary['game'] = {
       resetAllConfirmLabel: 'Đặt lại',
     },
 
+    // Bảng màu đóng thay cho color picker: nền bàn chơi và thẻ từ đều gần đen, chỉ sáu
+    // màu này đủ tương phản ở đó.
+    teamColors: {
+      label: 'Màu chữ 2 đội',
+      hint: 'Dùng ở chế độ Đội',
+      names: {
+        cyan: 'Xanh lơ',
+        orange: 'Cam',
+        emerald: 'Ngọc lục bảo',
+        violet: 'Tím',
+        rose: 'Hồng',
+        amber: 'Hổ phách',
+      },
+      optionAria: (team: string, color: string) => `${team}: ${color}`,
+    },
+
     sounds: {
       upload: 'Tải lên',
       clear: 'Gỡ',

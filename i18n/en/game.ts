@@ -48,6 +48,22 @@ export const game = {
       resetAllConfirmLabel: 'Reset',
     },
 
+    // A closed palette rather than a colour picker: the board and the word card are
+    // near-black, so only these six stay readable there.
+    teamColors: {
+      label: 'Team colours',
+      hint: 'Used in Team mode',
+      names: {
+        cyan: 'Cyan',
+        orange: 'Orange',
+        emerald: 'Emerald',
+        violet: 'Violet',
+        rose: 'Rose',
+        amber: 'Amber',
+      },
+      optionAria: (team: string, color: string) => `${team}: ${color}`,
+    },
+
     sounds: {
       upload: 'Upload',
       clear: 'Clear',

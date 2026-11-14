@@ -18,6 +18,7 @@ import {
 } from './services/teacherDeck';
 import { localDateId } from './services/periods';
 import type { ClassAssignment } from './services/classes';
+import { DEFAULT_TEAM_B_COLOR, resolveTeamColor } from './services/teamColors';
 import { trackText } from './i18n/tracks';
 import { BackgroundMusicPlayer } from './components/BackgroundMusicPlayer';
 import { FeedbackHost, toast } from './components/Feedback';
@@ -1023,6 +1024,10 @@ const App: React.FC = () => {
         }
         return <ResultsScreen 
                   {...gameEndDetails}
+                  // Team mode only, but resolved here so the results card speaks the same
+                  // two colours the board did.
+                  teamAColor={resolveTeamColor(gameSettings.teamAColor)}
+                  teamBColor={resolveTeamColor(gameSettings.teamBColor, DEFAULT_TEAM_B_COLOR)}
                   onHome={handleGoHome}
                   gameMode={gameSettings.gameMode}
                   isUnlocked={isUnlocked}

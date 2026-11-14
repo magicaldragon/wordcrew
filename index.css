@@ -523,3 +523,21 @@
   border-radius: var(--r-lg);
   box-shadow: var(--elev-3);
 }
+
+/* Whose turn it is in Team mode. The tone is injected on the score box as
+   `--team-rgb`, so the glow follows the colour the player picked at setup instead of
+   being locked to the old fixed cyan/orange pair. */
+@keyframes team-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px 2px rgba(var(--team-rgb), 0.4), inset 0 0 4px rgba(var(--team-rgb), 0.2);
+    border-color: rgba(var(--team-rgb), 0.7);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgba(var(--team-rgb), 0.8), inset 0 0 8px rgba(var(--team-rgb), 0.4);
+    border-color: rgb(var(--team-rgb));
+  }
+}
+.team-pulse {
+  animation: team-pulse 1.5s infinite ease-in-out;
+}

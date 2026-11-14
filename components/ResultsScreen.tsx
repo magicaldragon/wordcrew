@@ -5,6 +5,7 @@ import { Icon } from './Icon';
 import type { UnlockOutcome } from '../services/payments';
 import { useT } from '../i18n/useT';
 import { renderEmphasis } from '../i18n/renderEmphasis';
+import { DEFAULT_TEAM_A_COLOR, DEFAULT_TEAM_B_COLOR, resolveTeamColor, type TeamColor } from '../services/teamColors';
 
 interface ResultsScreenProps {
   baseScore?: number;
@@ -12,6 +13,9 @@ interface ResultsScreenProps {
   finalScore?: number;
   teamAScore?: number;
   teamBScore?: number;
+  /** The same two tones the board used, so the score boxes do not change colour at the end. */
+  teamAColor?: TeamColor;
+  teamBColor?: TeamColor;
   onHome: () => void;
   gameMode: GameMode;
   isUnlocked: boolean;
@@ -127,7 +131,7 @@ const SinglePlayerResults: React.FC<Required<Pick<ResultsScreenProps, 'baseScore
 };
 
 
-const TeamResults: React.FC<Required<Pick<ResultsScreenProps, 'teamAScore' | 'teamBScore'>>> = ({ teamAScore, teamBScore }) => {
+const TeamResults: React.FC<Required<Pick<ResultsScreenProps, 'teamAScore' | 'teamBScore' | 'teamAColor' | 'teamBColor'>>> = ({ teamAScore, teamBScore, teamAColor, teamBColor }) => {
   const t = useT('game');
   const winner = teamAScore > teamBScore ? 'A' : (teamBScore > teamAScore ? 'B' : 'draw');
   const winningScore = Math.max(teamAScore, teamBScore);
@@ -146,14 +150,20 @@ const TeamResults: React.FC<Required<Pick<ResultsScreenProps, 'teamAScore' | 'te
         {getWinnerText()}
       </h2>
       <div className="w-full grid grid-cols-2 gap-4 my-2 sm:my-3 px-2 sm:px-4">
-        <div className="text-center p-2 rounded-lg border-2 border-cyan-400/50 bg-cyan-400/10">
-            <p className="text-lg sm:text-xl text-cyan-300 score-breakdown">{t.results.teamA}</p>
+        <div
+          className="text-center p-2 rounded-lg border-2"
+          style={{ borderColor: `rgba(${teamAColor.rgb}, 0.5)`, backgroundColor: `rgba(${teamAColor.rgb}, 0.1)` }}
+        >
+            <p className="text-lg sm:text-xl score-breakdown" style={{ color: teamAColor.soft }}>{t.results.teamA}</p>
             <p className="text-4xl sm:text-5xl font-bold font-heading text-light-text animate-pulseOnce">
                 {teamAScore}
             </p>
         </div>
-        <div className="text-center p-2 rounded-lg border-2 border-orange-400/50 bg-orange-400/10">
-            <p className="text-lg sm:text-xl text-orange-300 score-breakdown">{t.results.teamB}</p>
+        <div
+          className="text-center p-2 rounded-lg border-2"
+          style={{ borderColor: `rgba(${teamBColor.rgb}, 0.5)`, backgroundColor: `rgba(${teamBColor.rgb}, 0.1)` }}
+        >
+            <p className="text-lg sm:text-xl score-breakdown" style={{ color: teamBColor.soft }}>{t.results.teamB}</p>
             <p className="text-4xl sm:text-5xl font-bold font-heading text-light-text animate-pulseOnce">
                 {teamBScore}
             </p>
@@ -173,6 +183,8 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
   finalScore,
   teamAScore,
   teamBScore,
+  teamAColor,
+  teamBColor,
   onHome,
   gameMode,
   isUnlocked,
@@ -197,7 +209,12 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
     <div className={`flex flex-col items-center space-y-4 sm:space-y-5 text-light-text ${resultCardClass} p-3 sm:p-4 rounded-[var(--r-lg)] h-full justify-center`}>
       
       {gameMode === GameMode.TEAM && teamAScore !== undefined && teamBScore !== undefined ? (
-        <TeamResults teamAScore={teamAScore} teamBScore={teamBScore} />
+        <TeamResults
+          teamAScore={teamAScore}
+          teamBScore={teamBScore}
+          teamAColor={teamAColor ?? resolveTeamColor(DEFAULT_TEAM_A_COLOR)}
+          teamBColor={teamBColor ?? resolveTeamColor(DEFAULT_TEAM_B_COLOR)}
+        />
       ) : (
         <SinglePlayerResults baseScore={baseScore ?? 0} timeBonus={timeBonus ?? 0} finalScore={finalScore ?? 0} />
       )}

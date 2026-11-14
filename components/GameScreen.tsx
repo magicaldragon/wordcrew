@@ -15,6 +15,11 @@ import {
 } from '../constants';
 import { getHintMeaning } from '../vietnameseMeanings';
 import { resolveEnglishSynonym } from '../services/synonyms';
+import {
+  DEFAULT_TEAM_A_COLOR,
+  DEFAULT_TEAM_B_COLOR,
+  resolveTeamColor,
+} from '../services/teamColors';
 import { useT } from '../i18n/useT';
 
 type WordDisplayStatus = 'default' | 'correct' | 'skipped'; 
@@ -55,7 +60,8 @@ interface WordCardProps {
   pointAnimationKey: number;
   wordCardRef: React.RefObject<HTMLDivElement>;
   isTeamMode: boolean;
-  textColorClass?: string;
+  /** Inline colour of the word — the team's palette tone, so it is not a fixed class. */
+  textColor?: string;
   isWordVisible: boolean;
   // Shown under the word once the describer has been stuck for a while: a mild
   // English synonym first, then the Vietnamese gloss. Kept out of the auto-fit box
@@ -63,7 +69,7 @@ interface WordCardProps {
   meaningHint?: string;
 }
 
-const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColorClass, isWordVisible, meaningHint }) => {
+const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, animationKey, status, isBouncing, pointsAwardedAnim, pointAnimationKey, wordCardRef, isTeamMode, textColor, isWordVisible, meaningHint }) => {
   const t = useT('game');
   const getCardStyling = () => { 
     switch (status) { 
@@ -144,10 +150,11 @@ const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, 
 
   const cardFlashClass = getCardStyling();
   const bounceClass = isBouncing ? 'animate-rushHourBounce' : '';
-  const wordStyle = {
+  const wordStyle: React.CSSProperties = {
     textShadow: isTeamMode
       ? '0 2px 8px rgba(0, 0, 0, 0.7)' // Darker shadow for better contrast on colors
-      : '0 0 12px rgba(234, 234, 234, 0.6)' // Original light glow
+      : '0 0 12px rgba(234, 234, 234, 0.6)', // Original light glow
+    ...(textColor ? { color: textColor } : null),
   };
 
   return (
@@ -161,7 +168,7 @@ const WordCardBase: React.FC<WordCardProps> = ({ word, wordKey, animationClass, 
             <p
               key={animationKey} 
               ref={wordTextRef}
-              className={`font-heading font-bold text-center leading-none whitespace-nowrap ${animationClass || ''} ${textColorClass || 'text-light-text'}`}
+              className={`font-heading font-bold text-center leading-none whitespace-nowrap ${animationClass || ''}`}
               style={wordStyle}
             >
               {isWordVisible ? word : ''}
@@ -1487,9 +1494,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   );
 
   if (isTeamMode) {
-    const teamAClasses = currentTurn === 'A' && !isPaused ? 'border-cyan-400 animate-teamAPulse' : 'border-[var(--hairline)]';
-    const teamBClasses = currentTurn === 'B' && !isPaused ? 'border-orange-400 animate-teamBPulse' : 'border-[var(--hairline)]';
-    const teamColorClass = currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400';
+    // The two teams' tones come from the setup picker. `--team-rgb` is handed to the box
+    // so one shared `.team-pulse` animation can glow in whichever colour that team wears.
+    const teamA = resolveTeamColor(settings.teamAColor, DEFAULT_TEAM_A_COLOR);
+    const teamB = resolveTeamColor(settings.teamBColor, DEFAULT_TEAM_B_COLOR);
+    const teamColor = currentTurn === 'A' ? teamA : teamB;
+    const teamAClasses = currentTurn === 'A' && !isPaused ? 'team-pulse' : 'border-[var(--hairline)]';
+    const teamBClasses = currentTurn === 'B' && !isPaused ? 'team-pulse' : 'border-[var(--hairline)]';
 
     return (
         <div ref={gameScreenRootRef} className="relative flex flex-col items-center space-y-2 text-light-text w-full h-full overflow-hidden">
@@ -1500,7 +1511,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 <div className="absolute inset-0 bg-dark-metal/90 z-40 flex flex-col items-center justify-center animate-fadeInScaleUp" role="dialog" aria-modal="true">
                     {!revealedEffect ? (
                         <>
-                            <h2 className="text-2xl sm:text-3xl font-heading mb-2"><span className={surpriseBoxInfo.team === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{t.play.teamMilestone(surpriseBoxInfo.team)}</span></h2>
+                            <h2 className="text-2xl sm:text-3xl font-heading mb-2"><span style={{ color: (surpriseBoxInfo.team === 'A' ? teamA : teamB).hex }}>{t.play.teamMilestone(surpriseBoxInfo.team)}</span></h2>
                             <p className="text-lg sm:text-xl text-muted-text mb-6">{t.play.chooseBox}</p>
                             <div className="flex gap-4">
                                 {[1, 2, 3].map(i => (
@@ -1521,22 +1532,30 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
             {/* Top Row: Scores and Timer */}
             <div className={`w-full grid grid-cols-3 items-center gap-2 flex-shrink-0 ${showGameUI ? 'pr-12' : ''}`}>
-                <div ref={teamAScoreBoxRef} className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamAClasses}`}>
-                    <p className="text-base sm:text-lg font-semibold text-cyan-300">{t.play.teamA}</p>
+                <div
+                    ref={teamAScoreBoxRef}
+                    style={{ '--team-rgb': teamA.rgb } as React.CSSProperties}
+                    className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamAClasses}`}
+                >
+                    <p className="text-base sm:text-lg font-semibold" style={{ color: teamA.soft }}>{t.play.teamA}</p>
                     <p className="text-3xl sm:text-4xl font-bold font-heading">{teamScores.A}</p>
                 </div>
                 <div className="text-center">
                     {showGameUI && <CircularTimer timeLeft={turnTimeLeft} totalTime={settings.timePerWord ?? 20} isFrozen={false} isRushHour={false} size={70} strokeWidth={6} />}
                 </div>
-                <div ref={teamBScoreBoxRef} className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamBClasses}`}>
-                    <p className="text-base sm:text-lg font-semibold text-orange-300">{t.play.teamB}</p>
+                <div
+                    ref={teamBScoreBoxRef}
+                    style={{ '--team-rgb': teamB.rgb } as React.CSSProperties}
+                    className={`text-center p-2 border-2 rounded-lg transition-all duration-300 ${teamBClasses}`}
+                >
+                    <p className="text-base sm:text-lg font-semibold" style={{ color: teamB.soft }}>{t.play.teamB}</p>
                     <p className="text-3xl sm:text-4xl font-bold font-heading">{teamScores.B}</p>
                 </div>
             </div>
             
              {/* Turn Indicator */}
             <div className="h-8 flex items-center justify-center w-full relative">
-                {showGameUI && !isPaused && <p className="text-2xl sm:text-3xl font-bold animate-fadeInScaleUp"><span className={currentTurn === 'A' ? 'text-cyan-400' : 'text-orange-400'}>{t.play.teamTurn(currentTurn)}</span></p>}
+                {showGameUI && !isPaused && <p className="text-2xl sm:text-3xl font-bold animate-fadeInScaleUp"><span style={{ color: teamColor.hex }}>{t.play.teamTurn(currentTurn)}</span></p>}
             </div>
             
              {/* Word Counter */}
@@ -1569,7 +1588,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                             pointAnimationKey={pointAnimationKey}
                             wordCardRef={wordCardRef}
                             isTeamMode={isTeamMode}
-                            textColorClass={teamColorClass}
+                            textColor={teamColor.hex}
                             isWordVisible={isWordVisible}
                             meaningHint={visibleHint}
                         />

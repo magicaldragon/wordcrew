@@ -50,8 +50,6 @@ export default {
         skipFlash: 'skipFlash 0.6s ease-out', // Card flash
         subtlePulse: 'subtlePulse 2s infinite ease-in-out',
         floatUpAndAway: 'floatUpAndAway 1.5s ease-out forwards',
-        teamAPulse: 'teamAPulse 1.5s infinite ease-in-out',
-        teamBPulse: 'teamBPulse 1.5s infinite ease-in-out',
         catHappyJump: 'catHappyJump 0.8s ease-out forwards',
         catSadAppear: 'catSadAppear 0.8s ease-out forwards',
         starPop: 'starPop 1s ease-out forwards',
@@ -117,14 +115,6 @@ export default {
           '0%': { transform: 'translateY(0) scale(1.0) rotate(0deg)', opacity: '1' },
           '30%': { transform: 'translate(20px, -40px) scale(2.6) rotate(-15deg)', opacity: '1' },
           '100%': { transform: 'translate(50px, -130px) scale(1.4) rotate(10deg)', opacity: '0' },
-        },
-        teamAPulse: {
-          '0%, 100%': { boxShadow: '0 0 8px 2px rgba(56, 189, 248, 0.4), inset 0 0 4px rgba(56, 189, 248, 0.2)', borderColor: 'rgba(56, 189, 248, 0.7)' },
-          '50%': { boxShadow: '0 0 20px 5px rgba(56, 189, 248, 0.8), inset 0 0 8px rgba(56, 189, 248, 0.4)', borderColor: 'rgba(56, 189, 248, 1)' },
-        },
-        teamBPulse: {
-          '0%, 100%': { boxShadow: '0 0 8px 2px rgba(251, 146, 60, 0.4), inset 0 0 4px rgba(251, 146, 60, 0.2)', borderColor: 'rgba(251, 146, 60, 0.7)' },
-          '50%': { boxShadow: '0 0 20px 5px rgba(251, 146, 60, 0.8), inset 0 0 8px rgba(251, 146, 60, 0.4)', borderColor: 'rgba(251, 146, 60, 1)' },
         },
         catHappyJump: {
           '0%': { transform: 'translateY(10px) scale(0.5) rotate(0deg)', opacity: '0' },
