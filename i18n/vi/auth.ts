@@ -51,6 +51,9 @@ export const auth: Dictionary['auth'] = {
     },
     madeBy: (name: string) => `Tạo bởi ${name}`,
     heartAria: 'trái tim',
+    legalTerms: 'Điều khoản',
+    legalRefund: 'Hoàn tiền',
+    legalPrivacy: 'Bảo mật',
   },
 
   signIn: {

@@ -1,9 +1,15 @@
 # WordCrew — Kế hoạch doanh thu (bản nội bộ)
 
 > Trạng thái hiện tại: **đang mở full – không hiển thị bất kỳ nội dung thu phí nào**.
-> Cờ duy nhất: `BILLING_ENABLED = false` trong [constants.ts](constants.ts).
-> Bật lại = đổi cờ này thành `true` và deploy. Toàn bộ API (`/api/pricing`, `/api/orders`,
-> `/api/licenses/verify`, Sepay webhook, admin grant/revoke) vẫn sống nguyên.
+> Hai cờ phải cùng bật, thiếu một cái là không bán được:
+> - Client: `BILLING_ENABLED = false` trong [constants.ts](constants.ts) — ẩn toàn bộ UI mua.
+> - Server: `"BILLING_ENABLED": "false"` trong [wrangler.jsonc](wrangler.jsonc) — `POST /api/orders`
+>   trả `503 paymentsNotConfigured`. Chỉ giá trị `"true"` mới mở checkout, nên xoá hay viết sai
+>   var sẽ **đóng** bán chứ không tự mở.
+>
+> Webhook Sepay, `/api/pricing`, `/api/entitlements`, `/api/licenses/verify` và admin
+> grant/revoke vẫn sống nguyên khi đóng bán: đơn cũ vẫn được ghi nhận, khách đã trả tiền vẫn giữ
+> quyền. Mở lại = đổi 2 giá trị + deploy, không sửa logic.
 
 ---
 
@@ -167,6 +173,11 @@ việc đếm tay bắt đầu tốn thời gian.
 - [x] Account tab hiện "Vĩnh viễn / Còn N ngày / Đã hết hạn" cho từng lần mua.
 - [x] Lookup lỗi mạng **không** bị coi là "không có quyền": khách đang trả tiền vẫn dùng
       được khi offline, chỉ bị hạ khi server trả lời rõ ràng.
+- [x] Kill switch phía server: var `BILLING_ENABLED` trong `wrangler.jsonc`, chặn `POST /api/orders`
+      mà không đụng webhook hay license.
+- [x] Điều khoản sử dụng / Chính sách hoàn tiền / Chính sách bảo mật tại
+      `public/phap-ly/*.html`, có link ở footer trang chủ.
+- [x] Thoả thuận dùng thử (pilot) cho giáo viên/trung tâm: `docs/phap-ly/thoa-thuan-dung-thu.md`.
 
 ### Còn phải làm trước khi bật
 
@@ -187,13 +198,16 @@ việc đếm tay bắt đầu tốn thời gian.
 
 ### Cách bật (checklist deploy)
 
-1. Kiểm tra các việc "Bắt buộc" ở trên đã xong.
-2. Trong `constants.ts`: `BILLING_ENABLED = true`.
-3. Trong `services/tools.ts`: `TOOL_GATE.mode = 'paid'`, `freeUntil` = ngày hết hạn free phase.
-4. `services/classAccess.ts`: thêm lại giới hạn free tier (số lớp / số học sinh / số bài).
-5. Chạy `npm run typecheck && npm run build`, deploy, rồi test tay: chưa đăng nhập, tài khoản
+1. Kiểm tra các việc "Còn phải làm trước khi bật" đã xong — đặc biệt là điền thông tin pháp lý
+   thật trong `public/phap-ly/*.html` (họ tên, địa chỉ, MST) và dùng TK ngân hàng của hộ KD.
+2. Trong `wrangler.jsonc`: `"BILLING_ENABLED": "true"` rồi deploy worker **trước** — server phải
+   mở, nếu không checkout chỉ trả 503.
+3. Trong `constants.ts`: `BILLING_ENABLED = true`.
+4. Trong `services/tools.ts`: `TOOL_GATE.mode = 'paid'`, `freeUntil` = ngày hết hạn free phase.
+5. `services/classAccess.ts`: thêm lại giới hạn free tier (số lớp / số học sinh / số bài).
+6. Chạy `npm run typecheck && npm run build`, deploy, rồi test tay: chưa đăng nhập, tài khoản
    free, tài khoản Pro còn hạn, tài khoản Pro hết hạn, và tài khoản đã mua 199k.
-6. Bật thanh toán Sepay: kiểm tra 1 giao dịch thật end-to-end trước khi thông báo công khai.
+7. Bật thanh toán Sepay: kiểm tra 1 giao dịch thật end-to-end trước khi thông báo công khai.
 
 ---
 

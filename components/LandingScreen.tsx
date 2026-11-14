@@ -203,11 +203,40 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             </div>
           </section>
 
-          <footer className="mt-auto pt-14 pb-2 font-sans text-xs text-muted-text">
-            {t.landing.madeBy('Mr. C')}{' '}
+          <footer className="mt-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 pt-14 pb-2 font-sans text-xs text-muted-text">
+            <span>{t.landing.madeBy('Mr. C')}</span>
             <span role="img" aria-label={t.landing.heartAria} className="text-danger-red">
               ❤️
             </span>
+            {/* Plain pages under public/phap-ly — they have to be reachable from the
+                landing screen, not only from a receipt. */}
+            <span aria-hidden="true">·</span>
+            <a
+              className="hover:text-neon-green hover:underline"
+              href="/phap-ly/dieu-khoan-su-dung"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t.landing.legalTerms}
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              className="hover:text-neon-green hover:underline"
+              href="/phap-ly/chinh-sach-hoan-tien"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t.landing.legalRefund}
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              className="hover:text-neon-green hover:underline"
+              href="/phap-ly/chinh-sach-bao-mat"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t.landing.legalPrivacy}
+            </a>
           </footer>
         </div>
       </div>

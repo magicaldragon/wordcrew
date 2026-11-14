@@ -51,6 +51,9 @@ export const auth = {
     },
     madeBy: (name: string) => `Made by ${name}`,
     heartAria: 'heart',
+    legalTerms: 'Terms',
+    legalRefund: 'Refunds',
+    legalPrivacy: 'Privacy',
   },
 
   signIn: {

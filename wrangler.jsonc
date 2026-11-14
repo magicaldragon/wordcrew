@@ -32,6 +32,11 @@
     "SEPAY_BANK_ACCOUNT": "7204061994",
     // Public price of the one-time licence. Change here, no app rebuild needed.
     "PRICE_VND": "199000",
+    // Master switch for checkout. Only "true" lets the worker mint new orders; anything
+    // else returns 503 on POST /api/orders. Closing sales does NOT touch the Sepay
+    // webhook or existing licences, so flipping this back to "true" (plus a deploy) is
+    // the whole job of reopening. Keep it false until a tax code / invoices exist.
+    "BILLING_ENABLED": "false",
     // Firebase project whose ID tokens the worker validates before minting an order.
     // Leaving it blank disables the check (local dev only — never ship it blank).
     "FIREBASE_PROJECT_ID": "wordcrew",

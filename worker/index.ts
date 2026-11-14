@@ -27,6 +27,11 @@ export interface Env {
   SEPAY_BANK_ACCOUNT?: string;
   /** Price in VND. Kept in config so pricing can change without rebuilding the app. */
   PRICE_VND?: string;
+  /**
+   * Master switch for selling. Only the exact value `"true"` opens checkout; a missing
+   * or blank var keeps it closed, so a forgotten config can never start charging again.
+   */
+  BILLING_ENABLED?: string;
   /** Public site URL, used to sanity-check the webhook origin when present. */
   PUBLIC_ORIGIN?: string;
   /**
@@ -180,6 +185,13 @@ const planAmount = (plan: BillingPlan, env: Env): number =>
   plan.id === DEFAULT_PLAN_ID ? priceVnd(env) : plan.amount;
 
 const transferDescription = (orderCode: string): string => `WordCrew ${orderCode}`;
+
+/**
+ * Whether checkout may mint new orders. Deliberately opt-in: only `"true"` opens it,
+ * so deleting or typo-ing the var closes sales instead of silently reopening them.
+ */
+const isBillingOpen = (env: Env): boolean =>
+  String(env.BILLING_ENABLED ?? '').trim().toLowerCase() === 'true';
 
 const getPricing = (env: Env): Response =>
   json({
@@ -1148,6 +1160,13 @@ const reportMissingGlosses = async (request: Request, env: Env): Promise<Respons
 const handleApi = async (request: Request, env: Env, url: URL): Promise<Response> => {
   const { pathname } = url;
   const method = request.method.toUpperCase();
+
+  // Closing sales blocks *new* orders only. The Sepay webhook and the licence routes
+  // stay live on purpose: a transfer already in flight is still recorded, and anyone
+  // who paid before the switch keeps their access. Reopening is a config change.
+  if (pathname === '/api/orders' && method === 'POST' && !isBillingOpen(env)) {
+    return fail('paymentsNotConfigured', 'Payments are not configured yet', 503);
+  }
 
   if (pathname === '/api/pricing' && method === 'GET') return getPricing(env);
   if (pathname === '/api/asr' && method === 'POST') return transcribeClip(request, env);
