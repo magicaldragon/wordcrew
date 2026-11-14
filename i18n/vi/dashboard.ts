@@ -9,7 +9,7 @@ export const dashboard: Dictionary['dashboard'] = {
   navAria: 'Các mục trong bảng điều khiển',
 
   nav: {
-    games: 'Trò chơi',
+    games: 'Luyện từ',
     tools: 'Công cụ giảng dạy',
     class: 'Lớp của tôi',
     progress: 'Tiến độ của tôi',
@@ -19,10 +19,10 @@ export const dashboard: Dictionary['dashboard'] = {
   },
 
   sections: {
-    games: { title: 'Bộ trò chơi', subtitle: 'Chọn một trò chơi và bắt đầu ván mới.' },
+    games: { title: 'Bộ luyện từ', subtitle: 'Chọn một chế độ và bắt đầu ván mới.' },
     tools: {
       title: 'Công cụ giảng dạy',
-      subtitle: 'Công cụ lớp học đi kèm trò chơi — không điểm số, không bảng xếp hạng.',
+      subtitle: 'Công cụ lớp học đi kèm phần luyện từ — không điểm số, không bảng xếp hạng.',
     },
     class: {
       title: 'Lớp của tôi',
@@ -49,7 +49,7 @@ export const dashboard: Dictionary['dashboard'] = {
     playToday: 'Chơi hôm nay',
 
     welcomeBack: (name: string) => `Chào mừng trở lại, ${name}.`,
-    heroTitle: 'Trò chơi mà cả lớp cùng hò reo.',
+    heroTitle: 'Luyện từ vựng mà cả lớp cùng hò reo.',
     heroBody:
       'Một người mô tả từ, cả nhóm đoán trước khi hết giờ. Chuyền một màn hình quanh lớp — không cần tài khoản, không cần thêm thiết bị.',
     playFull: 'Chơi bản đầy đủ',

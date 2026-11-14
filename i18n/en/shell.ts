@@ -5,7 +5,7 @@
  */
 export const shell = {
   /** Browser tab title — set by the language provider so it matches the page. */
-  documentTitle: 'WordCrew — Only Talented Guessers',
+  documentTitle: 'WordCrew — Vocabulary practice for class',
 
   banner: {
     solo: 'Solo Challenge',

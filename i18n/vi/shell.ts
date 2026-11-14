@@ -7,7 +7,7 @@ import type { Dictionary } from '../types';
  */
 export const shell: Dictionary['shell'] = {
   /** Tiêu đề tab trình duyệt — provider ngôn ngữ cập nhật để khớp với trang. */
-  documentTitle: 'WordCrew — Chỉ dành cho cao thủ đoán từ',
+  documentTitle: 'WordCrew — Luyện từ vựng cho lớp học',
 
   banner: {
     solo: 'Thử thách Solo',

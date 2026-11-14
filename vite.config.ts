@@ -66,10 +66,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'WordCrew — Only Talented Guessers',
+        name: 'WordCrew — Vocabulary practice for class',
         short_name: 'WordCrew',
         description:
-          'A classroom word game for 2+ players: one describes, the crew guesses. Normal, Hell and Team modes.',
+          'A classroom vocabulary tool for 2+ players: one describes the word, the crew guesses. CEFR packs Pre-A1 to B2, works offline.',
+        categories: ['education'],
         theme_color: '#0d0d14',
         background_color: '#0d0d14',
         display: 'standalone',

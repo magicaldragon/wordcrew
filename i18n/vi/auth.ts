@@ -11,7 +11,7 @@ export const auth: Dictionary['auth'] = {
     back: 'Bảng điều khiển',
     eyebrow: 'Chỉ dành cho cao thủ đoán từ',
     heroBodyBefore:
-      'Một người mô tả từ, cả nhóm cùng đoán. Trò chơi từ ngữ lớp học nhanh và náo nhiệt dành cho',
+      'Một người mô tả từ, cả nhóm cùng đoán. Luyện từ vựng lớp học nhanh và náo nhiệt dành cho',
     heroPlayers: '2 người chơi trở lên',
     heroBodyAfter: 'trên cùng một màn hình.',
     playFull: 'Chơi bản đầy đủ',
@@ -108,7 +108,7 @@ export const auth: Dictionary['auth'] = {
     waiting: '⏳ Đang chờ chuyển khoản…',
     paymentReceived: 'Đã nhận thanh toán — đây là mã bản quyền của bạn.',
     unlockDevice: 'Mở khóa thiết bị này',
-    keepKey: 'Hãy giữ mã này — mã cũng mở khóa trò chơi trên các thiết bị khác của bạn.',
+    keepKey: 'Hãy giữ mã này — mã cũng mở khóa bản đầy đủ trên các thiết bị khác của bạn.',
   },
 
   unlock: {

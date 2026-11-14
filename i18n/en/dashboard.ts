@@ -7,7 +7,7 @@ export const dashboard = {
   navAria: 'Dashboard sections',
 
   nav: {
-    games: 'Games',
+    games: 'Practice',
     tools: 'Teaching tools',
     class: 'My Class',
     progress: 'My progress',
@@ -17,10 +17,10 @@ export const dashboard = {
   },
 
   sections: {
-    games: { title: 'Game collection', subtitle: 'Pick a game and start a round.' },
+    games: { title: 'Word practice', subtitle: 'Pick a mode and start a round.' },
     tools: {
       title: 'Teaching tools',
-      subtitle: 'Classroom tools that sit beside the game — no scores, no leaderboards.',
+      subtitle: 'Classroom tools that sit beside the rounds — no scores, no leaderboards.',
     },
     class: {
       title: 'My Class',
@@ -47,7 +47,7 @@ export const dashboard = {
     playToday: 'Play today’s',
 
     welcomeBack: (name: string) => `Welcome back, ${name}.`,
-    heroTitle: 'The word game your class shouts over.',
+    heroTitle: 'Vocabulary practice your class shouts over.',
     heroBody:
       'One player describes the word; everyone else guesses before the timer runs out. Pass one screen around the room — the crew needs no accounts and no extra devices.',
     playFull: 'Play full version',
@@ -63,7 +63,7 @@ export const dashboard = {
     sampleRound: 'Round 3 of 8',
 
     statsAria: 'What is in the box',
-    stats: { words: 'Words ready', packs: 'CEFR packs', modes: 'Game modes' },
+    stats: { words: 'Words ready', packs: 'CEFR packs', modes: 'Practice modes' },
     chips: {
       levels: 'Levels Pre-A1 to B2',
       words: (count: string) => `${count} words`,

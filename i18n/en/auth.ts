@@ -10,7 +10,7 @@ export const auth = {
     back: 'Dashboard',
     eyebrow: 'Only Talented Guessers',
     heroBodyBefore:
-      'One player describes the word. The crew guesses. The fast, loud classroom word game for',
+      'One player describes the word. The crew guesses. The fast, loud classroom vocabulary practice for',
     heroPlayers: '2 or more players',
     heroBodyAfter: 'on a single screen.',
     playFull: 'Play Full Version',
@@ -109,7 +109,7 @@ export const auth = {
     waiting: '⏳ Waiting for your transfer…',
     paymentReceived: 'Payment received — here is your licence key.',
     unlockDevice: 'Unlock this device',
-    keepKey: 'Keep this key — it also unlocks the game on your other devices.',
+    keepKey: 'Keep this key — it also unlocks the full version on your other devices.',
   },
 
   unlock: {
@@ -122,7 +122,7 @@ export const auth = {
   perks: [
     '💀 Hell Mode — brutal skips & double Rush Hour',
     '📚 4 extra word packs (A2 · A2 Key · B1 · B2)',
-    '⏱️ Up to 60 words & 10 minutes per game',
+    '⏱️ Up to 60 words & 10 minutes per round',
     '🎵 Custom sounds — upload your own music & SFX',
   ],
 };
