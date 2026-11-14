@@ -6,14 +6,19 @@ myinstants.com (11 tệp này không có giấy phép) và làm lại 9 tệp nh
 ## Trạng thái 15/11/2026
 
 - Đã thay **11/11 tệp SFX**. Bốn tệp là bản Suno Pro (`countdown-go`, `result`, `start`,
-  `times-up`, đổi từ `.wav` sang `.mp3`); bảy tệp còn lại **tự tổng hợp** bằng oscillator và
-  noise trong [generate-sfx.mjs](../../scripts/generate-sfx.mjs) — tác phẩm gốc của dự án, không
-  phụ thuộc giấy phép bên thứ ba. Bản build không còn tệp nào từ myinstants.
-- Đã cắt lại cả bốn tệp Suno về đúng độ dài dùng được (bảng dưới): bản gốc 2,7–7,3 s, sau khi cắt
-  1,0–2,2 s, cắt sát đầu transient để tiếng vào ngay khi bấm và không đè lên từ kế tiếp.
+  `times-up`, đổi từ `.wav` sang `.mp3`); ba tệp **tự tổng hợp** bằng oscillator và noise trong
+  [generate-sfx.mjs](../../scripts/generate-sfx.mjs) — tác phẩm gốc của dự án, không phụ thuộc
+  giấy phép bên thứ ba; hai tệp là bản tổng hợp cũ được đặt lại tên cho đúng vai
+  (`skip-sound.mp3` = bản cũ của `points-doubler`, `try-again.wav` = bản cũ của `skip-sound`).
+  Bản build không còn tệp nào từ myinstants.
+- Ba tệp Suno `times-up`, `result`, `countdown-go` đã **trả về bản gốc đầy đủ** vì bản cắt ngắn
+  nghe cụt: `result` 5,02 s, `times-up` 7,32 s, `countdown-go` 6,22 s — **không cắt tệp nào**,
+  chỉ chuẩn hoá đỉnh về −3 dBFS. Chỗ duy nhất từng lệch nhịp là đếm ngược: số “3 · 2 · 1 · GO!”
+  giờ hiện đúng lúc giọng đọc vào (1,25 s · 2,1 s · 3,0 s · 3,9 s), có 1,25 s dẫn nhập trước số
+  đầu, và ván bắt đầu ở 5,2 s khi tiếng vang đã tắt. `start` vẫn giữ 1,41 s.
 - Đã cắt **9 tệp nhạc nền** xuống đoạn hay nhất, cắt đúng ô nhịp: setup 0:59–1:01, game
-  1:29–1:31, rush-hour 0:44. Tổng `public/audio` từ 29,43 MB còn **9,43 MB**.
-- Đã đổi `cacheName` sang `wordcrew-audio-v3`.
+  1:29–1:31, rush-hour 0:44. Tổng `public/audio` từ 29,43 MB còn **9,45 MB**.
+- Đã đổi `cacheName` sang `wordcrew-audio-v4`.
 - Đã tách **mức âm lượng theo màn** (mục 2): màn thiết lập giữ đúng mức người dùng đặt, trong ván
   hạ còn 0,36 lần mức đó, Rush Hour mở ở 0,7 lần rồi tự hạ về mức trong ván sau 6 giây. Không tệp
   nào bị thay hay nén thêm — sáu track game/rush-hour vẫn giữ nguyên để dùng cho game khác sau này.
@@ -29,8 +34,8 @@ myinstants.com (11 tệp này không có giấy phép) và làm lại 9 tệp nh
   mặc định nên đừng mix quá to; giữ dải trung thấp gọn để không lấn giọng announcer.
 - Tổng 9 bài nhạc hiện ~9,3 MB sau khi cắt (bản đầy đủ 27,3 MB, bản gốc `.m4a` 13,7 MB). Cắt
   thêm nữa thì mất chỗ “hay” của bài, không còn tiết kiệm đáng kể.
-- **Cache:** đã đổi `cacheName` trong `vite.config.ts` thành `wordcrew-audio-v3` để máy đã cài
-  PWA buộc tải lại tệp mới. Lần thay tệp sau này phải tăng tiếp lên `v4`.
+- **Cache:** đã đổi `cacheName` trong `vite.config.ts` thành `wordcrew-audio-v4` để máy đã cài
+  PWA buộc tải lại tệp mới. Lần thay tệp sau này phải tăng tiếp lên `v5`.
 
 ## 1. 11 SFX cần thay
 
@@ -39,29 +44,34 @@ myinstants.com (11 tệp này không có giấy phép) và làm lại 9 tệp nh
 | # | Tệp | Phát khi nào | Âm thanh cần đạt | Cũ | Mục tiêu | Thực tế |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `correct-sound.wav` | Người chơi đoán đúng một từ | Chuông 2 nốt đi lên (ví dụ C5→G5), tươi nhưng không chói, đuôi ngắn. Không dùng âm thanh nhận diện được từ game khác | 2,4 s | 0,35–0,6 s | **0,50 s** — tổng hợp, 2 chuông C5→G5 |
-| 2 | `skip-sound.wav` | Bỏ qua một từ | Tiếng “whoosh” mảnh, trung tính, không mang cảm giác thất bại (bỏ qua là chiến thuật, không phải lỗi) | 0,55 s | 0,3–0,5 s | **0,40 s** — tổng hợp, whoosh 2000→620 Hz |
-| 3 | `times-up.mp3` | Hết giờ của một từ | Buzz/horn trầm, hụt hẫng, ngắn dứt khoát. Tránh tiếng buzzer quen thuộc của game truyền hình | 3,0 s | 0,8–1,2 s | **1,20 s** — Suno Pro, cắt từ 0:00 |
-| 4 | `result.mp3` | Màn kết thúc ván | Fanfare 4–6 nốt, vui nhưng gọn, không phô trương kiểu “Mario” | 3,5 s | 1,5–2,5 s | **2,22 s** — Suno Pro, lấy đoạn cao trào 2,06–4,24 s |
+| 2 | `skip-sound.mp3` | Bỏ qua một từ | Tiếng “whoosh” mảnh, trung tính, không mang cảm giác thất bại (bỏ qua là chiến thuật, không phải lỗi) | 0,55 s | 0,3–0,5 s | **1,10 s** — bản cũ của `points-doubler`, được đặt lại tên làm tiếng bỏ qua |
+| 3 | `times-up.mp3` | Hết giờ của một từ | Buzz/horn trầm, hụt hẫng, ngắn dứt khoát. Tránh tiếng buzzer quen thuộc của game truyền hình | 3,0 s | 0,8–1,2 s | **7,32 s** — bản gốc đầy đủ, chỉ hạ đỉnh −0,4 → −3,0 dBFS, MP3 320 kbps |
+| 4 | `result.mp3` | Màn kết thúc ván | Fanfare 4–6 nốt, vui nhưng gọn, không phô trương kiểu “Mario” | 3,5 s | 1,5–2,5 s | **5,02 s** — bản gốc đầy đủ, đuôi tự tắt ở 4,2–4,9 s, giữ nguyên |
 | 5 | `start.mp3` | Bấm “Start Game” | Riser ngắn + một cú hit, cảm giác “vào trận” | 3,6 s | 1,0–1,5 s | **1,41 s** — Suno Pro, giữ riser + hit đầu |
-| 6 | `try-again.wav` | Bấm “Play Again” ở màn kết quả | Pop/click mềm + đuôi ngắn, nhẹ hơn `start.mp3` | 1,4 s | 0,6–1,0 s | **0,60 s** — tổng hợp, pop 760→520 Hz |
-| 7 | `countdown-go.mp3` | Tiếng “GO!” sau khi đếm ngược xong | Một tiếng hiệu lệnh duy nhất (còi/whistle/horn), **không lời**, không phải bài nhạc | 11,8 s | 0,8–1,2 s | **1,04 s** — Suno Pro, lấy cú hit mạnh nhất ở 2,03–3,03 s |
-| 8 | `powerup-collected.mp3` | Nhặt power-up | Arpeggio 3–4 nốt ánh kim, “sparkle”, rất ngắn | 1,0 s | 0,5–0,8 s | **0,70 s** — tổng hợp, arpeggio C6-E6-G6-C7 |
+| 6 | `try-again.wav` | Bấm “Play Again” ở màn kết quả | Pop/click mềm + đuôi ngắn, nhẹ hơn `start.mp3` | 1,4 s | 0,6–1,0 s | **0,40 s** — nội dung cũ của `skip-sound` (whoosh mảnh), đặt lại tên |
+| 7 | `countdown-go.mp3` | Tiếng đếm ngược + “GO!” đầu ván | Một hiệu lệnh duy nhất (còi/whistle/horn), **không lời**, không phải bài nhạc | 11,8 s | 0,8–1,2 s | **6,22 s** — bản gốc đầy đủ, chỉ hạ đỉnh −5,3 → −3,0 dBFS; “3/2/1/GO!” vào ở 1,25 / 2,1 / 3,0 / 3,9 s nên app hiện số theo đúng lưới đó (dẫn nhập 1,25 s, bước cuối 1,3 s) |
+| 8 | `powerup-collected.mp3` | Combo bật (chuỗi đúng ≥3) | Arpeggio 3–4 nốt ánh kim, “sparkle”, rất ngắn | 1,0 s | 0,5–0,8 s | **bỏ** — cùng mốc đó đã có voice line “COMBO!”, thêm sparkle chỉ làm dày bus và nghe giống tiếng bỏ qua |
 | 9 | `time-freeze.mp3` | Kích hoạt đóng băng thời gian | Swoosh đi xuống + shimmer băng, cảm giác thời gian khựng lại | 3,9 s | 1,0–1,5 s | **1,30 s** — tổng hợp, sweep xuống + shimmer 2,1–3,1 kHz |
-| 10 | `skip-freebie-used.mp3` | Dùng lượt bỏ qua miễn phí | Click + swoosh mảnh, nhẹ hơn `skip-sound.wav` để không trùng vai | 1,0 s | 0,4–0,7 s | **0,50 s** — tổng hợp, click + sweep nhẹ |
-| 11 | `points-doubler.mp3` | Rush Hour bắt đầu (x2 điểm) | Còi báo động ngắn + hit, khẩn trương nhưng không hoảng; đây là tín hiệu “luật đổi”, không phải tiếng nhặt đồng xu | 1,3 s | 0,8–1,2 s | **1,10 s** — tổng hợp, alarm 880/660/880 + sub 58 Hz |
+| 10 | `skip-freebie-used.mp3` | Dùng lượt bỏ qua miễn phí | Click + swoosh mảnh, nhẹ hơn `skip-sound` để không trùng vai | 1,0 s | 0,4–0,7 s | **0,50 s** — tổng hợp, click + sweep nhẹ |
+| 11 | `points-doubler.mp3` | Rush Hour bắt đầu (x2 điểm) | Còi báo động ngắn + hit, khẩn trương nhưng không hoảng; đây là tín hiệu “luật đổi”, không phải tiếng nhặt đồng xu | 1,3 s | 0,8–1,2 s | **bỏ** — nội dung đã chuyển sang `skip-sound.mp3`; Rush Hour đã có nhạc riêng + banner + đồng hồ x2 |
+
+`noti.wav` (0,60 s, nội dung cũ của `try-again`) đang được giữ trong `public/audio` để dùng cho
+thông báo sau này, hiện chưa có chỗ nào gọi tới.
 
 
-Bảy tệp “tổng hợp” sinh ra bằng `node scripts/generate-sfx.mjs` (oscillator + noise, chuẩn hoá
-−3 dBFS). Không phải bản Freesound CC0 như phương án ban đầu: đường đó cần tải tay từng tệp và
-vẫn phải lưu lại giấy phép từng tệp, trong khi bản tự tổng hợp thì dự án sở hữu hoàn toàn. Nếu
-sau này muốn âm sắc tự nhiên hơn, các từ khoá dưới đây vẫn dùng được.
+Ba tệp “tổng hợp” vẫn do `node scripts/generate-sfx.mjs` sinh ra (`correct-sound`, `time-freeze`,
+`skip-freebie-used`; oscillator + noise, chuẩn hoá −3 dBFS). `skip-sound` và `try-again` là bản
+tổng hợp của lần trước, giờ do người dùng tự đặt tệp nên **script không ghi đè** — muốn đổi thì
+thay tệp bằng tay. Không phải bản Freesound CC0 như phương án ban đầu: đường đó cần tải tay từng
+tệp và vẫn phải lưu lại giấy phép từng tệp, trong khi bản tự tổng hợp thì dự án sở hữu hoàn toàn.
+Nếu sau này muốn âm sắc tự nhiên hơn, các từ khoá dưới đây vẫn dùng được.
 
 Từ khoá tìm trên Freesound (lọc **CC0**) hoặc Pixabay Audio: `correct answer chime`,
 `short whoosh`, `buzzer fail`, `short victory jingle`, `riser impact`, `ui button pop`,
 `referee whistle`, `coin pickup`, `freeze whoosh`, `ui click swoosh`, `alarm hit`.
 
-Ba vai dễ bị trùng âm sắc, cần nghe cạnh nhau trước khi chốt: `skip-sound` /
-`skip-freebie-used` / `powerup-collected` — phải phân biệt được bằng tai mà không cần nhìn màn hình.
+Hai vai dễ bị trùng âm sắc, cần nghe cạnh nhau trước khi chốt: `skip-sound` /
+`skip-freebie-used` — phải phân biệt được bằng tai mà không cần nhìn màn hình.
 
 ## 2. Nhạc nền: 3 nhóm, 3 biến thể mỗi nhóm
 
@@ -211,17 +221,18 @@ Mix: guitars panned wide but not loud, bass centred, hats soft
 Avoid: vocals, guitar solo, double-kick metal, cymbal crashes on every bar
 ```
 
-## 4. Vì sao 7 SFX còn lại không dùng Suno
+## 4. Vì sao các SFX cơ học không dùng Suno
 
 Suno là mô hình làm **nhạc**, không phải mô hình hiệu ứng âm thanh: nó khó ra được tiếng “click”
 0,4 giây sạch, và mỗi lần tạo tốn credit. Vì vậy:
 
-- 7 tệp cơ học (`skip-sound`, `skip-freebie-used`, `powerup-collected`, `correct-sound`,
-  `time-freeze`, `try-again`, `points-doubler`): **tự tổng hợp** bằng oscillator và filtered
+- 5 tệp cơ học (`correct-sound`, `time-freeze`, `skip-freebie-used`, cùng `skip-sound` và
+  `try-again` — hai bản tổng hợp cũ được đặt lại tên): **tự tổng hợp** bằng oscillator và filtered
   noise trong [generate-sfx.mjs](../../scripts/generate-sfx.mjs). Nhanh hơn, sửa được bằng cách
   đổi vài con số, không tốn credit và không phải lưu giấy phép của ai.
 - 4 tệp có thể coi là “đoạn nhạc ngắn” (`result`, `start`, `times-up`, `countdown-go`): Suno Pro
-  làm, rồi cắt lấy 1–2 giây đắt nhất. Prompt đã dùng:
+  làm. Ba tệp đầu giữ **nguyên bản đầy đủ** (chỉ chuẩn hoá đỉnh), riêng `start` cắt còn 1,41 s.
+  Prompt đã dùng:
 
 ```text
 # result.wav — fanfare kết ván
@@ -246,15 +257,18 @@ underneath; bright and clean; under 1.2 seconds
 Avoid: speech, stadium crowd, echo beyond 0.4 s
 ```
 
-Sau khi cắt, luôn chuẩn hoá đỉnh về −3 dBFS và thêm fade 5 ms hai đầu.
+Sau khi cắt, luôn chuẩn hoá đỉnh về −3 dBFS và thêm fade 5 ms hai đầu. Tệp giữ nguyên bản đầy
+đủ (`times-up`, `result`, `countdown-go`) thì chỉ chuẩn hoá đỉnh — không cắt, không thêm fade.
 
 ## 5. Checklist sau khi có tệp mới
 
-1. Đặt tệp đúng tên trong bảng; nếu đổi đuôi tệp thì sửa `constants.ts` theo. Bảy tệp tổng hợp
-   thì không sửa tay: chạy `node scripts/generate-sfx.mjs` (cần `ffmpeg` cho 4 tệp `.mp3`).
-2. Nghe thử một ván Normal và một ván Hell: ba tiếng `skip-sound` / `skip-freebie-used` /
-   `powerup-collected` phải phân biệt được; `countdown-go` phải khớp lúc chữ “GO” hiện ra.
-3. Đã đổi `cacheName` sang `wordcrew-audio-v3` (15/11/2026). Lần thay sau tăng lên `v4`.
+1. Đặt tệp đúng tên trong bảng; nếu đổi đuôi tệp thì sửa `constants.ts` theo. Ba tệp tổng hợp
+   (`correct-sound`, `time-freeze`, `skip-freebie-used`) thì chạy `node scripts/generate-sfx.mjs`
+   (cần `ffmpeg` cho hai tệp `.mp3`); `skip-sound` và `try-again` thay bằng tay vì script không
+   còn sinh hai tệp đó.
+2. Nghe thử một ván Normal và một ván Hell: hai tiếng `skip-sound` / `skip-freebie-used` phải
+   phân biệt được; `countdown-go` phải khớp lúc chữ “GO” hiện ra (bước cuối giữ 1,3 s).
+3. Đã đổi `cacheName` sang `wordcrew-audio-v4` (15/11/2026). Lần thay sau tăng lên `v5`.
 4. `npm run build`, kiểm tra `dist/audio/` không còn tệp cũ.
 5. Cập nhật bảng nguồn trong [nguon-du-lieu.md](../phap-ly/nguon-du-lieu.md): mỗi tệp mới một
    dòng (nguồn, giấy phép, ngày tải, hoặc ID bài Suno + ngày tạo).

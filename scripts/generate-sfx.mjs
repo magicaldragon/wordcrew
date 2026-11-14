@@ -1,19 +1,22 @@
 // scripts/generate-sfx.mjs
 //
-// Regenerates the seven short cues that used to come from myinstants.com. Everything
-// here is synthesised from oscillators and filtered noise, so the output is an original
-// work of this project and carries no third-party licence — that is the whole point of
-// the file: the build can be shown to contain no borrowed sound.
+// Regenerates the three short mechanic cues that are still synthesised here. Everything
+// this file writes is built from oscillators and filtered noise, so the output is an
+// original work of this project and carries no third-party licence — that is the whole
+// point: the build can be shown to contain no borrowed sound.
 //
 // Usage:
 //   node scripts/generate-sfx.mjs              write into public/audio
 //   node scripts/generate-sfx.mjs --out=DIR    write somewhere else and compare
 //
-// Three cues ship as WAV. Four ship as MP3 because that is the name constants.ts
-// already points at (powerup-collected, time-freeze, skip-freebie-used,
-// points-doubler), so this script re-encodes them when ffmpeg is available: set
-// FFMPEG to a binary path, or have `ffmpeg` on PATH. Without it the WAVs are still
-// written and the script says which files it skipped.
+// The other cues in public/audio are NOT produced here and must not be overwritten:
+//   correct-sound.wav      — synthesised here, kept as WAV (constants.ts expects .wav)
+//   time-freeze.mp3        — synthesised here, encoded to MP3 (constants.ts expects .mp3)
+//   skip-freebie-used.mp3  — synthesised here, encoded to MP3
+//   skip-sound.mp3         — hand-picked render (see docs/am-thanh/danh-sach-thay-the.md)
+//   try-again.wav          — hand-picked render
+// The MP3s need ffmpeg: set FFMPEG to a binary path, or have `ffmpeg` on PATH. Without it
+// the WAVs are still written and the script says which files it skipped.
 //
 // Every cue is normalised to -3 dBFS peak with 5 ms fades so it cannot click, and is
 // mono 44.1 kHz to match the rest of the effect bus.
@@ -114,39 +117,7 @@ function correctSound() {
   return out;
 }
 
-// 2. skip-sound — thin downward whoosh, neutral rather than negative.
-function skipSound() {
-  const out = buf(0.4);
-  add(out, 0.0, mul(sweptNoise(0.34, 2000, 620, 1.1), attackDecay(0.34, 0.012, 9)), 1);
-  return out;
-}
-
-// 3. try-again — soft pop plus a short tail, lighter than start.mp3.
-function tryAgain() {
-  const out = buf(0.6);
-  const body = buf(0.16);
-  for (let i = 0; i < body.length; i++) {
-    const t = i / SR;
-    const f = 760 - 240 * (t / 0.16);
-    body[i] = Math.sin(TAU * f * t) * Math.exp(-t * 22) * 0.8;
-  }
-  add(out, 0.0, body, 1);
-  add(out, 0.0, mul(noise(0.03), expDecay(0.03, 160)), 0.25);
-  add(out, 0.0, mul(sine(392, 0.5), expDecay(0.5, 8)), 0.18);
-  return out;
-}
-
-// 4. powerup-collected — four-note sparkle arpeggio, C6 E6 G6 C7.
-function powerupCollected() {
-  const out = buf(0.7);
-  const notes = [1046.5, 1318.5, 1568.0, 2093.0];
-  const times = [0.0, 0.075, 0.15, 0.225];
-  notes.forEach((f, k) => add(out, times[k], bell(f, 0.42), 0.75 - k * 0.05));
-  add(out, 0.2, mul(sweptNoise(0.3, 5200, 8200, 2.2), attackDecay(0.3, 0.02, 10)), 0.18);
-  return out;
-}
-
-// 5. time-freeze — falling sweep, ice shimmer and a short wash.
+// 2. time-freeze — falling sweep, ice shimmer and a short wash.
 function timeFreeze() {
   const out = buf(1.3);
   const sweep = buf(1.0);
@@ -165,30 +136,11 @@ function timeFreeze() {
   return out;
 }
 
-// 6. skip-freebie-used — click plus a short dry sweep, lighter than skip-sound.
+// 3. skip-freebie-used — click plus a short dry sweep, lighter than skip-sound.
 function skipFreebie() {
   const out = buf(0.5);
   add(out, 0.0, mul(noise(0.012), expDecay(0.012, 220)), 0.4);
   add(out, 0.012, mul(sweptNoise(0.3, 1400, 700, 1.4), attackDecay(0.3, 0.01, 12)), 0.8);
-  return out;
-}
-
-// 7. points-doubler — two-tone alarm over a sub impact for the Rush Hour rule change.
-function pointsDoubler() {
-  const out = buf(1.1);
-  const tone = (freq, dur, amp) => {
-    const o = buf(dur);
-    for (let i = 0; i < o.length; i++) {
-      const t = i / SR;
-      const env = Math.min(1, t / 0.008) * Math.exp(-t * 3.2);
-      o[i] = (Math.sin(TAU * freq * t) + 0.35 * Math.sin(TAU * freq * 3 * t)) * env * amp;
-    }
-    return o;
-  };
-  add(out, 0.0, tone(880, 0.14, 0.55));
-  add(out, 0.16, tone(660, 0.14, 0.55));
-  add(out, 0.32, tone(880, 0.14, 0.5));
-  add(out, 0.0, mul(sine(58, 0.45), attackDecay(0.45, 0.004, 7)), 0.5);
   return out;
 }
 
@@ -248,22 +200,16 @@ function encodeMp3(wav, mp3) {
   return peakDb(mp3);
 }
 
-// The four cues constants.ts expects as .mp3; the rest ship as .wav.
+// The cues constants.ts expects as .mp3; correct-sound ships as .wav.
 const AS_MP3 = new Set([
-  'powerup-collected',
   'time-freeze',
   'skip-freebie-used',
-  'points-doubler',
 ]);
 
 const jobs = [
   ['correct-sound', correctSound()],
-  ['skip-sound', skipSound()],
-  ['try-again', tryAgain()],
-  ['powerup-collected', powerupCollected()],
   ['time-freeze', timeFreeze()],
   ['skip-freebie-used', skipFreebie()],
-  ['points-doubler', pointsDoubler()],
 ];
 
 mkdirSync(outDir, { recursive: true });

@@ -6,7 +6,7 @@ build — danh sách từ, bản dịch nghĩa, phông chữ, âm thanh, hình �
 Kết luận ngắn: **ba danh sách từ chưa từng được ghi công; 11 tệp SFX từng lấy từ
 myinstants.com — một trang soundboard không cấp giấy phép tái sử dụng; 9 tệp nhạc nền làm bằng
 Suno gói trả phí nên có quyền thương mại, nhưng phải lưu bằng chứng.** Ngày 15/11/2026 cả 11 tệp
-SFX đã được thay: 4 tệp bằng Suno Pro, 7 tệp tự tổng hợp trong dự án. Bản build không còn tệp nào
+SFX đã được thay: 4 tệp bằng Suno Pro, 5 tệp tự tổng hợp trong dự án. Bản build không còn tệp nào
 từ myinstants.
 
 ## 1. Bảng tổng hợp
@@ -19,8 +19,8 @@ từ myinstants.
 | `assets/fonts/*.woff2` — Exo 2, Orbitron | Google Fonts, **SIL OFL 1.1** | Chưa ghi công | Đã ghi công tại mục 9.3 |
 | `public/audio/announcer-*.wav` (4 tệp) | Render sẵn bằng **Deepgram Aura** qua Cloudflare Workers AI (`scripts/generate-announcer.mjs`) | Chưa khai báo | Đã ghi tại mục 9.4; cần đối chiếu điều khoản thương mại của Cloudflare/Deepgram trước khi bán |
 | `public/audio/game-music-*.mp3`, `rush-hour-*.mp3`, `setup-music-*.mp3` (9 tệp) | **Suno, gói trả phí (Pro, 10 USD/tháng)** — người dùng xác nhận; tag ID3 của cả 9 tệp đều ghi `suno.com` | Đã thay bằng bản làm lại ngày 15/11/2026 và cắt đúng ô nhịp còn 0:44–1:31 mỗi bài; có quyền thương mại **nếu** từng bài được tạo và tải về trong thời gian gói còn hiệu lực | Lưu hoá đơn gói Pro + bảng ngày tạo/ngày tải từng bài; bài tạo ở gói miễn phí **không** được thương mại hoá, và nâng cấp sau không có hiệu lực hồi tố |
-| `countdown-go.mp3`, `result.mp3`, `start.mp3`, `times-up.mp3` (4 tệp) | **Suno, gói Pro** — người dùng xác nhận; `result.mp3` còn mang tag ID3 `suno.com`. Đã cắt còn 1,0–2,2 s | Đã thay và đã cắt ngày 15/11/2026 | Lưu cùng một bộ bằng chứng với 9 bài nhạc: ngày tạo/ngày tải từng đoạn. Đoạn cắt ra từ bài Pro thì giữ nguyên hiệu lực thương mại của bài gốc |
-| 7 tệp SFX: `points-doubler.mp3`, `skip-freebie-used.mp3`, `powerup-collected.mp3`, `time-freeze.mp3`, `correct-sound.wav`, `skip-sound.wav`, `try-again.wav` | **Tự tổng hợp** bằng oscillator và filtered noise — `scripts/generate-sfx.mjs`. Trước 15/11/2026 là bản myinstants.com | **Đã thay.** Bản hiện tại là tác phẩm gốc của dự án, không có giấy phép bên thứ ba, và tái tạo được bằng một lệnh | Không phải làm gì thêm; nếu sửa âm sắc thì sửa tham số trong script rồi chạy lại |
+| `countdown-go.mp3`, `result.mp3`, `start.mp3`, `times-up.mp3` (4 tệp) | **Suno, gói Pro** — người dùng xác nhận; `result.mp3` còn mang tag ID3 `suno.com`. Ba tệp giữ nguyên bản (5,02–7,32 s); chỉ `start.mp3` cắt còn 1,41 s | Đã thay ngày 15/11/2026 | Lưu cùng một bộ bằng chứng với 9 bài nhạc: ngày tạo/ngày tải từng đoạn. Đoạn cắt ra từ bài Pro thì giữ nguyên hiệu lực thương mại của bài gốc |
+| 5 tệp SFX: `correct-sound.wav`, `time-freeze.mp3`, `skip-freebie-used.mp3`, `skip-sound.mp3`, `try-again.wav` | **Tự tổng hợp** bằng oscillator và filtered noise — `scripts/generate-sfx.mjs`. Trước 15/11/2026 là bản myinstants.com; `skip-sound` và `try-again` là bản tổng hợp cũ được đặt lại tên | **Đã thay.** Bản hiện tại là tác phẩm gốc của dự án, không có giấy phép bên thứ ba | Ba tệp đầu tái tạo được bằng một lệnh; hai tệp sau thay bằng tay (script không ghi đè) |
 | `public/icons/*.png`, `public/favicon.svg` | Không có metadata | Nhiều khả năng do dự án tạo | Xác nhận lại nguồn trước khi đăng lên store |
 
 ## 2. Vì sao “free” trên myinstants không dùng được cho sản phẩm bán

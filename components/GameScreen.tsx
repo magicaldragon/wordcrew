@@ -235,6 +235,13 @@ interface GameScreenProps {
 
 // ... (constants and helper functions)
 const COUNTDOWN_STEPS = ["3", "2", "1", "GO!"];
+// The cue plays its own 1.25 s intro before the first number, so the numbers wait for the
+// voice: "3" at 1.25 s, "2" at 2.1 s, "1" at 3.0 s and "GO!" at 3.9 s, after which the
+// closing wash rings out. COUNTDOWN_LEAD_MS covers that intro (the card area is still empty);
+// the last step is the longest so the round starts on the tail of "GO!" instead of on top of
+// it. The cue file is never trimmed to fit this grid.
+const COUNTDOWN_LEAD_MS = 1250;
+const COUNTDOWN_STEP_MS = [850, 900, 900, 1300];
 const LUCKY_STAR_MULTIPLIERS = [3]; 
 const TARGET_LUCKY_STARS = 4;
 // Anti-cheat: from ẩn sau khi hiện trong bao lâu (ms). Giữ Space hoặc nhấn giữ card để xem lại.
@@ -315,7 +322,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const [wordStatus, setWordStatus] = useState<WordDisplayStatus>('default'); 
   const [isProcessingWord, setIsProcessingWord] = useState(false);
 
-  const [countdownStepIndex, setCountdownStepIndex] = useState(0);
+  // -1 is the cue's intro: the audio is already running, no number is shown yet.
+  const [countdownStepIndex, setCountdownStepIndex] = useState(-1);
   const [showGameUI, setShowGameUI] = useState(false);
   
   const [pointsAwardedAnim, setPointsAwardedAnim] = useState<PointsAwardedAnimation | null>(null);
@@ -431,7 +439,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setWordKey(k => k + 1);
     setWordStatus('default');
     setIsProcessingWord(false);
-    setCountdownStepIndex(0); 
+    setCountdownStepIndex(-1); 
     setShowGameUI(false);
     setCatAnimationType(null);
     setCatAnimPosition(null);
@@ -549,7 +557,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       return; 
     }
     
-    if (countdownStepIndex === 0) { 
+    if (countdownStepIndex === -1) { 
       const currentSoundUrl = customCountdownGoSoundRef.current?.data || SINGLE_SOUND_EFFECTS.COUNTDOWN_GO;
       if (countdownAudioRef.current && countdownAudioRef.current.src && countdownAudioRef.current.src === currentSoundUrl) {
         countdownAudioRef.current.currentTime = 0; 
@@ -566,9 +574,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       }
     }
 
+    // The lead-in is silent on screen while the cue announces itself; every later step is
+    // timed to the syllable it shows.
+    const stepDelay = countdownStepIndex < 0 ? COUNTDOWN_LEAD_MS : COUNTDOWN_STEP_MS[countdownStepIndex];
     countdownTimerIdRef.current = setTimeout(() => {
       setCountdownStepIndex(prev => prev + 1);
-    }, 1000); 
+    }, stepDelay); 
 
     return () => {
       if (countdownTimerIdRef.current) clearTimeout(countdownTimerIdRef.current);

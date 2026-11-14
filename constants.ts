@@ -177,7 +177,7 @@ export const CORRECT_SOUNDS = [
 // ** 4. SKIP WORD SOUNDS **
 // This is an array of URLs, similar to CORRECT_SOUNDS.
 export const SKIP_SOUNDS = [
-  AUDIO_BASE + 'skip-sound.wav',
+  AUDIO_BASE + 'skip-sound.mp3',
 ];
 
 // ** 5. OTHER SINGLE SOUND EFFECTS **
@@ -202,10 +202,18 @@ export const SINGLE_SOUND_EFFECTS = {
   COUNTDOWN_GO: AUDIO_BASE + 'countdown-go.mp3',
 
   // ** 5f. POWER-UP RELATED SOUNDS **
-  POWERUP_COLLECTED: (AUDIO_BASE + 'powerup-collected.mp3') as string | null, 
+  // Combo needs no cue of its own: the same streak threshold already fires the
+  // pre-rendered "COMBO!" voice line (ANNOUNCER_CALLOUTS.COMBO), which ducks the music
+  // and is the sound the player actually remembers. A second sparkle under the voice
+  // only crowded the effect bus — and, being a short bright synth, it read as the same
+  // sound as the skip cue. Upload a custom file to bring a combo cue back.
+  POWERUP_COLLECTED: null as string | null, 
   POWERUP_TIME_FREEZE: (AUDIO_BASE + 'time-freeze.mp3') as string | null, 
   POWERUP_SKIP_FREEBIE_USED: (AUDIO_BASE + 'skip-freebie-used.mp3') as string | null, 
-  RUSH_HOUR_ACTIVATED: (AUDIO_BASE + 'points-doubler.mp3') as string | null,
+  // Rush Hour announces itself three ways already: the rush-hour loop replaces the bed
+  // (and opens louder for six seconds), the banner names the mode, and the clock runs at
+  // double speed. The old alarm is gone; point this at a file for a dedicated sting.
+  RUSH_HOUR_ACTIVATED: null as string | null,
   RUSH_HOUR_MUSIC_LOOP: [
     AUDIO_BASE + 'rush-hour-1.mp3',
     AUDIO_BASE + 'rush-hour-2.mp3',
