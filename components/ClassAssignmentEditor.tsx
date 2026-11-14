@@ -46,14 +46,26 @@ const dueDateToMs = (value: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-const LABEL = 'text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]';
-const SECTION = 'flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--wn-4)] p-3';
+// Type is sized for a laptop held at arm's length, not a spec sheet: 12px labels,
+// 13px hints, and 15–16px for anything the teacher actually edits.
+const LABEL = 'text-xs font-semibold uppercase tracking-wide text-[var(--wn-10)]';
+const HINT = 'text-[0.8125rem] leading-snug text-[var(--wn-10)]';
+const META = 'text-xs text-[var(--wn-10)]';
+const ICON_BTN =
+  'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--wn-4)] text-[var(--wn-10)] transition-colors hover:bg-[var(--wn-3)] hover:text-[var(--wn-12)]';
+const HEADER = 'flex shrink-0 items-start justify-between gap-3 border-b border-[var(--wn-4)] bg-[var(--field-bg)] px-4 py-3.5';
+const FOOTER = 'flex shrink-0 items-center gap-2 border-t border-[var(--wn-4)] bg-[var(--field-bg)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:pb-3';
+// Sections sit on the field surface, which flips with the theme: cream on a white
+// card in light mode, near-black on the dark card at night. That edge is what stops
+// every block from melting into the dialog.
+const SECTION =
+  'flex flex-col gap-2.5 rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-3.5';
 
 interface DialogProps {
   labelledBy: string;
   onClose: () => void;
-  /** Wider card for the form; the type picker and the parts sheet stay narrow. */
-  wide?: boolean;
+  /** Three widths: the chooser, the parts sheet, and the full form. */
+  size?: 'narrow' | 'medium' | 'wide';
   children: React.ReactNode;
 }
 
@@ -62,7 +74,9 @@ interface DialogProps {
  * the bottom edge; a tablet or laptop gets a centred card capped at 92dvh. Only the body
  * scrolls, so the title and the Assign button never leave the screen.
  */
-const Dialog: React.FC<DialogProps> = ({ labelledBy, onClose, wide, children }) => {
+const Dialog: React.FC<DialogProps> = ({ labelledBy, onClose, size = 'narrow', children }) => {
+  const width =
+    size === 'wide' ? 'sm:max-w-4xl' : size === 'medium' ? 'sm:max-w-2xl' : 'sm:max-w-lg';
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -86,10 +100,13 @@ const Dialog: React.FC<DialogProps> = ({ labelledBy, onClose, wide, children }) 
       aria-labelledby={labelledBy}
       onClick={onClose}
     >
+      {/* The card takes `--card-bg`, which is white by day and deep ink at night. The
+          game-side `--surface-*` tokens are always dark, so using them here made the
+          dialog unreadable in light mode. */}
       <div
-        className={`wc-theme flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--surface-2)] shadow-[var(--elev-4)] sm:h-auto sm:border sm:border-[var(--hairline-strong)] sm:rounded-[var(--r-xl)] ${
-          wide ? 'sm:max-h-[92dvh] sm:max-w-3xl' : 'sm:max-h-[88dvh] sm:max-w-lg'
-        }`}
+        className={`wc-theme flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--card-bg)] sm:h-auto sm:border sm:border-[var(--wn-4)] sm:rounded-[var(--r-xl)] sm:shadow-[var(--elev-4)] ${
+          size === 'wide' ? 'sm:max-h-[92dvh]' : 'sm:max-h-[88dvh]'
+        } ${width}`}
         onClick={(event) => event.stopPropagation()}
       >
         {children}
@@ -284,25 +301,20 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
   if (step === 'pick') {
     return (
       <Dialog labelledBy="assignmentPickTitle" onClose={onCancel}>
-        <header className="flex items-start justify-between gap-2 border-b border-[var(--wn-4)] px-4 py-3">
+        <header className={HEADER}>
           <div className="min-w-0">
-            <h2 id="assignmentPickTitle" className="text-base font-bold text-[var(--wn-12)]">
+            <h2 id="assignmentPickTitle" className="text-lg font-bold text-[var(--wn-12)]">
               {t.editor.title}
             </h2>
-            <p className="text-xs leading-snug text-[var(--wn-9)]">{t.editor.pickHint}</p>
+            <p className={`mt-0.5 ${HINT}`}>{t.editor.pickHint}</p>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="wc-icon-btn h-9 w-9 shrink-0"
-            aria-label={t.editor.closeAria}
-          >
-            <Icon name="close" size={16} />
+          <button type="button" onClick={onCancel} className={ICON_BTN} aria-label={t.editor.closeAria}>
+            <Icon name="close" size={18} />
           </button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="flex flex-col gap-2" role="group" aria-label={t.editor.typeAria}>
+          <div className="flex flex-col gap-2.5" role="group" aria-label={t.editor.typeAria}>
             {kindTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -311,22 +323,22 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                   setKind(tab.id);
                   setStep('form');
                 }}
-                className="group flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--wn-4)] p-3 text-left transition-colors hover:border-electric-blue/60 hover:bg-electric-blue/5"
+                className="group flex items-center gap-3.5 rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-3.5 text-left transition-colors hover:border-electric-blue/70 hover:bg-electric-blue/5"
               >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--wn-3)] text-[var(--wn-11)]">
-                  <Icon name={tab.icon} size={18} />
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--wn-3)] text-[var(--wn-11)]">
+                  <Icon name={tab.icon} size={20} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold text-[var(--wn-12)]">{tab.label}</span>
-                  <span className="block text-xs leading-snug text-[var(--wn-9)]">{tab.hint}</span>
+                  <span className="block text-base font-bold text-[var(--wn-12)]">{tab.label}</span>
+                  <span className={`mt-0.5 block ${HINT}`}>{tab.hint}</span>
                 </span>
-                <Icon name="arrowRight" size={16} />
+                <Icon name="arrowRight" size={18} />
               </button>
             ))}
           </div>
         </div>
 
-        <footer className="border-t border-[var(--wn-4)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">
+        <footer className={FOOTER}>
           <button type="button" onClick={onCancel} className="wc-btn wc-btn-secondary min-h-[44px] w-full sm:w-auto">
             {common.cancel}
           </button>
@@ -336,32 +348,33 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
   }
 
   const delivery = (
-    <div className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1">
+    <div className="flex flex-col gap-3.5">
+      <label className="flex flex-col gap-1.5">
         <span className={LABEL}>
-          {t.editor.noteLabel} <span className="normal-case text-[var(--wn-8)]">{t.editor.optional}</span>
+          {t.editor.noteLabel}{' '}
+          <span className="font-normal normal-case tracking-normal text-[var(--wn-9)]">{t.editor.optional}</span>
         </span>
         <textarea
           value={instructions}
           onChange={(event) => setInstructions(event.target.value)}
-          rows={2}
+          rows={3}
           placeholder={t.editor.notePlaceholder}
-          className="futuristic-input w-full px-3 py-2 text-sm"
+          className="futuristic-input w-full px-3 py-2 text-base"
         />
       </label>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1">
+      <div className="grid grid-cols-1 gap-3.5">
+        <label className="flex flex-col gap-1.5">
           <span className={LABEL}>{t.editor.dueLabel}</span>
           <input
             type="date"
             value={due}
             onChange={(event) => setDue(event.target.value)}
-            className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+            className="futuristic-input min-h-[48px] w-full px-3 text-base"
           />
         </label>
         {kind === 'writing' ? (
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1.5">
             <span className={LABEL}>{t.editor.minWordsLabel}</span>
             <input
               type="number"
@@ -370,11 +383,11 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
               step={10}
               value={minWords}
               onChange={(event) => setMinWords(Number(event.target.value))}
-              className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+              className="futuristic-input min-h-[48px] w-full px-3 text-base"
             />
           </label>
         ) : (
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1.5">
             <span className={LABEL}>{t.editor.passLineLabel(passScore)}</span>
             <input
               type="range"
@@ -392,9 +405,9 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
 
       {/* One piece of work often belongs to several rooms at once, so the class
           list is part of the form rather than something chosen beforehand. */}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <span className={LABEL}>{t.editor.classesLabel}</span>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {classes.map((item) => {
             const on = targets.includes(item.id);
             return (
@@ -403,9 +416,9 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                 type="button"
                 aria-pressed={on}
                 onClick={() => toggleTarget(item.id)}
-                className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold transition-colors ${
+                className={`min-h-[44px] rounded-full border px-3.5 text-sm font-semibold transition-colors ${
                   on
-                    ? 'border-neon-green/60 bg-neon-green/10 text-neon-green'
+                    ? 'border-neon-green/70 bg-neon-green/10 text-neon-green'
                     : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-[var(--wn-6)]'
                 }`}
               >
@@ -420,34 +433,29 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
 
   return (
     <>
-      <Dialog labelledBy="assignmentFormTitle" onClose={closeForm} wide>
-        <header className="flex items-center gap-1 border-b border-[var(--wn-4)] px-2 py-2 sm:px-3">
+      <Dialog labelledBy="assignmentFormTitle" onClose={closeForm} size="wide">
+        <header className="flex shrink-0 items-center gap-1.5 border-b border-[var(--wn-4)] bg-[var(--field-bg)] px-2.5 py-2.5 sm:px-4">
           <button
             type="button"
             onClick={() => setStep('pick')}
-            className="wc-icon-btn h-10 w-10 shrink-0"
+            className={ICON_BTN}
             aria-label={t.editor.changeTypeAria}
           >
-            <Icon name="arrowLeft" size={16} />
+            <Icon name="arrowLeft" size={18} />
           </button>
-          <div className="min-w-0 flex-1">
-            <h2 id="assignmentFormTitle" className="truncate text-sm font-bold text-[var(--wn-12)]">
+          <div className="min-w-0 flex-1 px-0.5">
+            <h2 id="assignmentFormTitle" className="truncate text-base font-bold text-[var(--wn-12)]">
               {t.kinds[kind]}
             </h2>
-            <p className="truncate text-[0.7rem] text-[var(--wn-9)]">{t.editor.kindHints[kind]}</p>
+            <p className={`truncate ${META}`}>{t.editor.kindHints[kind]}</p>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="wc-icon-btn h-10 w-10 shrink-0"
-            aria-label={t.editor.closeAria}
-          >
-            <Icon name="close" size={16} />
+          <button type="button" onClick={onCancel} className={ICON_BTN} aria-label={t.editor.closeAria}>
+            <Icon name="close" size={18} />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-          <label className="mb-4 flex flex-col gap-1">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+          <label className="mb-4 flex flex-col gap-1.5">
             <span className={LABEL}>{t.editor.titleLabel}</span>
             <input
               value={title}
@@ -455,25 +463,25 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
               placeholder={
                 kind === 'writing' ? t.editor.titlePlaceholderWriting : t.editor.titlePlaceholder
               }
-              className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+              className="futuristic-input min-h-[48px] w-full px-3 text-base"
             />
           </label>
 
           {/* Words on the left, delivery on the right at laptop width. On a phone the
               single column runs title → words → note, due and classes. */}
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_19rem]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="flex flex-col gap-3">
               {kind === 'vocabulary' && (
                 <>
                   <section className={SECTION}>
-                    <div className="flex items-baseline justify-between gap-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
                       <span className={LABEL}>{t.editor.wordsTitle}</span>
-                      <span className="text-[0.7rem] tabular-nums text-[var(--wn-9)]">
+                      <span className="text-xs font-medium tabular-nums text-[var(--wn-10)]">
                         {t.editor.setSummary(words.length, orderedModes.length)}
                       </span>
                     </div>
 
-                    <div className="flex rounded-[var(--r-md)] bg-[var(--wn-2)] p-1">
+                    <div className="flex rounded-[var(--r-md)] bg-[var(--wn-3)] p-1">
                       {([
                         ['level', t.editor.source.level],
                         ['deck', t.editor.source.deck],
@@ -483,10 +491,10 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                           key={id}
                           type="button"
                           onClick={() => setSource(id)}
-                          className={`min-h-[40px] flex-1 rounded-[calc(var(--r-md)-2px)] px-2 text-xs font-semibold transition-colors ${
+                          className={`min-h-[44px] flex-1 rounded-[calc(var(--r-md)-2px)] px-2 text-sm font-semibold transition-colors ${
                             source === id
-                              ? 'bg-[var(--surface-2)] text-[var(--wn-12)] shadow-sm'
-                              : 'text-[var(--wn-9)] hover:text-[var(--wn-11)]'
+                              ? 'bg-[var(--card-bg)] text-[var(--wn-12)] shadow-sm'
+                              : 'text-[var(--wn-9)] hover:text-[var(--wn-12)]'
                           }`}
                         >
                           {label}
@@ -505,10 +513,10 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                                 setLevelId(level.id);
                                 setCount(Math.min(count, countLevelWords(level.id)));
                               }}
-                              className={`min-h-[44px] rounded-md border text-sm font-bold transition-colors ${
+                              className={`min-h-[48px] rounded-md border bg-[var(--card-bg)] text-base font-bold transition-colors ${
                                 levelId === level.id
-                                  ? 'border-electric-blue bg-electric-blue/15 text-electric-blue'
-                                  : 'border-[var(--wn-4)] text-[var(--wn-10)]'
+                                  ? 'border-electric-blue text-electric-blue ring-1 ring-electric-blue/40'
+                                  : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-[var(--wn-6)]'
                               }`}
                             >
                               {level.id}
@@ -522,12 +530,12 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                               type="button"
                               onClick={() => setCount(Math.min(value, poolCap))}
                               disabled={value > poolCap}
-                              className={`min-h-[44px] min-w-[44px] rounded-md border px-2 text-xs font-semibold ${
+                              className={`min-h-[48px] min-w-[48px] rounded-md border bg-[var(--card-bg)] px-2 text-sm font-semibold transition-colors ${
                                 value > poolCap
-                                  ? 'cursor-not-allowed border-[var(--wn-3)] text-[var(--wn-6)]'
+                                  ? 'cursor-not-allowed border-[var(--wn-3)] text-[var(--wn-7)]'
                                   : count === value
-                                    ? 'border-neon-green/60 text-neon-green'
-                                    : 'border-[var(--wn-4)] text-[var(--wn-10)]'
+                                    ? 'border-neon-green text-neon-green'
+                                    : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-[var(--wn-6)]'
                               }`}
                             >
                               {value}
@@ -542,7 +550,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                         <select
                           value={deckId}
                           onChange={(event) => setDeckId(event.target.value)}
-                          className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+                          className="futuristic-input min-h-[48px] w-full px-3 text-base"
                           aria-label={t.editor.deckAria}
                         >
                           <option value="">{t.editor.deckPlaceholder}</option>
@@ -553,20 +561,20 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                           ))}
                         </select>
                       ) : (
-                        <p className="text-xs text-[var(--wn-9)]">{t.editor.noDecks}</p>
+                        <p className={HINT}>{t.editor.noDecks}</p>
                       )
                     )}
 
                     {source === 'paste' && (
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-1.5">
                         <textarea
                           value={pasted}
                           onChange={(event) => setPasted(event.target.value)}
                           rows={5}
                           placeholder={t.editor.pastePlaceholder}
-                          className="futuristic-input w-full px-3 py-2 font-mono text-xs"
+                          className="futuristic-input w-full px-3 py-2 font-mono text-sm"
                         />
-                        <p className="text-[0.7rem] text-[var(--wn-9)]">
+                        <p className={META}>
                           {t.editor.pasteSummary(
                             pastedWords.length,
                             pastedWarnings.size,
@@ -583,7 +591,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                       <button
                         type="button"
                         onClick={() => setPartsOpen(true)}
-                        className="min-h-[36px] rounded-md px-2 text-xs font-semibold text-electric-blue hover:bg-electric-blue/10"
+                        className="min-h-[40px] rounded-md px-3 text-sm font-semibold text-electric-blue hover:bg-electric-blue/10"
                       >
                         {t.editor.partsEdit}
                       </button>
@@ -592,13 +600,13 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                       {orderedModes.map((id, at) => (
                         <span
                           key={id}
-                          className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-1 text-[0.7rem] font-semibold text-electric-blue"
+                          className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-3 py-1.5 text-xs font-semibold text-electric-blue"
                         >
                           {at + 1}. {teacherT.setup.modes[id].label}
                         </span>
                       ))}
                     </div>
-                    <p className="text-[0.7rem] leading-snug text-[var(--wn-8)]">{t.editor.partsSummary}</p>
+                    <p className={META}>{t.editor.partsSummary}</p>
                   </section>
                 </>
               )}
@@ -608,17 +616,17 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                   {questions.map((question, index) => (
                     <div key={index} className={SECTION}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[0.7rem] font-bold uppercase tracking-wider text-[var(--wn-9)]">
+                        <span className="text-xs font-bold uppercase tracking-wide text-[var(--wn-10)]">
                           {t.editor.question(index + 1)}
                         </span>
                         {questions.length > 1 && (
                           <button
                             type="button"
                             onClick={() => setQuestions((prev) => prev.filter((_, at) => at !== index))}
-                            className="wc-icon-btn h-9 w-9"
+                            className={`${ICON_BTN} h-9 w-9`}
                             aria-label={t.editor.removeQuestionAria(index + 1)}
                           >
-                            <Icon name="close" size={14} />
+                            <Icon name="close" size={16} />
                           </button>
                         )}
                       </div>
@@ -626,7 +634,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                         value={question.prompt}
                         onChange={(event) => updateQuestion(index, { prompt: event.target.value })}
                         placeholder={t.editor.questionPlaceholder}
-                        className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+                        className="futuristic-input min-h-[48px] w-full px-3 text-base"
                       />
                       <div className="flex flex-col gap-1.5">
                         {question.choices.map((choice, choiceIndex) => (
@@ -636,10 +644,10 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                               onClick={() => updateQuestion(index, { answer: choiceIndex })}
                               aria-label={t.editor.correctOptionAria(choiceIndex + 1)}
                               aria-pressed={question.answer === choiceIndex}
-                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
+                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border bg-[var(--card-bg)] text-sm font-bold transition-colors ${
                                 question.answer === choiceIndex
-                                  ? 'border-neon-green bg-neon-green/15 text-neon-green'
-                                  : 'border-[var(--wn-4)] text-[var(--wn-9)]'
+                                  ? 'border-neon-green text-neon-green'
+                                  : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-[var(--wn-6)]'
                               }`}
                             >
                               {String.fromCharCode(65 + choiceIndex)}
@@ -648,7 +656,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                               value={choice}
                               onChange={(event) => updateChoice(index, choiceIndex, event.target.value)}
                               placeholder={t.editor.optionPlaceholder(String.fromCharCode(65 + choiceIndex))}
-                              className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+                              className="futuristic-input min-h-[48px] w-full px-3 text-base"
                             />
                           </div>
                         ))}
@@ -659,7 +667,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                     <button
                       type="button"
                       onClick={() => setQuestions((prev) => [...prev, emptyQuestion()])}
-                      className="wc-btn wc-btn-secondary min-h-[44px]"
+                      className="wc-btn wc-btn-secondary min-h-[44px] w-full"
                     >
                       <Icon name="plus" size={16} />
                       {t.editor.addQuestion}
@@ -676,7 +684,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                     onChange={(event) => setPrompt(event.target.value)}
                     rows={7}
                     placeholder={t.editor.promptPlaceholder}
-                    className="futuristic-input w-full px-3 py-2 text-sm"
+                    className="futuristic-input w-full px-3 py-2 text-base leading-relaxed"
                   />
                 </section>
               )}
@@ -686,7 +694,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 border-t border-[var(--wn-4)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">
+        <div className={FOOTER}>
           <button type="button" onClick={onCancel} className="wc-btn wc-btn-secondary min-h-[44px]">
             {common.cancel}
           </button>
@@ -704,26 +712,26 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
       {/* Per-part settings live in their own sheet: the form keeps one line per part and
           stays readable, while the four styles get the room they need to explain themselves. */}
       {partsOpen && (
-        <Dialog labelledBy="partsSheetTitle" onClose={() => setPartsOpen(false)}>
-          <header className="flex items-start justify-between gap-2 border-b border-[var(--wn-4)] px-4 py-3">
+        <Dialog labelledBy="partsSheetTitle" onClose={() => setPartsOpen(false)} size="medium">
+          <header className={HEADER}>
             <div className="min-w-0">
-              <h2 id="partsSheetTitle" className="text-base font-bold text-[var(--wn-12)]">
+              <h2 id="partsSheetTitle" className="text-lg font-bold text-[var(--wn-12)]">
                 {t.editor.partsTitle}
               </h2>
-              <p className="text-xs leading-snug text-[var(--wn-9)]">{t.editor.modesHint}</p>
+              <p className={`mt-0.5 ${HINT}`}>{t.editor.modesHint}</p>
             </div>
             <button
               type="button"
               onClick={() => setPartsOpen(false)}
-              className="wc-icon-btn h-9 w-9 shrink-0"
+              className={ICON_BTN}
               aria-label={t.editor.closeAria}
             >
-              <Icon name="close" size={16} />
+              <Icon name="close" size={18} />
             </button>
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {TEACHER_TEST_MODES.map((id) => {
                 const active = orderedModes.includes(id);
                 return (
@@ -732,14 +740,14 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                     type="button"
                     aria-pressed={active}
                     onClick={() => toggleMode(id)}
-                    className={`flex min-h-[64px] items-start gap-2.5 rounded-[var(--r-md)] border p-3 text-left transition-colors ${
+                    className={`flex min-h-[76px] items-start gap-3 rounded-[var(--r-md)] border p-3.5 text-left transition-colors ${
                       active
                         ? 'border-electric-blue bg-electric-blue/10'
-                        : 'border-[var(--wn-4)] hover:border-[var(--wn-6)]'
+                        : 'border-[var(--wn-4)] bg-[var(--field-bg)] hover:border-[var(--wn-6)]'
                     }`}
                   >
                     <span
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[0.6rem] font-bold ${
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[0.7rem] font-bold ${
                         active
                           ? 'border-electric-blue bg-electric-blue text-white'
                           : 'border-[var(--wn-6)] text-transparent'
@@ -749,13 +757,13 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
                     </span>
                     <span className="min-w-0">
                       <span
-                        className={`block text-xs font-semibold ${
-                          active ? 'text-electric-blue' : 'text-[var(--wn-11)]'
+                        className={`block text-[0.9375rem] font-semibold ${
+                          active ? 'text-electric-blue' : 'text-[var(--wn-12)]'
                         }`}
                       >
                         {teacherT.setup.modes[id].label}
                       </span>
-                      <span className="block text-[0.65rem] leading-snug text-[var(--wn-8)]">
+                      <span className="mt-0.5 block text-[0.8125rem] leading-snug text-[var(--wn-10)]">
                         {teacherT.setup.modes[id].hint}
                       </span>
                     </span>
@@ -765,8 +773,8 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
             </div>
           </div>
 
-          <footer className="flex items-center justify-between gap-2 border-t border-[var(--wn-4)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">
-            <span className="text-[0.7rem] text-[var(--wn-9)]">
+          <footer className={`${FOOTER} justify-between`}>
+            <span className={META}>
               {t.editor.setSummary(words.length, orderedModes.length)}
             </span>
             <button type="button" onClick={() => setPartsOpen(false)} className="wc-btn wc-btn-primary min-h-[44px]">
