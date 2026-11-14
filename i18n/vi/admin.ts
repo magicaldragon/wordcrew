@@ -44,6 +44,8 @@ export const admin: Dictionary['admin'] = {
     searchPlaceholder: 'Tìm theo tên hoặc email…',
     loadFailed:
       'Không đọc được danh bạ tài khoản. Kiểm tra email quản trị trong firestore.rules có khớp với ADMIN_EMAILS không.',
+    accessFailed:
+      'Không đọc được trạng thái PRO từ máy chủ nên nhãn bên dưới có thể chưa đúng. Kiểm tra phiên đăng nhập còn hiệu lực và email này có trong ADMIN_EMAILS của worker.',
     loading: 'Đang tải tài khoản…',
     empty: 'Không có tài khoản nào khớp với bộ lọc này.',
 
@@ -53,6 +55,17 @@ export const admin: Dictionary['admin'] = {
     promoted: (account: string) => `${account} đã có thể mở công cụ.`,
     demoted: (account: string) => `${account} đã trở lại là học sinh.`,
     roleFailed: 'Không đổi được vai trò. Kiểm tra email quản trị trong quy tắc Firestore.',
+
+    grantPro: 'Cấp PRO',
+    revokePro: 'Thu PRO',
+    grantProTitle: 'Cấp PRO cho tài khoản này, không qua thanh toán',
+    revokeProTitle: 'Thu hồi PRO của tài khoản này',
+    revokeProAsk: (account: string) =>
+      `Thu hồi PRO của ${account}? Tài khoản này sẽ mất bản đầy đủ khi đăng nhập lại.`,
+    proGranted: (account: string) => `Đã cấp PRO cho ${account}.`,
+    proRevoked: (account: string) => `Đã thu PRO của ${account}.`,
+    proGrantFailed: 'Không cấp được PRO. Kiểm tra phiên đăng nhập quản trị.',
+    proRevokeFailed: 'Không thu được PRO. Kiểm tra phiên đăng nhập quản trị.',
 
     displayNameAria: (account: string) => `Tên hiển thị của ${account}`,
     renameAria: (account: string) => `Đổi tên ${account}`,
@@ -64,7 +77,9 @@ export const admin: Dictionary['admin'] = {
     lastLogin: (value: string) => `Đăng nhập cuối: ${value}`,
     joined: (value: string) => `Tham gia: ${value}`,
     unknown: 'Không rõ',
-    proSince: (value: string) => `PRO từ: ${value}`,
+    grantProAsk: (account: string) => `Chọn thời hạn cấp PRO cho ${account}:`,
+    proUntil: (date: string, days: number) => `PRO đến ${date} (còn ${days} ngày)`,
+    proForever: 'PRO vĩnh viễn',
     makeTeacher: 'Chuyển thành giáo viên',
     makeStudent: 'Chuyển thành học sinh',
     grantToolsTitle: 'Cấp quyền dùng công cụ giáo viên',

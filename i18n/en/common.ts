@@ -42,6 +42,13 @@ export const common = {
   points: 'points',
   today: 'Today',
   hearWord: (word: string) => `Hear "${word}"`,
+  /** Admin grant terms, keyed like GRANT_TERMS in constants.ts. */
+  terms: {
+    d10: '10 days',
+    m1: '1 month',
+    m3: '3 months',
+    y1: '1 year',
+  },
   switchLanguage: 'Switch language',
   switchToVietnamese: 'Switch to Vietnamese',
   switchToEnglish: 'Switch to English',

@@ -137,6 +137,12 @@ const DEFAULT_PLAN_ID = 'pro';
 const planOrDefault = (id: string): BillingPlan => PLANS[id] ?? PLANS[DEFAULT_PLAN_ID];
 
 /**
+ * Terms an admin may grant by hand, in days. Deliberately separate from PLANS: nothing
+ * here reaches /api/pricing or POST /api/orders, so a grant can never turn into a 0đ sale.
+ */
+const GRANT_TERM_DAYS = [10, 31, 90, 365];
+
+/**
  * Display names for everything we sell, keyed by the `product_id` stored on orders.
  * The portal's Account tab lists a customer's purchases against these, so adding a game
  * later is one line here plus its own catalogue entry.
@@ -658,7 +664,9 @@ const getAdminAccounts = async (request: Request, env: Env): Promise<Response> =
   if (denied instanceof Response) return denied;
 
   const { results } = await env.DB.prepare(
-    `SELECT user_id, LOWER(user_email) AS email, product_id,
+    // `license_key` rides along with MAX() — SQLite takes the bare column from the row
+    // that owns the maximum, which is the newest licence for this account/product.
+    `SELECT user_id, LOWER(user_email) AS email, product_id, license_key, access_until,
             MAX(COALESCE(paid_at, created_at)) AS paid_at
        FROM orders
       WHERE status = 'paid' AND license_key IS NOT NULL
@@ -668,6 +676,8 @@ const getAdminAccounts = async (request: Request, env: Env): Promise<Response> =
     user_id: string | null;
     email: string | null;
     product_id: string;
+    license_key: string | null;
+    access_until: number | null;
     paid_at: number | null;
   }>();
 
@@ -677,6 +687,8 @@ const getAdminAccounts = async (request: Request, env: Env): Promise<Response> =
       email: row.email,
       productId: row.product_id,
       productName: productLabel(row.product_id),
+      licenseKey: row.license_key,
+      accessUntil: row.access_until,
       paidAt: row.paid_at,
     })),
   });
@@ -685,7 +697,8 @@ const getAdminAccounts = async (request: Request, env: Env): Promise<Response> =
 /**
  * Hands a product to an account without a bank transfer — the mechanism behind gift
  * licences and support fixes. The order is written already paid, so it flows through
- * the exact same entitlement lookup as a real purchase.
+ * the exact same entitlement lookup as a real purchase. `days` must be one of
+ * GRANT_TERM_DAYS; leaving it out keeps the legacy lifetime grant.
  */
 const grantAccess = async (request: Request, env: Env): Promise<Response> => {
   const denied = await requireAdmin(request, env);
@@ -694,12 +707,20 @@ const grantAccess = async (request: Request, env: Env): Promise<Response> => {
   const body = await readJson(request);
   const email = String(body.email || '').trim().toLowerCase();
   const productId = String(body.productId || PRODUCT.id);
-  const plan = PLANS[String(body.plan || DEFAULT_PLAN_ID)];
+  const rawDays = body.days;
+  const days = rawDays === undefined || rawDays === null ? null : Number(rawDays);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return fail('invalidEmail', 'Enter a valid email address.', 400);
   }
   if (productId !== PRODUCT.id) return fail('unknownProduct', 'Unknown product', 400);
-  if (!plan) return fail('unknownPlan', 'Unknown plan', 400);
+  if (days !== null && !GRANT_TERM_DAYS.includes(days)) {
+    return fail('unknownTerm', 'Unknown grant term.', 400);
+  }
+
+  const plan: BillingPlan =
+    days === null
+      ? PLANS[DEFAULT_PLAN_ID]
+      : { id: `grant${days}`, name: `Admin grant · ${days} days`, days, seats: 1, amount: 0 };
 
   const now = Date.now();
   // Only a *live* grant blocks a second one: an expired month must not stop support

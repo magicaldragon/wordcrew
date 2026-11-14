@@ -23,7 +23,13 @@ import {
   type UserRole,
 } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
-import { fetchAdminAccountAccess, type AdminAccountAccess } from '../services/payments';
+import { GRANT_TERMS } from '../constants';
+import {
+  fetchAdminAccountAccess,
+  grantAccess,
+  revokeAccess,
+  type AdminAccountAccess,
+} from '../services/payments';
 import {
   currentPeriod,
   fetchSoloBoard,
@@ -32,9 +38,10 @@ import {
   type SoloScoreEntry,
 } from '../services/soloLeaderboard';
 import { DAILY_TRACK, SOLO_TRACKS, type SoloTrack } from '../services/solo';
-import { toast } from './Feedback';
+import { toast, confirmDialog } from './Feedback';
 import { Icon } from './Icon';
 import { useT } from '../i18n/useT';
+import { describeError } from '../i18n/errors';
 import { trackText } from '../i18n/tracks';
 import { useLocale } from '../i18n/useLocale';
 import type { Dictionary } from '../i18n/types';
@@ -90,7 +97,10 @@ interface DirectoryRow {
 
 interface AccountRow extends DirectoryRow {
   pro: boolean;
-  proSince: number | null;
+  /** End of the live PRO window; `null` while the account owns nothing, or forever. */
+  proUntil: number | null;
+  /** Licence behind the PRO badge; null when the account owns nothing. */
+  proLicenseKey: string | null;
   online: boolean;
 }
 
@@ -132,18 +142,21 @@ export const AdminAccountsPanel: React.FC = () => {
   const { user, getIdToken } = useAuth();
   const t = useT('admin');
   const common = useT('common');
+  const errors = useT('errors');
   const locale = useLocale();
   const [directory, setDirectory] = useState<DirectoryRow[]>([]);
   const [access, setAccess] = useState<AdminAccountAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [accessLoading, setAccessLoading] = useState(true);
   const [filter, setFilter] = useState<TierFilter>('all');
   const [search, setSearch] = useState('');
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [roleBusy, setRoleBusy] = useState<string | null>(null);
+  const [proBusy, setProBusy] = useState<string | null>(null);
+  /** Row whose "Cấp PRO" button is asking which term to hand out. */
+  const [grantTarget, setGrantTarget] = useState<AccountRow | null>(null);
 
   // Live directory: names, presence and last login all come from the profile docs.
   useEffect(() => {
@@ -180,34 +193,49 @@ export const AdminAccountsPanel: React.FC = () => {
   }, []);
 
   const loadAccess = useCallback(async () => {
-    setAccessLoading(true);
     const rows = await fetchAdminAccountAccess(await getIdToken());
+    // `null` = the lookup could not be answered. Keep the last known tiers and say so:
+    // rendering an empty list would label every account FREE.
+    if (!rows) {
+      setError(t.directory.accessFailed);
+      return;
+    }
     setAccess(rows);
-    setAccessLoading(false);
-  }, [getIdToken]);
+  }, [getIdToken, t.directory.accessFailed]);
 
   useEffect(() => {
     void loadAccess();
   }, [loadAccess]);
 
   const rows = useMemo<AccountRow[]>(() => {
-    const proByUid = new Map<string, number | null>();
-    const proByEmail = new Map<string, number | null>();
+    const proByUid = new Map<string, AdminAccountAccess>();
+    const proByEmail = new Map<string, AdminAccountAccess>();
+    // The API answers newest first: keep the first hit so a renewed licence never
+    // hands the row an older key to revoke.
     for (const item of access) {
-      if (item.uid) proByUid.set(item.uid, item.paidAt);
-      if (item.email) proByEmail.set(item.email.trim().toLowerCase(), item.paidAt);
+      if (item.uid && !proByUid.has(item.uid)) proByUid.set(item.uid, item);
+      const email = item.email?.trim().toLowerCase();
+      if (email && !proByEmail.has(email)) proByEmail.set(email, item);
     }
 
     return directory
       .map((item) => {
         const email = item.email.trim().toLowerCase();
-        const pro = proByUid.has(item.uid) || (Boolean(email) && proByEmail.has(email));
-        const proSince = proByUid.get(item.uid) ?? (email ? proByEmail.get(email) ?? null : null);
+        const owned = proByUid.get(item.uid) ?? (email ? proByEmail.get(email) : undefined);
+        // A dated grant stops counting the day its window closes — otherwise a 10-day
+        // licence would keep the PRO badge forever.
+        const live = owned ? owned.accessUntil === null || owned.accessUntil > Date.now() : false;
         const online =
           item.onlineFlag &&
           item.lastSeenAt !== null &&
           Date.now() - item.lastSeenAt < ONLINE_WINDOW_MS;
-        return { ...item, pro, proSince, online };
+        return {
+          ...item,
+          pro: live,
+          proUntil: live ? owned?.accessUntil ?? null : null,
+          proLicenseKey: live ? owned?.licenseKey ?? null : null,
+          online,
+        };
       })
       .sort((a, b) => {
         if (a.online !== b.online) return a.online ? -1 : 1;
@@ -292,6 +320,56 @@ export const AdminAccountsPanel: React.FC = () => {
     }
   };
 
+  /**
+   * Granting/revoking PRO straight on the row — the same worker routes the Admin tab
+   * uses, just without retyping the email. A grant always carries a term (see
+   * GRANT_TERMS); revoking follows the licence key, because an account can only hold
+   * one live order per product at a time.
+   */
+  const grantPro = async (row: AccountRow, days: number) => {
+    if (proBusy || !row.email) return;
+    setGrantTarget(null);
+    setProBusy(row.uid);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast(t.directory.proGrantFailed, 'error');
+        return;
+      }
+      await grantAccess(token, row.email, days);
+      toast(t.directory.proGranted(row.email), 'success');
+      await loadAccess();
+    } catch (err) {
+      toast(describeError(errors, err, t.directory.proGrantFailed), 'error');
+    } finally {
+      setProBusy(null);
+    }
+  };
+
+  const revokePro = async (row: AccountRow) => {
+    if (proBusy || !row.proLicenseKey) return;
+    const label = row.displayName || row.email || row.uid;
+    const confirmed = await confirmDialog(t.directory.revokeProAsk(label), {
+      confirmLabel: t.directory.revokePro,
+    });
+    if (!confirmed) return;
+    setProBusy(row.uid);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        toast(t.directory.proRevokeFailed, 'error');
+        return;
+      }
+      await revokeAccess(token, row.proLicenseKey);
+      toast(t.directory.proRevoked(row.email || row.uid), 'success');
+      await loadAccess();
+    } catch (err) {
+      toast(describeError(errors, err, t.directory.proRevokeFailed), 'error');
+    } finally {
+      setProBusy(null);
+    }
+  };
+
   const filters: { id: TierFilter; label: string }[] = [
     { id: 'all', label: t.directory.filters.all },
     { id: 'free', label: t.directory.filters.free },
@@ -323,18 +401,9 @@ export const AdminAccountsPanel: React.FC = () => {
       </div>
 
       <div className="wc-card p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-[var(--wn-12)]">{t.directory.title}</p>
-            <p className="mt-1 text-xs text-[var(--wn-9)]">{t.directory.subtitle}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadAccess()}
-            className="wc-btn wc-btn-secondary wc-btn-sm"
-          >
-            {accessLoading ? t.directory.refreshing : t.directory.refresh}
-          </button>
+        <div>
+          <p className="text-sm font-semibold text-[var(--wn-12)]">{t.directory.title}</p>
+          <p className="mt-1 text-xs text-[var(--wn-9)]">{t.directory.subtitle}</p>
         </div>
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -457,13 +526,42 @@ export const AdminAccountsPanel: React.FC = () => {
                           )}
                         </span>
                         {row.pro && (
-                          <span>{t.directory.proSince(relativeTime(row.proSince, t.relative, locale))}</span>
+                          <span>
+                            {row.proUntil === null
+                              ? t.directory.proForever
+                              : t.directory.proUntil(
+                                  new Date(row.proUntil).toLocaleDateString(locale),
+                                  Math.max(
+                                    1,
+                                    Math.ceil((row.proUntil - Date.now()) / 86_400_000),
+                                  ),
+                                )}
+                          </span>
                         )}
                       </p>
                     </div>
 
                     {!isEditing && (
                       <div className="flex shrink-0 flex-col items-end gap-1">
+                        {!error && (row.pro || row.email) && (
+                          <button
+                            type="button"
+                            onClick={() => (row.pro ? void revokePro(row) : setGrantTarget(row))}
+                            disabled={proBusy === row.uid || (row.pro && !row.proLicenseKey)}
+                            className={`min-h-[44px] shrink-0 rounded-md border px-2 text-[0.7rem] font-semibold transition-colors disabled:opacity-60 ${
+                              row.pro
+                                ? 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-danger-red/60 hover:text-danger-red'
+                                : 'border-[var(--wa-5)] text-[var(--wa-11)] hover:border-[var(--wa-7)]'
+                            }`}
+                            title={row.pro ? t.directory.revokeProTitle : t.directory.grantProTitle}
+                          >
+                            {proBusy === row.uid
+                              ? common.saving
+                              : row.pro
+                                ? t.directory.revokePro
+                                : t.directory.grantPro}
+                          </button>
+                        )}
                         {!isSelf && (
                           <button
                             type="button"
@@ -503,6 +601,45 @@ export const AdminAccountsPanel: React.FC = () => {
           </ul>
         )}
       </div>
+
+      {grantTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t.directory.grantPro}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setGrantTarget(null);
+          }}
+        >
+          <div className="wc-card w-full max-w-sm p-5">
+            <p className="text-sm font-semibold text-[var(--wn-12)]">{t.directory.grantPro}</p>
+            <p className="mt-1 text-xs text-[var(--wn-9)]">
+              {t.directory.grantProAsk(grantTarget.displayName || grantTarget.email)}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {GRANT_TERMS.map((term) => (
+                <button
+                  key={term.days}
+                  type="button"
+                  onClick={() => void grantPro(grantTarget, term.days)}
+                  disabled={proBusy === grantTarget.uid}
+                  className="wc-btn wc-btn-secondary"
+                >
+                  {common.terms[term.key]}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setGrantTarget(null)}
+              className="mt-3 w-full text-xs font-semibold text-[var(--wn-9)] transition-colors hover:text-[var(--wn-11)]"
+            >
+              {common.cancel}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

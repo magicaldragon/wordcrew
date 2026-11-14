@@ -98,6 +98,17 @@ export const DEMO_ROUNDS_STORAGE_KEY = 'wordcrew_demo_rounds';
 export const BILLING_ENABLED: boolean = false;
 
 /**
+ * Terms an admin may hand out without a payment, in days. The worker refuses any other
+ * number, so a grant always has a visible end date instead of silently becoming lifetime.
+ */
+export const GRANT_TERMS = [
+  { days: 10, key: 'd10' },
+  { days: 31, key: 'm1' },
+  { days: 90, key: 'm3' },
+  { days: 365, key: 'y1' },
+] as const;
+
+/**
  * What is stored: `'1'` for a permanent unlock (access code, lifetime licence), or the
  * epoch-ms end of a dated subscription. Keeping the date on the device means an expired
  * plan stops unlocking even when the worker cannot be reached — the same rule, read

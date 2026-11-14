@@ -37,6 +37,13 @@ export const common: Dictionary['common'] = {
   points: 'điểm',
   today: 'Hôm nay',
   hearWord: (word: string) => `Nghe "${word}"`,
+  /** Thời hạn admin có thể cấp, khớp khóa với GRANT_TERMS trong constants.ts. */
+  terms: {
+    d10: '10 ngày',
+    m1: '1 tháng',
+    m3: '3 tháng',
+    y1: '1 năm',
+  },
   switchLanguage: 'Chuyển ngôn ngữ',
   switchToVietnamese: 'Chuyển sang tiếng Việt',
   switchToEnglish: 'Chuyển sang tiếng Anh',

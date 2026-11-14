@@ -43,6 +43,8 @@ export const admin = {
     searchPlaceholder: 'Search name or email…',
     loadFailed:
       'Could not read the account directory. Check that the admin email in firestore.rules matches ADMIN_EMAILS.',
+    accessFailed:
+      'Could not read PRO status from the server, so the badges below may be stale. Check that your session is still valid and that this email is in the worker ADMIN_EMAILS.',
     loading: 'Loading accounts…',
     empty: 'No accounts match this view.',
 
@@ -52,6 +54,17 @@ export const admin = {
     promoted: (account: string) => `${account} can open the tools now.`,
     demoted: (account: string) => `${account} is back to a student.`,
     roleFailed: 'Could not change that role. Check that the admin email is in the Firestore rules.',
+
+    grantPro: 'Grant PRO',
+    revokePro: 'Revoke PRO',
+    grantProTitle: 'Grant PRO to this account without a payment',
+    revokeProTitle: 'Revoke PRO from this account',
+    revokeProAsk: (account: string) =>
+      `Revoke PRO from ${account}? They lose the full version the next time they sign in.`,
+    proGranted: (account: string) => `Granted PRO to ${account}.`,
+    proRevoked: (account: string) => `Revoked PRO from ${account}.`,
+    proGrantFailed: 'Could not grant PRO. Check that the admin session is still valid.',
+    proRevokeFailed: 'Could not revoke PRO. Check that the admin session is still valid.',
 
     displayNameAria: (account: string) => `Display name for ${account}`,
     renameAria: (account: string) => `Rename ${account}`,
@@ -63,7 +76,9 @@ export const admin = {
     lastLogin: (value: string) => `Last login: ${value}`,
     joined: (value: string) => `Joined: ${value}`,
     unknown: 'Unknown',
-    proSince: (value: string) => `PRO since: ${value}`,
+    grantProAsk: (account: string) => `Pick a term for ${account}'s PRO:`,
+    proUntil: (date: string, days: number) => `PRO until ${date} (${days} days left)`,
+    proForever: 'PRO forever',
     makeTeacher: 'Make teacher',
     makeStudent: 'Make student',
     grantToolsTitle: 'Give teacher tool access',

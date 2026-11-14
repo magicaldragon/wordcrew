@@ -169,22 +169,29 @@ export interface AdminAccountAccess {
   email: string | null;
   productId: string;
   productName: string;
+  /** The newest licence behind this row — what the admin's revoke button takes back. */
+  licenseKey: string | null;
+  /** End of the paid window; `null` means the licence never expires. */
+  accessUntil: number | null;
   paidAt: number | null;
 }
 
 /**
  * Who owns a paid product, straight from D1. The account directory (names, presence)
  * is read from Firestore in the dashboard and joined with this on uid/email.
+ *
+ * `null` means the question could not be answered (signed out, API down, caller not an
+ * admin) — an empty list would otherwise be read as "nobody owns anything".
  */
 export const fetchAdminAccountAccess = async (
   idToken: string | null,
-): Promise<AdminAccountAccess[]> => {
-  if (!idToken) return [];
+): Promise<AdminAccountAccess[] | null> => {
+  if (!idToken) return null;
   try {
     const payload = await request<{ accounts?: unknown }>('/admin/accounts', {
       headers: { Authorization: `Bearer ${idToken}` },
     });
-    if (!Array.isArray(payload.accounts)) return [];
+    if (!Array.isArray(payload.accounts)) return null;
     return payload.accounts
       .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
       .map((item) => ({
@@ -192,11 +199,13 @@ export const fetchAdminAccountAccess = async (
         email: typeof item.email === 'string' ? item.email.toLowerCase() : null,
         productId: String(item.productId ?? ''),
         productName: typeof item.productName === 'string' ? item.productName : '',
+        licenseKey: typeof item.licenseKey === 'string' ? item.licenseKey : null,
+        accessUntil: typeof item.accessUntil === 'number' ? item.accessUntil : null,
         paidAt: typeof item.paidAt === 'number' ? item.paidAt : null,
       }))
       .filter((item) => item.uid || item.email);
   } catch {
-    return [];
+    return null;
   }
 };
 
@@ -370,16 +379,20 @@ export const fetchAdminOverview = async (idToken: string | null): Promise<AdminO
   }
 };
 
-/** Issues a licence to an email without a payment. Throws with the worker's reason. */
+/**
+ * Issues a licence to an email without a payment. Throws with the worker's reason.
+ *
+ * `days` must be one of `GRANT_TERMS`; `null` keeps the legacy lifetime grant.
+ */
 export const grantAccess = (
   idToken: string,
   email: string,
+  days: number | null = null,
   productId = 'pro',
-  plan = 'pro',
 ): Promise<{ code: string; email: string; licenseKey: string; accessUntil: number | null }> =>
   request('/admin/grant', {
     method: 'POST',
-    body: JSON.stringify({ email, productId, plan }),
+    body: JSON.stringify({ email, productId, days }),
     headers: { Authorization: `Bearer ${idToken}` },
   });
 
