@@ -25,6 +25,11 @@ import { useT } from '../i18n/useT';
 import { useLocale } from '../i18n/useLocale';
 import { trackText } from '../i18n/tracks';
 
+// The custom-sounds panel is hidden for now: its 14 uploaders are stored as base64 in
+// localStorage (a ~5 MB quota shared with word sets and reviews), so only a few files
+// ever fit. The wiring stays in place behind this switch so it can be turned back on.
+const SHOW_CUSTOM_SOUNDS = false;
+
 interface SetupScreenProps {
   /** Solo is a mode choice, so it arrives through this same container. */
   initialGameMode: GameMode | 'solo';
@@ -677,7 +682,6 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
     t.setup.demo.perks.soloTracks,
     t.setup.demo.perks.upTo60Words,
     t.setup.demo.perks.upTo10Minutes,
-    t.setup.demo.perks.customSounds,
   ];
   const lockedPackPerks: string[] = [
     CEFRLevel.FLYERS,
@@ -1253,6 +1257,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
 
       {/* Custom sounds — folded by default: the 14 uploaders would otherwise push this
           step past one screen. Volume/SFX above stay visible at all times. */}
+      {SHOW_CUSTOM_SOUNDS && (
       <div className="w-full">
         <button
           type="button"
@@ -1378,6 +1383,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({
         </div>
         )}
       </div>
+      )}
       </>
       )}
       </div>

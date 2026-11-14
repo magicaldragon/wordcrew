@@ -236,6 +236,10 @@ const App: React.FC = () => {
   // Also called from the Account tab's refresh, so a purchase reconciled while the buyer
   // waits unlocks without a full reload.
   const refreshEntitlements = useCallback(async () => {
+    // While billing is off the full version is open to everyone, so "owns nothing" is not
+    // a downgrade — without this guard signing in would flip `isUnlocked` back to false and
+    // re-lock the demo limits for every account (admin included).
+    if (!BILLING_ENABLED) return;
     const token = await getIdToken();
     if (!token) {
       setEntitlements([]);
