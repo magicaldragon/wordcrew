@@ -3,9 +3,11 @@
 Ngày rà soát: 15/11/2026. Phạm vi: mọi tài nguyên không phải mã nguồn được đóng gói vào bản
 build — danh sách từ, bản dịch nghĩa, phông chữ, âm thanh, hình ảnh.
 
-Kết luận ngắn: **ba danh sách từ chưa từng được ghi công; 11 tệp SFX lấy từ myinstants.com —
-một trang soundboard không cấp giấy phép tái sử dụng; 9 tệp nhạc nền làm bằng Suno gói trả phí
-nên có quyền thương mại, nhưng phải lưu bằng chứng.**
+Kết luận ngắn: **ba danh sách từ chưa từng được ghi công; 11 tệp SFX từng lấy từ
+myinstants.com — một trang soundboard không cấp giấy phép tái sử dụng; 9 tệp nhạc nền làm bằng
+Suno gói trả phí nên có quyền thương mại, nhưng phải lưu bằng chứng.** Ngày 15/11/2026 cả 11 tệp
+SFX đã được thay: 4 tệp bằng Suno Pro, 7 tệp tự tổng hợp trong dự án. Bản build không còn tệp nào
+từ myinstants.
 
 ## 1. Bảng tổng hợp
 
@@ -16,9 +18,9 @@ nên có quyền thương mại, nhưng phải lưu bằng chứng.**
 | `scripts/data/common-words.txt` | Google Web Trillion Word Corpus (`first20hours/google-10000-english`) | Chỉ dùng lúc build, không ship | Không cần ghi công trong app |
 | `assets/fonts/*.woff2` — Exo 2, Orbitron | Google Fonts, **SIL OFL 1.1** | Chưa ghi công | Đã ghi công tại mục 9.3 |
 | `public/audio/announcer-*.wav` (4 tệp) | Render sẵn bằng **Deepgram Aura** qua Cloudflare Workers AI (`scripts/generate-announcer.mjs`) | Chưa khai báo | Đã ghi tại mục 9.4; cần đối chiếu điều khoản thương mại của Cloudflare/Deepgram trước khi bán |
-| `public/audio/game-music-*.mp3`, `rush-hour-*.mp3`, `setup-music-*.mp3` (9 tệp) | **Suno, gói trả phí (Pro, 10 USD/tháng)** — người dùng xác nhận; tag ID3 của cả 9 tệp đều ghi `suno.com` | Đã thay bằng bản làm lại ngày 15/11/2026; có quyền thương mại **nếu** từng bài được tạo và tải về trong thời gian gói còn hiệu lực | Lưu hoá đơn gói Pro + bảng ngày tạo/ngày tải từng bài; bài tạo ở gói miễn phí **không** được thương mại hoá, và nâng cấp sau không có hiệu lực hồi tố |
-| `countdown-go.mp3`, `result.mp3`, `start.mp3`, `times-up.mp3` (4 tệp) | Người dùng làm lại ngày 15/11/2026; `result.mp3` mang tag Suno, ba tệp còn lại được encode qua ffmpeg và **không còn** dấu vết YouTube/Nintendo | Đã thay, nhưng chưa ghi rõ công cụ/nguồn từng tệp | Xác nhận và ghi vào bảng nguồn: bài Suno nào, hay tự thu/DAW |
-| 7 tệp SFX còn lại: `points-doubler.mp3`, `skip-freebie-used.mp3`, `powerup-collected.mp3`, `time-freeze.mp3`, `correct-sound.wav`, `skip-sound.wav`, `try-again.wav` | **myinstants.com** — người dùng xác nhận | **Chưa xử lý. Không có giấy phép.** Trang này chỉ công bố chính sách DMCA (`dmca@myinstants.com`), nội dung do người dùng tải lên, không có điều khoản cấp quyền tái sử dụng. `points-doubler.mp3` còn mang tag `Power Up Mario` / `Nintendo Sound FX and Themes` | **Phải thay 7 tệp này** trước khi bán — đây là chặn cuối cùng của mục 10 |
+| `public/audio/game-music-*.mp3`, `rush-hour-*.mp3`, `setup-music-*.mp3` (9 tệp) | **Suno, gói trả phí (Pro, 10 USD/tháng)** — người dùng xác nhận; tag ID3 của cả 9 tệp đều ghi `suno.com` | Đã thay bằng bản làm lại ngày 15/11/2026 và cắt đúng ô nhịp còn 0:44–1:31 mỗi bài; có quyền thương mại **nếu** từng bài được tạo và tải về trong thời gian gói còn hiệu lực | Lưu hoá đơn gói Pro + bảng ngày tạo/ngày tải từng bài; bài tạo ở gói miễn phí **không** được thương mại hoá, và nâng cấp sau không có hiệu lực hồi tố |
+| `countdown-go.mp3`, `result.mp3`, `start.mp3`, `times-up.mp3` (4 tệp) | **Suno, gói Pro** — người dùng xác nhận; `result.mp3` còn mang tag ID3 `suno.com`. Đã cắt còn 1,0–2,2 s | Đã thay và đã cắt ngày 15/11/2026 | Lưu cùng một bộ bằng chứng với 9 bài nhạc: ngày tạo/ngày tải từng đoạn. Đoạn cắt ra từ bài Pro thì giữ nguyên hiệu lực thương mại của bài gốc |
+| 7 tệp SFX: `points-doubler.mp3`, `skip-freebie-used.mp3`, `powerup-collected.mp3`, `time-freeze.mp3`, `correct-sound.wav`, `skip-sound.wav`, `try-again.wav` | **Tự tổng hợp** bằng oscillator và filtered noise — `scripts/generate-sfx.mjs`. Trước 15/11/2026 là bản myinstants.com | **Đã thay.** Bản hiện tại là tác phẩm gốc của dự án, không có giấy phép bên thứ ba, và tái tạo được bằng một lệnh | Không phải làm gì thêm; nếu sửa âm sắc thì sửa tham số trong script rồi chạy lại |
 | `public/icons/*.png`, `public/favicon.svg` | Không có metadata | Nhiều khả năng do dự án tạo | Xác nhận lại nguồn trước khi đăng lên store |
 
 ## 2. Vì sao “free” trên myinstants không dùng được cho sản phẩm bán
@@ -29,9 +31,11 @@ nên có quyền thương mại, nhưng phải lưu bằng chứng.**
   quyền.
 - Tải được miễn phí ≠ được dùng thương mại. Với một sản phẩm thu tiền, mỗi tệp cần một chuỗi
   quyền hợp lệ từ chủ sở hữu gốc, không phải từ nơi tải về.
-- Hai tệp từng có bằng chứng rõ ràng nhất đã được thay ngày 15/11/2026: `points-doubler.mp3`
-  (âm thanh của Nintendo) và `countdown-go.mp3` (bản tải từ YouTube). Bảy tệp SFX còn lại vẫn
-  đang là bản từ myinstants và vẫn là chặn phải gỡ.
+- Hai tệp từng có bằng chứng rõ ràng nhất đã được thay ngay từ đợt đầu: `points-doubler.mp3`
+  (âm thanh của Nintendo) và `countdown-go.mp3` (bản tải từ YouTube). Bảy tệp SFX còn lại được
+  thay nốt ngày 15/11/2026 bằng bản tự tổng hợp, nên bản build hiện tại không còn tệp nào của
+  myinstants. Lý do vẫn ghi lại lịch sử này: nếu sau này ai thêm một tệp “nghe hay trên mạng” vào
+  `public/audio/`, câu hỏi giấy phép phải được trả lời y như đã trả lời ở đây.
 
 ## 3. Vì sao nhạc Suno ổn hơn, nhưng vẫn cần bằng chứng
 
@@ -53,12 +57,9 @@ nên có quyền thương mại, nhưng phải lưu bằng chứng.**
 
 ## 5. Việc còn lại phải làm trước khi mở bán
 
-1. Thay 7 tệp SFX còn lại từ myinstants (`points-doubler`, `skip-freebie-used`,
-   `powerup-collected`, `time-freeze`, `correct-sound`, `skip-sound`, `try-again`). Danh sách cần
-   đặt (mô tả âm thanh, độ dài, prompt Suno) nằm trong
-   [danh-sach-thay-the.md](../am-thanh/danh-sach-thay-the.md). Nguồn thay thế gợi ý: Freesound
-   (lọc CC0), Pixabay Audio, hoặc tự thu/mô phỏng lại bằng DAW. Ghi lại giấy phép của từng tệp
-   mới ngay khi thay.
+1. ~~Thay 7 tệp SFX còn lại từ myinstants~~ — **đã xong 15/11/2026**: 7 tệp tự tổng hợp bằng
+   `scripts/generate-sfx.mjs`, 4 tệp Suno Pro đã cắt còn 1,0–2,2 s. Chi tiết độ dài và cách cắt
+   nằm trong [danh-sach-thay-the.md](../am-thanh/danh-sach-thay-the.md).
 2. Đã thay 9 tệp nhạc nền bằng bản Suno mới (tag `suno.com`). Vẫn cần lưu bộ bằng chứng: hoá đơn
    gói Pro + bảng ngày tạo/ngày tải của từng bài. Bài nào không chứng minh được là tạo trong kỳ
    trả phí thì thay.
