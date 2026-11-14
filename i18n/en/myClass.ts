@@ -78,6 +78,15 @@ export const myClass = {
         `${students} ${students === 1 ? 'student' : 'students'} · ${assignments} ${
           assignments === 1 ? 'assignment' : 'assignments'
         }${toGrade > 0 ? ` · ${toGrade} to grade` : ''}`,
+      viewsAria: 'Report view',
+      filterAll: 'Everyone',
+      filterToGrade: (count: number) => `To grade · ${count}`,
+      filterMissing: (count: number) => `Missing · ${count}`,
+      queueTitle: (count: number) =>
+        count === 1 ? '1 piece waiting for a score' : `${count} pieces waiting for a score`,
+      queueSubmitted: (date: string) => `Submitted ${date}`,
+      queueEmpty: 'Nothing waiting for a score. Written work lands here the moment it is handed in.',
+      missingEmpty: 'Everyone has handed in every assignment.',
       cellAria: (student: string, assignment: string, status: string) =>
         `${student} · ${assignment} · ${status}`,
     },

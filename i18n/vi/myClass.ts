@@ -78,6 +78,14 @@ export const myClass: Dictionary['myClass'] = {
       nothingYet: 'Giao bài rồi bảng này sẽ tự đầy lên.',
       summary: (students: number, assignments: number, toGrade: number) =>
         `${students} học sinh · ${assignments} bài tập${toGrade > 0 ? ` · ${toGrade} bài chờ chấm` : ''}`,
+      viewsAria: 'Cách xem báo cáo',
+      filterAll: 'Tất cả',
+      filterToGrade: (count: number) => `Chờ chấm · ${count}`,
+      filterMissing: (count: number) => `Còn thiếu · ${count}`,
+      queueTitle: (count: number) => `${count} bài đang chờ chấm`,
+      queueSubmitted: (date: string) => `Nộp ${date}`,
+      queueEmpty: 'Không có bài nào chờ chấm. Bài viết sẽ hiện ở đây ngay khi học sinh nộp.',
+      missingEmpty: 'Cả lớp đã nộp đủ mọi bài.',
       cellAria: (student: string, assignment: string, status: string) =>
         `${student} · ${assignment} · ${status}`,
     },

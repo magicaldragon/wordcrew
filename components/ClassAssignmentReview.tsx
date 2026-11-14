@@ -17,6 +17,8 @@ interface ClassAssignmentReviewProps {
   assignment: ClassAssignment;
   members: ClassMember[];
   submissions: ClassSubmission[];
+  /** Opens with one student's work already expanded — used by the grading queue. */
+  initialOpenEmail?: string | null;
   onRefresh: () => Promise<void> | void;
   onBack: () => void;
 }
@@ -32,6 +34,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
   assignment,
   members,
   submissions,
+  initialOpenEmail = null,
   onRefresh,
   onBack,
 }) => {
@@ -40,7 +43,7 @@ export const ClassAssignmentReview: React.FC<ClassAssignmentReviewProps> = ({
   const teacherT = useT('teacher');
   const locale = useLocale();
 
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenEmail);
   const [grading, setGrading] = useState<{ id: string; score: number; feedback: string } | null>(null);
 
   const formatDate = (ms: number): string =>

@@ -33,7 +33,10 @@ interface ClassTeacherPanelProps {
   refreshKey?: number;
 }
 
-type Mode = { kind: 'overview' } | { kind: 'editor' } | { kind: 'review'; assignment: ClassAssignment };
+type Mode =
+  | { kind: 'overview' }
+  | { kind: 'editor' }
+  | { kind: 'review'; assignment: ClassAssignment; focusEmail?: string };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -55,6 +58,8 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const [mode, setMode] = useState<Mode>({ kind: 'overview' });
   /** Which half of the open class is showing: the roster, the work, or the class report. */
   const [pane, setPane] = useState<'roster' | 'work' | 'report'>('roster');
+  /** The report's chips: the whole class, the essays waiting on a human, or who still owes work. */
+  const [reportView, setReportView] = useState<'all' | 'toGrade' | 'missing'>('all');
   const [busy, setBusy] = useState(false);
 
   const [newClassName, setNewClassName] = useState('');
@@ -81,13 +86,58 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     return index;
   }, [submissions]);
 
-  /** Writing that has been handed in but not scored is the only work waiting on a human. */
-  const toGrade = useMemo(
+  /**
+   * Writing that has been handed in but not scored is the only work waiting on a human.
+   * Oldest first, so nobody is left waiting because their essay landed on a busy day.
+   */
+  const gradingQueue = useMemo(
     () =>
-      submissions.filter(
-        (item) => item.status === 'submitted' && item.kind === 'writing' && !item.graded,
+      submissions
+        .filter((item) => item.status === 'submitted' && item.kind === 'writing' && !item.graded)
+        .sort((a, b) => a.submittedAt - b.submittedAt)
+        .flatMap((submission) => {
+          const assignment = assignments.find((item) => item.id === submission.assignmentId);
+          return assignment ? [{ submission, assignment }] : [];
+        }),
+    [submissions, assignments],
+  );
+
+  /** Students who still owe at least one assignment. Invited students cannot owe work yet. */
+  const missing = useMemo(
+    () =>
+      members.filter(
+        (member) =>
+          member.status === 'active' &&
+          assignments.some(
+            (assignment) => cells.get(assignment.id)?.get(member.email)?.status !== 'submitted',
+          ),
       ).length,
-    [submissions],
+    [members, assignments, cells],
+  );
+
+  /** The matrix rows after the chip on top has had its say. */
+  const reportRows = useMemo(
+    () =>
+      members
+        .map((member) => ({
+          member,
+          row: assignments.map(
+            (assignment) => cells.get(assignment.id)?.get(member.email) ?? null,
+          ),
+        }))
+        .filter(({ member, row }) => {
+          if (reportView === 'missing') {
+            return member.status === 'active' && row.some((item) => item?.status !== 'submitted');
+          }
+          if (reportView === 'toGrade') {
+            return row.some(
+              (item) =>
+                item?.status === 'submitted' && item.kind === 'writing' && !item.graded,
+            );
+          }
+          return true;
+        }),
+    [members, assignments, cells, reportView],
   );
 
   const formatDue = (dueAt: number | null): string =>
@@ -96,6 +146,14 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       : t.meta.dueOn(
           new Date(dueAt).toLocaleDateString(locale, { day: 'numeric', month: 'short' }),
         );
+
+  const formatSubmitted = (ms: number): string =>
+    new Date(ms).toLocaleString(locale, {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
   const loadClasses = useCallback(async () => {
     try {
@@ -355,6 +413,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
           assignment={mode.assignment}
           members={members}
           submissions={submissions}
+          initialOpenEmail={mode.focusEmail ?? null}
           onRefresh={() => loadClassData(active.id)}
           onBack={() => setMode({ kind: 'overview' })}
         />
@@ -678,7 +737,11 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h4 className="text-sm font-bold text-[var(--wn-12)]">{t.teacher.report.title}</h4>
               <p className="text-xs text-[var(--wn-10)]">
-                {t.teacher.report.summary(members.length, assignments.length, toGrade)}
+                {t.teacher.report.summary(
+                  members.length,
+                  assignments.length,
+                  gradingQueue.length,
+                )}
               </p>
             </div>
 
@@ -688,6 +751,79 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
               </p>
             ) : (
               <>
+                {/* Three questions, three chips: the whole class, who is waiting on me,
+                    and who still owes work. */}
+                <div
+                  className="flex flex-wrap gap-1.5"
+                  role="group"
+                  aria-label={t.teacher.report.viewsAria}
+                >
+                  {([
+                    ['all', t.teacher.report.filterAll],
+                    ['toGrade', t.teacher.report.filterToGrade(gradingQueue.length)],
+                    ['missing', t.teacher.report.filterMissing(missing)],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={reportView === id}
+                      onClick={() => setReportView(id)}
+                      className={`min-h-[40px] rounded-full border px-3 text-xs font-semibold transition-colors ${
+                        reportView === id
+                          ? 'border-electric-blue bg-electric-blue/10 text-electric-blue'
+                          : 'border-[var(--wn-4)] text-[var(--wn-10)] hover:border-[var(--wn-6)] hover:text-[var(--wn-12)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Written work is the only kind that waits on a person, so it gets its
+                    own short inbox: oldest first, one tap into the grader. */}
+                {gradingQueue.length > 0 && (
+                  <section className="flex flex-col gap-2">
+                    <h5 className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-electric-blue">
+                      {t.teacher.report.queueTitle(gradingQueue.length)}
+                    </h5>
+                    <ul className="flex flex-col gap-2">
+                      {gradingQueue.map(({ submission, assignment }) => (
+                        <li
+                          key={submission.id}
+                          className="flex items-start justify-between gap-3 rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
+                              {submission.name}
+                            </p>
+                            <p className="truncate text-xs text-[var(--wn-10)]">
+                              {assignment.title}
+                            </p>
+                            <p className="text-[0.65rem] text-[var(--wn-9)]">
+                              {t.teacher.report.queueSubmitted(
+                                formatSubmitted(submission.submittedAt),
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMode({
+                                kind: 'review',
+                                assignment,
+                                focusEmail: submission.email,
+                              })
+                            }
+                            className="wc-btn wc-btn-primary min-h-[40px] shrink-0 px-3 text-xs"
+                          >
+                            {t.review.gradeThis}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
                 <p className="text-xs leading-snug text-[var(--wn-10)]">{t.teacher.report.hint}</p>
                 {/* A matrix rather than two lists: every student against every assignment.
                     The name column stays pinned so a class of thirty never loses its labels. */}
@@ -728,10 +864,19 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                       </tr>
                     </thead>
                     <tbody className="[&>tr:last-child>*]:border-b-0">
-                      {members.map((member) => {
-                        const row = assignments.map(
-                          (assignment) => cells.get(assignment.id)?.get(member.email) ?? null,
-                        );
+                      {reportRows.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={assignments.length + 1}
+                            className="px-3 py-6 text-center text-sm text-[var(--wn-10)]"
+                          >
+                            {reportView === 'missing'
+                              ? t.teacher.report.missingEmpty
+                              : t.teacher.report.queueEmpty}
+                          </td>
+                        </tr>
+                      )}
+                      {reportRows.map(({ member, row }) => {
                         const handedIn = row.filter((item) => item?.status === 'submitted').length;
                         return (
                           <tr key={member.email}>
