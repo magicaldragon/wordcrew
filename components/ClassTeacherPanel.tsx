@@ -310,15 +310,15 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   if (!active) return null;
 
   if (mode.kind === 'editor') {
+    // The editor draws its own dialogs, so it must not sit inside a card — a transformed
+    // ancestor would trap the fixed overlay inside that card.
     return (
-      <div className="wc-card p-4">
-        <ClassAssignmentEditor
-          classes={classes.map((item) => ({ id: item.id, name: item.name }))}
-          activeClassId={active.id}
-          onCancel={() => setMode({ kind: 'overview' })}
-          onCreate={handleCreateAssignment}
-        />
-      </div>
+      <ClassAssignmentEditor
+        classes={classes.map((item) => ({ id: item.id, name: item.name }))}
+        activeClassId={active.id}
+        onCancel={() => setMode({ kind: 'overview' })}
+        onCreate={handleCreateAssignment}
+      />
     );
   }
 

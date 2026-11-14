@@ -61,7 +61,7 @@ export const myClass = {
     codeIs: (code: string) => `Class code: ${code}`,
 
     assignments: 'Assignments',
-    newAssignment: 'New',
+    newAssignment: 'New Assignment',
     noAssignments:
       'Nothing set yet. A word set, a multiple-choice quiz or a writing prompt — all three end in a report.',
     metaLine: (kind: string, due: string, words: number | null, questions: number | null) => {
@@ -212,6 +212,15 @@ export const myClass = {
     backAria: 'Back to the class',
     title: 'New assignment',
     typeAria: 'Assignment type',
+    pickHint: 'Pick a type — each opens its own short form. Nothing is sent until you press Assign.',
+    closeAria: 'Close',
+    changeTypeAria: 'Back to the assignment types',
+    wordsTitle: 'Word list',
+    partsTitle: 'Test parts',
+    partsEdit: 'Edit',
+    partsDone: 'Done',
+    partsSummary:
+      'Each part is its own tab for the student — easiest style first, with a break between parts.',
     kindHints: {
       vocabulary: 'One word list, asked one to four ways. Tick the test styles below.',
       quiz: 'Four options per question. Order is shuffled for every student.',

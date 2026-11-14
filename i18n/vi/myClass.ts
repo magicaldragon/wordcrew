@@ -63,7 +63,7 @@ export const myClass: Dictionary['myClass'] = {
     codeIs: (code: string) => `Mã lớp: ${code}`,
 
     assignments: 'Bài tập',
-    newAssignment: 'Mới',
+    newAssignment: 'Giao bài mới',
     noAssignments:
       'Chưa giao bài nào. Bộ từ, trắc nghiệm hay đề viết — cả ba đều kết thúc bằng một báo cáo.',
     metaLine: (kind: string, due: string, words: number | null, questions: number | null) => {
@@ -209,6 +209,15 @@ export const myClass: Dictionary['myClass'] = {
     backAria: 'Quay lại lớp',
     title: 'Giao bài mới',
     typeAria: 'Loại bài tập',
+    pickHint: 'Chọn một loại — mỗi loại mở một biểu mẫu ngắn riêng. Chưa gửi gì cho đến khi bạn bấm Giao bài.',
+    closeAria: 'Đóng',
+    changeTypeAria: 'Quay lại chọn loại bài',
+    wordsTitle: 'Danh sách từ',
+    partsTitle: 'Các phần kiểm tra',
+    partsEdit: 'Sửa',
+    partsDone: 'Xong',
+    partsSummary:
+      'Mỗi phần là một tab riêng cho học sinh — kiểu dễ trước, có khoảng nghỉ giữa các phần.',
     kindHints: {
       vocabulary: 'Một danh sách từ, hỏi theo một đến bốn kiểu. Chọn kiểu bài bên dưới.',
       quiz: 'Mỗi câu bốn lựa chọn. Thứ tự được xáo cho từng học sinh.',
