@@ -31,10 +31,14 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  onSnapshot,
   query,
   setDoc,
   updateDoc,
   where,
+  writeBatch,
+  type FirestoreError,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { AppError } from './apiError';
@@ -362,9 +366,29 @@ export const fetchClass = async (classId: string): Promise<SchoolClass | null> =
   return snap.exists() ? toClass(snap.id, snap.data() as Record<string, unknown>) : null;
 };
 
+/**
+ * Firestore never deletes a document's subcollections, so a removed class would otherwise
+ * leave its roster, work and submissions behind forever — invisible, unreachable, and
+ * still billed as storage. Everything under the class is deleted in batches before the
+ * class document itself goes, because the rules read the class to grant each delete.
+ */
+const deleteSubcollection = async (classId: string, name: string): Promise<void> => {
+  for (;;) {
+    const snap = await getDocs(query(collection(db!, CLASSES, classId, name), limit(400)));
+    if (snap.empty) return;
+    const batch = writeBatch(db!);
+    snap.docs.forEach((row) => batch.delete(row.ref));
+    await batch.commit();
+    if (snap.size < 400) return;
+  }
+};
+
 export const deleteClass = async (item: SchoolClass): Promise<void> => {
-  await deleteDoc(doc(db!, CODES, item.joinCode)).catch(() => undefined);
+  await deleteSubcollection(item.id, 'submissions');
+  await deleteSubcollection(item.id, 'assignments');
+  await deleteSubcollection(item.id, 'members');
   await deleteDoc(doc(db!, CLASSES, item.id));
+  await deleteDoc(doc(db!, CODES, item.joinCode)).catch(() => undefined);
 };
 
 /**
@@ -535,6 +559,77 @@ export const fetchSubmissions = async (classId: string, uid?: string): Promise<C
   return snap.docs.map((item) => toSubmission(item.id, item.data() as Record<string, unknown>));
 };
 
+export interface ClassSnapshot {
+  members: ClassMember[];
+  assignments: ClassAssignment[];
+  submissions: ClassSubmission[];
+}
+
+/**
+ * Live view of one class. Reading the three collections once and then listening means a
+ * teacher who flips between class tabs pays for the first open only: every later visit is
+ * served from the documents already in hand, and new work arrives as a single read per
+ * changed document instead of a full re-download.
+ *
+ * The callback fires only once all three collections have answered, so the panel never
+ * paints a half-empty roster over a full one.
+ */
+export const watchClass = (
+  classId: string,
+  onChange: (snapshot: ClassSnapshot) => void,
+  onError?: (error: FirestoreError) => void,
+): (() => void) => {
+  const state: ClassSnapshot = { members: [], assignments: [], submissions: [] };
+  const loaded = new Set<keyof ClassSnapshot>();
+
+  const emit = () => {
+    if (loaded.size < 3) return;
+    onChange({
+      members: [...state.members],
+      assignments: [...state.assignments],
+      submissions: [...state.submissions],
+    });
+  };
+
+  const stops = [
+    onSnapshot(
+      collection(db!, CLASSES, classId, 'members'),
+      (snap) => {
+        state.members = snap.docs
+          .map((item) => toMember(item.id, item.data() as Record<string, unknown>))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        loaded.add('members');
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      collection(db!, CLASSES, classId, 'assignments'),
+      (snap) => {
+        state.assignments = snap.docs
+          .map((item) => toAssignment(item.id, item.data() as Record<string, unknown>))
+          .sort((a, b) => a.createdAt - b.createdAt);
+        loaded.add('assignments');
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      collection(db!, CLASSES, classId, 'submissions'),
+      (snap) => {
+        state.submissions = snap.docs.map((item) =>
+          toSubmission(item.id, item.data() as Record<string, unknown>),
+        );
+        loaded.add('submissions');
+        emit();
+      },
+      onError,
+    ),
+  ];
+
+  return () => stops.forEach((stop) => stop());
+};
+
 export interface SubmitInput {
   classId: string;
   assignment: ClassAssignment;
@@ -629,6 +724,36 @@ export const handInWork = async (
     autoSubmitted: auto || submission.autoSubmitted,
     submittedAt,
   };
+};
+
+/**
+ * Hands in a whole set of overdue drafts in one round trip. A full class can owe dozens
+ * of hand-ins at once, and the teacher's class open is the moment they are settled — so
+ * this batches the writes instead of firing one request per student.
+ */
+export const handInLateWork = async (
+  classId: string,
+  late: ClassSubmission[],
+  now = Date.now(),
+): Promise<ClassSubmission[]> => {
+  if (late.length === 0) return [];
+  for (let start = 0; start < late.length; start += 400) {
+    const batch = writeBatch(db!);
+    for (const item of late.slice(start, start + 400)) {
+      batch.set(
+        doc(db!, CLASSES, classId, 'submissions', item.id),
+        { status: 'submitted', autoSubmitted: true, submittedAt: now },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+  }
+  return late.map((item) => ({
+    ...item,
+    status: 'submitted',
+    autoSubmitted: true,
+    submittedAt: now,
+  }));
 };
 
 /** Writing submissions wait for a human; the teacher sets the score and a note. */

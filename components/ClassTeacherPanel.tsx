@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog, toast } from './Feedback';
 import { ClassAssignmentEditor } from './ClassAssignmentEditor';
@@ -13,15 +13,15 @@ import {
   createClass,
   deleteAssignment,
   deleteClass,
-  fetchAssignments,
   fetchMembers,
-  fetchSubmissions,
   fetchTeacherClasses,
-  handInWork,
+  handInLateWork,
   isOverdue,
   removeMember,
+  watchClass,
   type ClassAssignment,
   type ClassMember,
+  type ClassSnapshot,
   type ClassSubmission,
   type NewAssignment,
   type SchoolClass,
@@ -40,6 +40,14 @@ type Mode =
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Shared empties so a class that is still loading keeps referential stability. */
+const NO_MEMBERS: ClassMember[] = [];
+const NO_ASSIGNMENTS: ClassAssignment[] = [];
+const NO_SUBMISSIONS: ClassSubmission[] = [];
+
+/** How many visited classes stay live at once. A teacher runs rooms, not a campus. */
+const LIVE_CLASS_LIMIT = 8;
+
 /**
  * The teacher console: one class at a time, its roster, and the work that has been set.
  * A teacher may run several classes (different years, different rooms), so the header is a
@@ -52,9 +60,15 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
 
   const [classes, setClasses] = useState<SchoolClass[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [members, setMembers] = useState<ClassMember[]>([]);
-  const [assignments, setAssignments] = useState<ClassAssignment[]>([]);
-  const [submissions, setSubmissions] = useState<ClassSubmission[]>([]);
+  /**
+   * Live snapshots keyed by class. Flipping between rooms must not re-download a class,
+   * so each visited class keeps its listener and only changed documents are read.
+   */
+  const [byClass, setByClass] = useState<Record<string, ClassSnapshot>>({});
+  const watchers = useRef(new Map<string, () => void>());
+  const recent = useRef<string[]>([]);
+  /** Drafts already being handed in, so a racing snapshot cannot send them twice. */
+  const settling = useRef(new Set<string>());
   const [mode, setMode] = useState<Mode>({ kind: 'overview' });
   /** Which half of the open class is showing: the roster, the work, or the class report. */
   const [pane, setPane] = useState<'roster' | 'work' | 'report'>('roster');
@@ -71,6 +85,12 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     () => classes?.find((item) => item.id === activeId) ?? classes?.[0] ?? null,
     [classes, activeId],
   );
+
+  /** What the open tab knows right now. `undefined` means the first snapshot is landing. */
+  const data = active ? byClass[active.id] : undefined;
+  const members = data?.members ?? NO_MEMBERS;
+  const assignments = data?.assignments ?? NO_ASSIGNMENTS;
+  const submissions = data?.submissions ?? NO_SUBMISSIONS;
 
   /**
    * The report reads one cell per student per assignment, so the rows are indexed once
@@ -165,42 +185,92 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     }
   }, [viewer.uid, t]);
 
-  const loadClassData = useCallback(async (classId: string) => {
-    try {
-      const [roster, work, results] = await Promise.all([
-        fetchMembers(classId),
-        fetchAssignments(classId),
-        fetchSubmissions(classId),
-      ]);
-      // The deadline is enforced from whichever side is online first. A student who never
-      // comes back still has their last attempt handed in when the teacher opens the class,
-      // instead of the report quietly showing the work as never done.
-      const late = results.filter(
-        (item) =>
-          item.status === 'pending' &&
-          work.some(
-            (assignment) => assignment.id === item.assignmentId && isOverdue(assignment),
-          ),
+  /**
+   * Opens (or reuses) the live listeners for one class. Listeners are kept for the last
+   * few rooms a teacher visited, so coming back is instant and costs no reads; the oldest
+   * room is dropped instead, which keeps a teacher with many classes from piling them up.
+   */
+  const openClass = useCallback(
+    (classId: string) => {
+      if (watchers.current.has(classId)) {
+        recent.current = [classId, ...recent.current.filter((id) => id !== classId)];
+        return;
+      }
+      const stop = watchClass(
+        classId,
+        (snapshot) => setByClass((prev) => ({ ...prev, [classId]: snapshot })),
+        () => toast(t.teacher.loadClassFailed, 'error'),
       );
-      const settled = await Promise.all(
-        late.map((item) => handInWork(classId, item, true).catch(() => item)),
-      );
-      const byId = new Map(settled.map((item) => [item.id, item]));
-      setMembers(roster);
-      setAssignments(work);
-      setSubmissions(results.map((item) => byId.get(item.id) ?? item));
-    } catch {
-      toast(t.teacher.loadClassFailed, 'error');
-    }
-  }, [t]);
+      watchers.current.set(classId, stop);
+      recent.current = [classId, ...recent.current];
+      while (recent.current.length > LIVE_CLASS_LIMIT) {
+        const dropped = recent.current.pop();
+        if (!dropped) break;
+        watchers.current.get(dropped)?.();
+        watchers.current.delete(dropped);
+        setByClass((prev) => {
+          const next = { ...prev };
+          delete next[dropped];
+          return next;
+        });
+      }
+    },
+    [t],
+  );
+
+  /** Stops the listeners for a class that is about to disappear. */
+  const closeClass = useCallback((classId: string) => {
+    watchers.current.get(classId)?.();
+    watchers.current.delete(classId);
+    recent.current = recent.current.filter((id) => id !== classId);
+    setByClass((prev) => {
+      const next = { ...prev };
+      delete next[classId];
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     void loadClasses();
   }, [loadClasses]);
 
   useEffect(() => {
-    if (active) void loadClassData(active.id);
-  }, [active, refreshKey, loadClassData]);
+    if (active) openClass(active.id);
+  }, [active, openClass, refreshKey]);
+
+  // Closing the panel stops the listeners; they are per-class, not per-session.
+  useEffect(
+    () => () => {
+      watchers.current.forEach((stop) => stop());
+      watchers.current.clear();
+    },
+    [],
+  );
+
+  /**
+   * The deadline is enforced by whichever side opens the class first. A whole class can
+   * owe drafts at once, so they are handed in as one batch rather than one request each.
+   */
+  useEffect(() => {
+    if (!active || !data) return;
+    const late = data.submissions.filter(
+      (item) =>
+        item.status === 'pending' &&
+        !settling.current.has(item.id) &&
+        data.assignments.some(
+          (assignment) => assignment.id === item.assignmentId && isOverdue(assignment),
+        ),
+    );
+    if (late.length === 0) return;
+    // Marked before the write lands: a second snapshot can arrive while the batch is still
+    // in flight, and handing the same draft in twice would be a wasted write.
+    late.forEach((item) => settling.current.add(item.id));
+    void handInLateWork(active.id, late)
+      .catch(() => late.forEach((item) => settling.current.delete(item.id)));
+  }, [active, data]);
+
+  /** Writes come straight back through the listeners, so nothing needs re-fetching. */
+  const refresh = useCallback(() => undefined, []);
 
   const handleCreateClass = async () => {
     if (!newClassName.trim()) {
@@ -243,7 +313,6 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       await addMember(active.id, { email, name: inviteName });
       setInviteEmail('');
       setInviteName('');
-      await loadClassData(active.id);
     } catch {
       toast(t.teacher.addFailed, 'error');
     } finally {
@@ -261,7 +330,6 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     if (!ok) return;
     try {
       await removeMember(active.id, member.email);
-      await loadClassData(active.id);
     } catch {
       toast(t.teacher.removeFailed, 'error');
     }
@@ -276,6 +344,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     });
     if (!ok) return;
     try {
+      closeClass(active.id);
       await deleteClass(active);
       setMode({ kind: 'overview' });
       setActiveId(null);
@@ -289,7 +358,6 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     if (!active) return;
     // The same work is written into each chosen roster; one wait covers them all.
     await Promise.all(classIds.map((classId) => createAssignment(classId, input)));
-    if (classIds.includes(active.id)) await loadClassData(active.id);
     setMode({ kind: 'overview' });
     toast(
       classIds.length > 1
@@ -314,7 +382,6 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       // deleting the old one — a failed second write would otherwise lose the student.
       await addMember(destId, { email: member.email, name: member.name });
       await removeMember(active.id, member.email);
-      await loadClassData(active.id);
       toast(t.teacher.movedMember(member.name, dest.name), 'success');
     } catch {
       toast(t.teacher.moveFailed, 'error');
@@ -333,7 +400,6 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     if (!ok) return;
     try {
       await deleteAssignment(active.id, assignment.id);
-      await loadClassData(active.id);
     } catch {
       toast(t.teacher.deleteAssignmentFailed, 'error');
     }
@@ -414,7 +480,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
           members={members}
           submissions={submissions}
           initialOpenEmail={mode.focusEmail ?? null}
-          onRefresh={() => loadClassData(active.id)}
+          onRefresh={refresh}
           onBack={() => setMode({ kind: 'overview' })}
         />
       </div>
@@ -574,7 +640,12 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
           </div>
         </div>
 
-        {pane === 'roster' ? (
+        {!data ? (
+          <div className="flex items-center justify-center gap-2 p-8" role="status" aria-live="polite">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--wn-4)] border-t-electric-blue" />
+            <span className="text-sm text-[var(--wn-10)]">{t.teacher.loading}</span>
+          </div>
+        ) : pane === 'roster' ? (
           <div className="flex flex-col gap-3 p-4">
             <p className="text-sm text-[var(--wn-10)]">{t.teacher.addBody}</p>
 

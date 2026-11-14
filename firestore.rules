@@ -497,7 +497,23 @@ service cloud.firestore {
         && data.score is number && data.score >= 0 && data.score <= 100
         && data.passed is bool
         && data.attempts is number && data.attempts >= 1 && data.attempts <= 1000
+        // `detail` carries the whole answer sheet, so it is shape- and size-capped: a
+        // broken client must not be able to park a megabyte in a document the teacher
+        // reads every time the class is opened.
         && data.detail is map
+        && data.detail.keys().hasOnly(['answers', 'responses', 'text'])
+        && data.detail.answers is list
+        && data.detail.answers.size() <= 60
+        && data.detail.answers.all(answer,
+            answer is map
+            && answer.keys().hasOnly(['term', 'gloss', 'guess', 'correct', 'attempts', 'hints', 'skipped', 'mode'])
+            && answer.term is string && answer.term.size() <= 80
+            && answer.gloss is string && answer.gloss.size() <= 200
+            && answer.guess is string && answer.guess.size() <= 80
+            && answer.correct is bool)
+        && data.detail.responses is list
+        && data.detail.responses.size() <= 30
+        && data.detail.text is string && data.detail.text.size() <= 4000
         // `status` và `autoSubmitted` là field của luồng pending → submit, nên bài nộp
         // cũ (chưa có hai field này) vẫn hợp lệ và được đọc là "đã nộp".
         && (!data.keys().hasAny(['status']) || data.status in ['pending', 'submitted'])
