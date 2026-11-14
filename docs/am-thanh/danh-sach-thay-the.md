@@ -14,6 +14,9 @@ myinstants.com (11 tệp này không có giấy phép) và làm lại 9 tệp nh
 - Đã cắt **9 tệp nhạc nền** xuống đoạn hay nhất, cắt đúng ô nhịp: setup 0:59–1:01, game
   1:29–1:31, rush-hour 0:44. Tổng `public/audio` từ 29,43 MB còn **9,43 MB**.
 - Đã đổi `cacheName` sang `wordcrew-audio-v3`.
+- Đã tách **mức âm lượng theo màn** (mục 2): màn thiết lập giữ đúng mức người dùng đặt, trong ván
+  hạ còn 0,36 lần mức đó, Rush Hour mở ở 0,7 lần rồi tự hạ về mức trong ván sau 6 giây. Không tệp
+  nào bị thay hay nén thêm — sáu track game/rush-hour vẫn giữ nguyên để dùng cho game khác sau này.
 
 ## 0. Quy tắc chung để không phải sửa code
 
@@ -75,6 +78,24 @@ bài. Điểm cắt hai đầu rơi vào ô nhịp nên vòng lặp vẫn đúng
 
 Mỗi nhóm chọn ngẫu nhiên một bài mỗi ván, nên ba biến thể phải cùng “họ” âm thanh — đổi bài
 không được làm người chơi tưởng đang chơi app khác.
+
+### Mức âm lượng theo màn
+
+Thanh trượt của người dùng là **mức trần**, không phải mức của mọi màn. Hệ số nằm trong
+`constants.ts` (`MUSIC_GAIN_SETUP` = 1, `MUSIC_GAIN_GAME` = 0,36, `MUSIC_GAIN_RUSH_HOUR` = 0,7)
+và được nhân vào `musicVolume` ở `App.tsx`, nên giá trị lưu trong `localStorage` vẫn giữ nguyên
+nghĩa. Với mức mặc định 0,5: màn thiết lập 0,50 · trong ván **0,18** · Rush Hour mở ở **0,35**
+rồi tự hạ về 0,18 sau `RUSH_HOUR_BOOST_MS` (6 giây).
+
+Lý do hạ trong ván: nhạc dùng chung tai với việc mô tả và nhớ từ, và trên điện thoại còn dùng
+chung với micro đang nghe câu trả lời — nhạc to làm giọng lọt vào mic và giảm độ chính xác nhận
+dạng. Không mute hẳn vì khoảng lặng giữa hai từ dễ bị hiểu là app treo, và Rush Hour cần một tín
+hiệu âm thanh vì đó là lúc luật đổi.
+
+**Sáu tệp `game-music-*` và `rush-hour-*` phải được giữ lại, không xoá và không nén thêm.** Chúng
+đã được cắt gọn và chuẩn hoá −16 LUFS; khi WordCrew có thêm game dạng phiêu lưu / đánh boss /
+khám phá, đây là bộ nhạc dùng lại được ở mức âm lượng đầy đủ. Việc hạ nhỏ hiện tại là do hệ số
+theo màn, không phải do tệp — đừng “dọn” chúng khi thấy nhạc trong ván nhỏ.
 
 ## 3. Prompt Suno cho 9 bài nhạc nền
 

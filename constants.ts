@@ -51,6 +51,21 @@ export const GAME_MUSIC_URL = [
 export const DEFAULT_MUSIC_VOLUME = 0.5; // 50%
 export const DEFAULT_EFFECTS_VOLUME = 0.7; // 70% for sound effects
 
+// ** MUSIC LEVEL PER SCREEN **
+// The slider is the listener's ceiling; these factors say how far under it each screen
+// sits. The in-round bed has to stay quiet because it shares the ear with the thing the
+// game is actually about — the describer talking, the guesser remembering the word, and
+// on a phone the microphone listening for the answer. At the default 0.5 that is 0.18 in
+// a round, which is audible enough that a silent moment never reads as a hung app.
+export const MUSIC_GAIN_SETUP = 1; // settings / instruction: exactly what the slider says
+export const MUSIC_GAIN_GAME = 0.36; // in-round bed, well under speech
+// Rush Hour opens louder than the bed so the rule change is heard, then decays back to it
+// (see RUSH_HOUR_BOOST_MS). 0.7 x 0.5 = 0.35, roughly double the bed, not a wall of sound.
+export const MUSIC_GAIN_RUSH_HOUR = 0.7;
+// How long the Rush Hour loop stays boosted before it settles back to the bed level. The
+// activation sting already announces the mode; the music only has to carry the entrance.
+export const RUSH_HOUR_BOOST_MS = 6000;
+
 // Access code that unlocks the full (non-demo) experience on a device — handy for
 // using the full game on a classroom machine without installing anything.
 // The code itself lives as a Worker secret and is checked server-side (see

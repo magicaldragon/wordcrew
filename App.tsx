@@ -60,6 +60,7 @@ import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
     SKIP_SOUNDS, BACKGROUND_MUSIC_URL, GAME_MUSIC_URL, DEFAULT_EFFECTS_VOLUME,
+    MUSIC_GAIN_SETUP, MUSIC_GAIN_GAME, MUSIC_GAIN_RUSH_HOUR, RUSH_HOUR_BOOST_MS,
     readUnlockFlag, writeUnlockFlag, clearUnlockFlag,
     readDemoRounds, incrementDemoRounds,
     BILLING_ENABLED
@@ -427,6 +428,28 @@ const App: React.FC = () => {
         ? 'SILENT'
         : gamePhase;
   const previousMusicPhase = usePrevious(musicPhase);
+
+  // Rush Hour swaps in its own loop through `activeMusicOverride`. That loop opens at the
+  // alert level so the change of rules is heard, then settles back to the in-round bed:
+  // twenty seconds of rush should not leave the describer shouting over the soundtrack.
+  const [isRushHourBoosted, setIsRushHourBoosted] = useState(false);
+  useEffect(() => {
+    if (!activeMusicOverride) {
+      setIsRushHourBoosted(false);
+      return;
+    }
+    setIsRushHourBoosted(true);
+    const timer = window.setTimeout(() => setIsRushHourBoosted(false), RUSH_HOUR_BOOST_MS);
+    return () => window.clearTimeout(timer);
+  }, [activeMusicOverride]);
+
+  // The slider is the listener's ceiling, not the level of every screen: it is kept as the
+  // user set it (and in localStorage), while the screen decides how far below it to sit.
+  const musicGain = isRushHourBoosted
+    ? MUSIC_GAIN_RUSH_HOUR
+    : musicPhase === GamePhase.PLAYING
+      ? MUSIC_GAIN_GAME
+      : MUSIC_GAIN_SETUP;
 
   useEffect(() => {
     let newActiveMusicUrl: string | null = null; // Default to null (stop music / no change)
@@ -1126,7 +1149,7 @@ const App: React.FC = () => {
   return (
     <div className={`h-screen flex flex-col items-center text-light-text selection:bg-cyber-purple selection:text-white overflow-hidden justify-center ${view === 'dashboard' ? 'wc-theme bg-[var(--page-bg)]' : 'bg-[var(--surface-0)]'} ${isFullscreen || view === 'dashboard' || showLanding ? 'p-0' : 'p-2 sm:p-3'}`}>
       <BackgroundMusicPlayer 
-        volume={musicVolume} 
+        volume={musicVolume * musicGain} 
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
       />
       <FeedbackHost />

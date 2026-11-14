@@ -10,6 +10,9 @@ interface BackgroundMusicPlayerProps {
 
 /** How far the loop drops while an announcer line is speaking. */
 const DUCK_LEVEL = 0.25;
+/** Length of the ease into a new level; long enough to hide the step, short enough to feel immediate. */
+const LEVEL_RAMP_MS = 260;
+const LEVEL_RAMP_STEPS = 8;
 
 export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ volume, musicUrl }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -22,6 +25,29 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
   const volumeRef = useRef(volume);
   const duckedRef = useRef(false);
   const duckTimerRef = useRef<number | null>(null);
+  const levelTimerRef = useRef<number | null>(null);
+
+  // Ease the loop into a new level. The game changes it on purpose (Rush Hour opens loud
+  // and settles back to the bed) and a straight assignment is an audible step.
+  const rampLevelTo = useCallback((audio: HTMLAudioElement, target: number) => {
+    if (levelTimerRef.current !== null) window.clearInterval(levelTimerRef.current);
+    const from = audio.volume;
+    if (Math.abs(target - from) < 0.01) {
+      audio.volume = target;
+      levelTimerRef.current = null;
+      return;
+    }
+    let step = 0;
+    levelTimerRef.current = window.setInterval(() => {
+      step++;
+      const level = from + ((target - from) * step) / LEVEL_RAMP_STEPS;
+      audio.volume = Math.min(1, Math.max(0, level));
+      if (step >= LEVEL_RAMP_STEPS && levelTimerRef.current !== null) {
+        window.clearInterval(levelTimerRef.current);
+        levelTimerRef.current = null;
+      }
+    }, LEVEL_RAMP_MS / LEVEL_RAMP_STEPS);
+  }, []);
 
   const playAudio = useCallback(async () => {
     if (audioRef.current && audioRef.current.paused && currentAudioSrcRef.current /* Ensure a valid source is loaded */) {
@@ -72,9 +98,15 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
     }
 
     // Apply volume (on initial load, src change, or a plain volume change). A ducked
-    // loop stays ducked until its timer restores it.
+    // loop stays ducked until its timer restores it. A brand-new element sits at 1.0, so
+    // the first assignment snaps; ramping from full scale would be a blast of sound.
     if (audioRef.current) {
-      audioRef.current.volume = duckedRef.current ? volume * DUCK_LEVEL : volume;
+      const target = duckedRef.current ? volume * DUCK_LEVEL : volume;
+      if (audioJustInitializedOrSrcChanged || audioRef.current.paused) {
+        audioRef.current.volume = target;
+      } else {
+        rampLevelTo(audioRef.current, target);
+      }
     }
 
     // Attempt to play if user has interacted
@@ -84,7 +116,7 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
         playAudio();
       }
     }
-  }, [volume, musicUrl, userInteracted, playAudio]);
+  }, [volume, musicUrl, userInteracted, playAudio, rampLevelTo]);
 
   // Keep the loop volume readable from the duck handler, and listen for announcer
   // callouts. Each callout re-arms the timer; when it expires the loop ramps back.
@@ -98,6 +130,12 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       if (!audio) return;
       const ms = (event as CustomEvent<{ ms?: number }>).detail?.ms ?? 1500;
       duckedRef.current = true;
+      // Drop at once — the point of ducking is that the voice never has to wait — so an
+      // in-flight level ramp must not keep writing over it.
+      if (levelTimerRef.current !== null) {
+        window.clearInterval(levelTimerRef.current);
+        levelTimerRef.current = null;
+      }
       audio.volume = volumeRef.current * DUCK_LEVEL;
       if (duckTimerRef.current !== null) window.clearTimeout(duckTimerRef.current);
       duckTimerRef.current = window.setTimeout(() => {
@@ -179,6 +217,10 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('beforeunload', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (levelTimerRef.current !== null) {
+        window.clearInterval(levelTimerRef.current);
+        levelTimerRef.current = null;
+      }
       pauseAudio();
     };
   }, []);
