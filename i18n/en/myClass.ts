@@ -106,6 +106,16 @@ export const myClass = {
     assignmentSent: 'Assignment sent to the class.',
     assignmentSentMany: (count: number) => `Assignment sent to ${count} classes.`,
     deleteAssignmentFailed: 'Could not delete that assignment.',
+
+    // Finished work is put away rather than deleted, so a class stays cheap to open.
+    archive: 'Archive',
+    restore: 'Restore',
+    archiveBlocked: 'Grade the essays waiting on this assignment first.',
+    archivedToggle: (count: number) => `Archived · ${count}`,
+    archiveDone: 'Archived. It is out of the report until you restore it.',
+    restoreDone: 'Restored to the class.',
+    archiveFailed: 'Could not archive that assignment.',
+    noActiveAssignments: 'Nothing on the class right now. Archived work is below.',
   },
 
   student: {
@@ -125,6 +135,7 @@ export const myClass = {
       `${teacher} · ${done}/${total} done`,
     joinAnother: 'Join another',
     noAssignments: 'Nothing set yet. Your teacher will post work here.',
+    pastWork: (count: number) => `Past work · ${count}`,
     metaLine: (kind: string, due: string, passScore: number | null) => {
       const parts = [kind, due];
       if (passScore !== null) parts.push(`pass ${passScore}%`);

@@ -45,6 +45,8 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
   const [code, setCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  /** Work the teacher has put away still belongs to the student as history. */
+  const [showPast, setShowPast] = useState(false);
 
   const active = useMemo(
     () => classes?.find((item) => item.id === activeId) ?? classes?.[0] ?? null,
@@ -195,12 +197,23 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
   if (!classes.length) return joinForm;
   if (!active) return null;
 
+  /** Open work is what the student owes. Archived work is history they may still read. */
+  const current = assignments.filter((item) => item.archivedAt === null);
+  const past = assignments.filter(
+    (item) =>
+      item.archivedAt !== null &&
+      submissions.some((submission) => submission.assignmentId === item.id),
+  );
+
   const done = submissions.filter(
-    (item) => item.status === 'submitted' && (item.passed || item.graded),
+    (item) =>
+      item.status === 'submitted' &&
+      (item.passed || item.graded) &&
+      current.some((assignment) => assignment.id === item.assignmentId),
   ).length;
   // The reminder only names work that is both unfinished and close to its deadline — a
   // banner that lists everything is a banner nobody reads.
-  const reminders = assignments.filter(
+  const reminders = current.filter(
     (assignment) => owesWork(assignment) && dueState(assignment) !== null,
   );
   const overdue = reminders.some((assignment) => isOverdue(assignment));
@@ -235,7 +248,7 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
             {t.student.classSummary(
               active.teacherName || t.student.teacherFallback,
               done,
-              assignments.length,
+              current.length,
             )}
           </p>
         </div>
@@ -277,11 +290,11 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
         </section>
       )}
 
-      {assignments.length === 0 ? (
+      {current.length === 0 ? (
         <p className="text-sm text-[var(--wn-9)]">{t.student.noAssignments}</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {assignments.map((assignment) => {
+          {current.map((assignment) => {
             const submission = submissions.find((item) => item.assignmentId === assignment.id);
             const late = isOverdue(assignment);
             const due = owesWork(assignment) ? dueState(assignment) : null;
@@ -379,6 +392,70 @@ export const ClassStudentPanel: React.FC<ClassStudentPanelProps> = ({
             );
           })}
         </ul>
+      )}
+
+      {past.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setShowPast((open) => !open)}
+            aria-expanded={showPast}
+            className="flex min-h-[44px] items-center gap-2 rounded-[var(--r-md)] border border-dashed border-[var(--wn-4)] px-3 text-left text-xs font-semibold text-[var(--wn-10)] transition-colors hover:border-[var(--wn-6)] hover:text-[var(--wn-12)]"
+          >
+            <Icon
+              name="arrowRight"
+              size={14}
+              className={showPast ? 'rotate-90 transition-transform' : 'transition-transform'}
+            />
+            {t.student.pastWork(past.length)}
+          </button>
+          {showPast && (
+            <ul className="flex flex-col gap-2">
+              {past.map((assignment) => {
+                const submission = submissions.find(
+                  (item) => item.assignmentId === assignment.id,
+                );
+                return (
+                  <li
+                    key={assignment.id}
+                    className="wc-card flex items-center justify-between gap-2 p-3"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-[var(--wn-11)]">
+                        {assignment.title}
+                      </span>
+                      <span className="block truncate text-xs text-[var(--wn-9)]">
+                        {t.student.metaLine(
+                          t.kinds[assignment.kind],
+                          formatDue(assignment.dueAt),
+                          assignment.passScore,
+                        )}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {submission && (
+                        <span className="rounded-full bg-[var(--wn-3)] px-2 py-0.5 text-[0.65rem] font-bold text-[var(--wn-10)]">
+                          {submission.kind === 'writing' && !submission.graded
+                            ? t.student.waitingForTeacher
+                            : `${submission.score}%`}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onOpenAssignment(active.id, assignment)}
+                        className="wc-btn wc-btn-secondary min-h-[44px] px-3 text-xs"
+                      >
+                        {submission?.graded && submission.kind === 'writing'
+                          ? t.student.readFeedback
+                          : common.open}
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

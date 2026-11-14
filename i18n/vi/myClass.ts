@@ -105,6 +105,16 @@ export const myClass: Dictionary['myClass'] = {
     assignmentSent: 'Đã giao bài cho lớp.',
     assignmentSentMany: (count: number) => `Đã giao bài cho ${count} lớp.`,
     deleteAssignmentFailed: 'Không xóa được bài tập đó.',
+
+    // Bài đã xong được cất đi thay vì xóa, để mở lớp lần sau vẫn nhẹ.
+    archive: 'Cất đi',
+    restore: 'Đưa lại',
+    archiveBlocked: 'Hãy chấm hết bài viết đang chờ của bài này trước.',
+    archivedToggle: (count: number) => `Đã cất · ${count}`,
+    archiveDone: 'Đã cất bài. Bài này không còn trong báo cáo cho tới khi bạn đưa lại.',
+    restoreDone: 'Đã đưa bài trở lại lớp.',
+    archiveFailed: 'Không cất được bài tập đó.',
+    noActiveAssignments: 'Lớp chưa có bài nào đang mở. Bài đã cất nằm ở dưới.',
   },
 
   student: {
@@ -124,6 +134,7 @@ export const myClass: Dictionary['myClass'] = {
       `${teacher} · ${done}/${total} đã làm`,
     joinAnother: 'Vào lớp khác',
     noAssignments: 'Chưa có bài nào. Giáo viên sẽ đăng bài ở đây.',
+    pastWork: (count: number) => `Bài cũ · ${count}`,
     metaLine: (kind: string, due: string, passScore: number | null) => {
       const parts = [kind, due];
       if (passScore !== null) parts.push(`đạt ${passScore}%`);

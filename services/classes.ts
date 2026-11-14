@@ -102,6 +102,8 @@ export interface ClassAssignment {
   /** Teacher's note shown above the work. */
   instructions: string;
   createdAt: number;
+  /** Set once the work is put away: still on the server, out of the class view. */
+  archivedAt: number | null;
   dueAt: number | null;
   /** Percent a student must reach; null for writing, which the teacher grades. */
   passScore: number | null;
@@ -243,6 +245,7 @@ const toAssignment = (id: string, data: Record<string, unknown>): ClassAssignmen
     title: asString(data.title),
     instructions: asString(data.instructions),
     createdAt: asNumber(data.createdAt),
+    archivedAt: typeof data.archivedAt === 'number' ? data.archivedAt : null,
     dueAt: typeof data.dueAt === 'number' ? data.dueAt : null,
     passScore: typeof data.passScore === 'number' ? data.passScore : null,
     words: rawWords.map((item) => {
@@ -541,7 +544,38 @@ export const createAssignment = async (
 };
 
 export const deleteAssignment = async (classId: string, assignmentId: string): Promise<void> => {
+  // Answers live under the class keyed by assignment, so they would otherwise outlive the
+  // work they answer and stay on the bill forever.
+  for (;;) {
+    const snap = await getDocs(
+      query(
+        collection(db!, CLASSES, classId, 'submissions'),
+        where('assignmentId', '==', assignmentId),
+        limit(400),
+      ),
+    );
+    if (snap.empty) break;
+    const batch = writeBatch(db!);
+    snap.docs.forEach((row) => batch.delete(row.ref));
+    await batch.commit();
+    if (snap.size < 400) break;
+  }
   await deleteDoc(doc(db!, CLASSES, classId, 'assignments', assignmentId));
+};
+
+/**
+ * Puts finished work away without deleting it. Archiving stops it counting for the report,
+ * and its submissions stop being read at all — which is what keeps a class cheap as terms
+ * pile up. Restoring brings both back.
+ */
+export const setAssignmentArchived = async (
+  classId: string,
+  assignmentId: string,
+  archived: boolean,
+): Promise<void> => {
+  await updateDoc(doc(db!, CLASSES, classId, 'assignments', assignmentId), {
+    archivedAt: archived ? Date.now() : null,
+  });
 };
 
 // ── Submissions ────────────────────────────────────────────────────────────
@@ -579,26 +613,85 @@ export const watchClass = (
   onChange: (snapshot: ClassSnapshot) => void,
   onError?: (error: FirestoreError) => void,
 ): (() => void) => {
-  const state: ClassSnapshot = { members: [], assignments: [], submissions: [] };
-  const loaded = new Set<keyof ClassSnapshot>();
+  let members: ClassMember[] = [];
+  let assignments: ClassAssignment[] = [];
+  let submissions: ClassSubmission[] = [];
+  let membersReady = false;
+  let assignmentsReady = false;
+  let submissionsReady = false;
+  /** The active-assignment ids the submission listeners currently cover. */
+  let watched = '';
+  let closed = false;
+  const classStops: Array<() => void> = [];
+  let submissionStops: Array<() => void> = [];
 
   const emit = () => {
-    if (loaded.size < 3) return;
+    if (!membersReady || !assignmentsReady || !submissionsReady) return;
     onChange({
-      members: [...state.members],
-      assignments: [...state.assignments],
-      submissions: [...state.submissions],
+      members: [...members],
+      assignments: [...assignments],
+      submissions: [...submissions],
     });
   };
 
-  const stops = [
+  /**
+   * Only open work is read. Archived assignments are still on the server, but their
+   * answers are never downloaded, so a class costs the same in its fifth term as in its
+   * first. Firestore caps an `in` filter at ten values, so a busy term is read in slices;
+   * nothing replaces what is on screen until every slice has answered.
+   */
+  const watchSubmissions = () => {
+    if (closed) return;
+    const ids = assignments
+      .filter((item) => item.archivedAt === null)
+      .map((item) => item.id);
+    const key = [...ids].sort().join('|');
+    if (key === watched) return;
+    watched = key;
+    submissionStops.forEach((stop) => stop());
+    submissionStops = [];
+
+    if (ids.length === 0) {
+      submissions = [];
+      submissionsReady = true;
+      emit();
+      return;
+    }
+
+    const slices = new Map<number, ClassSubmission[]>();
+    const total = Math.ceil(ids.length / 10);
+    for (let start = 0; start < ids.length; start += 10) {
+      const slice = start / 10;
+      submissionStops.push(
+        onSnapshot(
+          query(
+            collection(db!, CLASSES, classId, 'submissions'),
+            where('assignmentId', 'in', ids.slice(start, start + 10)),
+          ),
+          (snap) => {
+            slices.set(
+              slice,
+              snap.docs.map((item) => toSubmission(item.id, item.data() as Record<string, unknown>)),
+            );
+            if (slices.size < total) return;
+            submissions = [...slices.values()].flat();
+            submissionsReady = true;
+            emit();
+          },
+          onError,
+        ),
+      );
+    }
+  };
+
+  classStops.push(
     onSnapshot(
       collection(db!, CLASSES, classId, 'members'),
       (snap) => {
-        state.members = snap.docs
+        members = snap.docs
           .map((item) => toMember(item.id, item.data() as Record<string, unknown>))
           .sort((a, b) => a.name.localeCompare(b.name));
-        loaded.add('members');
+        membersReady = true;
         emit();
       },
       onError,
@@ -606,28 +699,22 @@ export const watchClass = (
     onSnapshot(
       collection(db!, CLASSES, classId, 'assignments'),
       (snap) => {
-        state.assignments = snap.docs
+        assignments = snap.docs
           .map((item) => toAssignment(item.id, item.data() as Record<string, unknown>))
           .sort((a, b) => a.createdAt - b.createdAt);
-        loaded.add('assignments');
+        assignmentsReady = true;
+        watchSubmissions();
         emit();
       },
       onError,
     ),
-    onSnapshot(
-      collection(db!, CLASSES, classId, 'submissions'),
-      (snap) => {
-        state.submissions = snap.docs.map((item) =>
-          toSubmission(item.id, item.data() as Record<string, unknown>),
-        );
-        loaded.add('submissions');
-        emit();
-      },
-      onError,
-    ),
-  ];
+  );
 
-  return () => stops.forEach((stop) => stop());
+  return () => {
+    closed = true;
+    classStops.forEach((stop) => stop());
+    submissionStops.forEach((stop) => stop());
+  };
 };
 
 export interface SubmitInput {

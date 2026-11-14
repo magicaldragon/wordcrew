@@ -18,6 +18,7 @@ import {
   handInLateWork,
   isOverdue,
   removeMember,
+  setAssignmentArchived,
   watchClass,
   type ClassAssignment,
   type ClassMember,
@@ -72,6 +73,8 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const [mode, setMode] = useState<Mode>({ kind: 'overview' });
   /** Which half of the open class is showing: the roster, the work, or the class report. */
   const [pane, setPane] = useState<'roster' | 'work' | 'report'>('roster');
+  /** Finished work is put away by default; this reveals it again. */
+  const [showArchived, setShowArchived] = useState(false);
   /** The report's chips: the whole class, the essays waiting on a human, or who still owes work. */
   const [reportView, setReportView] = useState<'all' | 'toGrade' | 'missing'>('all');
   const [busy, setBusy] = useState(false);
@@ -91,6 +94,19 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const members = data?.members ?? NO_MEMBERS;
   const assignments = data?.assignments ?? NO_ASSIGNMENTS;
   const submissions = data?.submissions ?? NO_SUBMISSIONS;
+
+  /**
+   * Work still on the class. Archived assignments stay on the server but are out of the
+   * report, the grading queue and every count — and their answers are never downloaded.
+   */
+  const activeAssignments = useMemo(
+    () => assignments.filter((item) => item.archivedAt === null),
+    [assignments],
+  );
+  const archivedAssignments = useMemo(
+    () => assignments.filter((item) => item.archivedAt !== null),
+    [assignments],
+  );
 
   /**
    * The report reads one cell per student per assignment, so the rows are indexed once
@@ -116,10 +132,10 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
         .filter((item) => item.status === 'submitted' && item.kind === 'writing' && !item.graded)
         .sort((a, b) => a.submittedAt - b.submittedAt)
         .flatMap((submission) => {
-          const assignment = assignments.find((item) => item.id === submission.assignmentId);
+          const assignment = activeAssignments.find((item) => item.id === submission.assignmentId);
           return assignment ? [{ submission, assignment }] : [];
         }),
-    [submissions, assignments],
+    [submissions, activeAssignments],
   );
 
   /** Students who still owe at least one assignment. Invited students cannot owe work yet. */
@@ -128,11 +144,11 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       members.filter(
         (member) =>
           member.status === 'active' &&
-          assignments.some(
+          activeAssignments.some(
             (assignment) => cells.get(assignment.id)?.get(member.email)?.status !== 'submitted',
           ),
       ).length,
-    [members, assignments, cells],
+    [members, activeAssignments, cells],
   );
 
   /** The matrix rows after the chip on top has had its say. */
@@ -141,7 +157,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       members
         .map((member) => ({
           member,
-          row: assignments.map(
+          row: activeAssignments.map(
             (assignment) => cells.get(assignment.id)?.get(member.email) ?? null,
           ),
         }))
@@ -157,7 +173,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
           }
           return true;
         }),
-    [members, assignments, cells, reportView],
+    [members, activeAssignments, cells, reportView],
   );
 
   const formatDue = (dueAt: number | null): string =>
@@ -405,6 +421,30 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
     }
   };
 
+  /** Written work waiting on a person has to be scored before its lesson is put away. */
+  const hasUngraded = (assignmentId: string): boolean =>
+    submissions.some(
+      (item) =>
+        item.assignmentId === assignmentId &&
+        item.status === 'submitted' &&
+        item.kind === 'writing' &&
+        !item.graded,
+    );
+
+  const handleArchive = async (assignment: ClassAssignment, archived: boolean) => {
+    if (!active) return;
+    if (archived && hasUngraded(assignment.id)) {
+      toast(t.teacher.archiveBlocked, 'error');
+      return;
+    }
+    try {
+      await setAssignmentArchived(active.id, assignment.id, archived);
+      toast(archived ? t.teacher.archiveDone : t.teacher.restoreDone, 'success');
+    } catch {
+      toast(t.teacher.archiveFailed, 'error');
+    }
+  };
+
   const copyCode = async () => {
     if (!active) return;
     try {
@@ -620,7 +660,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
           >
             {([
               ['roster', t.teacher.rosterTab(members.length)],
-              ['work', t.teacher.workTab(assignments.length)],
+              ['work', t.teacher.workTab(activeAssignments.length)],
               ['report', t.teacher.progressTab],
             ] as const).map(([id, label]) => (
               <button
@@ -748,11 +788,15 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
               </button>
             </div>
 
-            {assignments.length === 0 ? (
-              <p className="text-sm text-[var(--wn-10)]">{t.teacher.noAssignments}</p>
+            {activeAssignments.length === 0 ? (
+              <p className="text-sm text-[var(--wn-10)]">
+                {assignments.length === 0
+                  ? t.teacher.noAssignments
+                  : t.teacher.noActiveAssignments}
+              </p>
             ) : (
               <ul className="flex flex-col gap-2.5">
-                {assignments.map((assignment) => {
+                {activeAssignments.map((assignment) => {
                   const stats = assignmentStats(submissions, assignment.id);
                   return (
                     <li
@@ -790,6 +834,18 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                         </button>
                         <button
                           type="button"
+                          onClick={() => void handleArchive(assignment, true)}
+                          disabled={hasUngraded(assignment.id)}
+                          title={
+                            hasUngraded(assignment.id) ? t.teacher.archiveBlocked : undefined
+                          }
+                          className="wc-btn wc-btn-secondary min-h-[44px] shrink-0 px-3 text-sm disabled:opacity-50"
+                        >
+                          <Icon name="folder" size={14} />
+                          {t.teacher.archive}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => void handleDeleteAssignment(assignment)}
                           className="wc-icon-btn"
                           aria-label={t.teacher.deleteAssignmentAria(assignment.title)}
@@ -802,6 +858,65 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                 })}
               </ul>
             )}
+
+            {archivedAssignments.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived((open) => !open)}
+                  aria-expanded={showArchived}
+                  className="flex min-h-[44px] items-center gap-2 rounded-[var(--r-md)] border border-dashed border-[var(--wn-4)] px-3 text-left text-xs font-semibold text-[var(--wn-10)] transition-colors hover:border-[var(--wn-6)] hover:text-[var(--wn-12)]"
+                >
+                  <Icon
+                    name="arrowRight"
+                    size={14}
+                    className={showArchived ? 'rotate-90 transition-transform' : 'transition-transform'}
+                  />
+                  {t.teacher.archivedToggle(archivedAssignments.length)}
+                </button>
+                {showArchived && (
+                  <ul className="flex flex-col gap-2.5">
+                    {archivedAssignments.map((assignment) => (
+                      <li
+                        key={assignment.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-3.5"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-[var(--wn-11)]">
+                            {assignment.title}
+                          </span>
+                          <span className="block truncate text-xs text-[var(--wn-9)]">
+                            {t.teacher.metaLine(
+                              t.kinds[assignment.kind],
+                              formatDue(assignment.dueAt),
+                              assignment.kind === 'vocabulary' ? assignment.words.length : null,
+                              assignment.kind === 'quiz' ? assignment.questions.length : null,
+                            )}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleArchive(assignment, false)}
+                            className="wc-btn wc-btn-secondary min-h-[44px] px-3 text-sm"
+                          >
+                            {t.teacher.restore}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteAssignment(assignment)}
+                            className="wc-icon-btn"
+                            aria-label={t.teacher.deleteAssignmentAria(assignment.title)}
+                          >
+                            <Icon name="ban" size={16} />
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3 p-4">
@@ -810,15 +925,17 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
               <p className="text-xs text-[var(--wn-10)]">
                 {t.teacher.report.summary(
                   members.length,
-                  assignments.length,
+                  activeAssignments.length,
                   gradingQueue.length,
                 )}
               </p>
             </div>
 
-            {members.length === 0 || assignments.length === 0 ? (
+            {members.length === 0 || activeAssignments.length === 0 ? (
               <p className="text-sm text-[var(--wn-10)]">
-                {assignments.length === 0 ? t.teacher.report.nothingYet : t.review.noStudents}
+                {activeAssignments.length === 0
+                  ? t.teacher.report.nothingYet
+                  : t.review.noStudents}
               </p>
             ) : (
               <>
@@ -908,7 +1025,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                         >
                           {t.teacher.report.student}
                         </th>
-                        {assignments.map((assignment) => (
+                        {activeAssignments.map((assignment) => (
                           <th
                             key={assignment.id}
                             scope="col"
@@ -938,7 +1055,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                       {reportRows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={assignments.length + 1}
+                            colSpan={activeAssignments.length + 1}
                             className="px-3 py-6 text-center text-sm text-[var(--wn-10)]"
                           >
                             {reportView === 'missing'
@@ -959,11 +1076,11 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                                 {member.name}
                               </span>
                               <span className="block text-[0.65rem] text-[var(--wn-9)]">
-                                {t.teacher.doneOf(handedIn, assignments.length)}
+                                {t.teacher.doneOf(handedIn, activeAssignments.length)}
                               </span>
                             </th>
                             {row.map((submission, index) => {
-                              const assignment = assignments[index];
+                              const assignment = activeAssignments[index];
                               const submitted = submission?.status === 'submitted';
                               const label =
                                 submission === null

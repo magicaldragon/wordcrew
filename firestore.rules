@@ -473,11 +473,17 @@ service cloud.firestore {
     // nên không cần kiểm chặt hơn; cái cần chặn là payload khổng lồ.
     function isValidAssignment(data) {
       return data.keys().hasAll(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords'])
-        && data.keys().hasOnly(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords'])
+        && data.keys().hasOnly(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords', 'archivedAt', 'mode', 'modes'])
         && data.kind in ['vocabulary', 'quiz', 'writing']
+        && (!data.keys().hasAny(['mode']) || data.mode is string)
+        && (!data.keys().hasAny(['modes'])
+            || (data.modes is list
+                && data.modes.size() <= 4
+                && data.modes.all(mode, mode is string)))
         && data.title is string && data.title.size() > 0 && data.title.size() <= 120
         && data.instructions is string && data.instructions.size() <= 2000
         && data.createdAt is number
+        && (!data.keys().hasAny(['archivedAt']) || data.archivedAt == null || data.archivedAt is number)
         && (data.dueAt == null || data.dueAt is number)
         && (data.passScore == null || (data.passScore is number && data.passScore >= 0 && data.passScore <= 100))
         && data.words is list && data.words.size() <= 60
