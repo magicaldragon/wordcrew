@@ -203,7 +203,9 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             </div>
           </section>
 
-          <footer className="mt-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 pt-14 pb-2 font-sans text-xs text-muted-text">
+          {/* pt-8 rather than pt-14: the link row makes the footer taller, and on a
+              900px-tall laptop the old padding pushed it below the fold. */}
+          <footer className="mt-auto flex flex-wrap items-center justify-center gap-x-2 gap-y-1 pt-8 pb-2 font-sans text-xs text-muted-text">
             <span>{t.landing.madeBy('Mr. C')}</span>
             <span role="img" aria-label={t.landing.heartAria} className="text-danger-red">
               ❤️
