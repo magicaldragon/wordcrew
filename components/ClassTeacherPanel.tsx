@@ -53,6 +53,8 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   const [assignments, setAssignments] = useState<ClassAssignment[]>([]);
   const [submissions, setSubmissions] = useState<ClassSubmission[]>([]);
   const [mode, setMode] = useState<Mode>({ kind: 'overview' });
+  /** Which half of the open class is showing: the roster or the work. */
+  const [pane, setPane] = useState<'roster' | 'work'>('roster');
   const [busy, setBusy] = useState(false);
 
   const [newClassName, setNewClassName] = useState('');
@@ -292,7 +294,7 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
           onChange={(event) => setNewClassName(event.target.value)}
           maxLength={CLASS_NAME_MAX}
           placeholder={t.teacher.classNamePlaceholder}
-          className="futuristic-input min-h-[44px] w-full px-3 text-sm"
+          className="futuristic-input min-h-[48px] w-full px-3 text-base"
         />
         <button
           type="button"
@@ -338,41 +340,51 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        {classes.length > 1 && (
-          <div className="flex min-w-0 flex-1 flex-wrap gap-1.5" role="tablist" aria-label={t.teacher.classesAria}>
-            {classes.map((item) => (
+    <div className="flex flex-col gap-3">
+      {/* One tab per class. A teacher with a dozen rooms scrolls this rail sideways
+          instead of stacking a dozen cards down the page. */}
+      <div className="flex items-center gap-2 border-b border-[var(--wn-4)]">
+        <div
+          className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="tablist"
+          aria-label={t.teacher.classesAria}
+        >
+          {classes.map((item) => {
+            const selected = item.id === active.id;
+            return (
               <button
                 key={item.id}
                 type="button"
                 role="tab"
-                aria-selected={item.id === active.id}
+                id={`classTab-${item.id}`}
+                aria-selected={selected}
+                aria-controls="classPanel"
                 onClick={() => {
                   setActiveId(item.id);
                   setMode({ kind: 'overview' });
                 }}
-                className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold transition-colors ${
-                  item.id === active.id
-                    ? 'border-neon-green/60 bg-neon-green/10 text-neon-green'
-                    : 'border-[var(--wn-4)] text-[var(--wn-10)]'
+                className={`-mb-px max-w-[12rem] shrink-0 truncate border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${
+                  selected
+                    ? 'border-neon-green text-[var(--wn-12)]'
+                    : 'border-transparent text-[var(--wn-9)] hover:text-[var(--wn-11)]'
                 }`}
               >
                 {item.name}
               </button>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
         {/* A teacher runs several rooms and years at once, so a second class must be
             one tap away — not hidden behind having none. */}
         <button
           type="button"
           onClick={() => setCreating((open) => !open)}
           aria-expanded={creating}
-          className="ml-auto flex min-h-[44px] shrink-0 items-center gap-1 rounded-full border border-dashed border-[var(--wn-6)] px-3 text-xs font-semibold text-[var(--wn-10)] transition-colors hover:border-neon-green/60 hover:text-neon-green"
+          aria-label={t.teacher.createClass}
+          className="mb-1 flex min-h-[40px] shrink-0 items-center gap-1 rounded-full border border-dashed border-[var(--wn-6)] px-3 text-xs font-semibold text-[var(--wn-10)] transition-colors hover:border-neon-green/60 hover:text-neon-green"
         >
           <Icon name="plus" size={14} />
-          {t.teacher.createClass}
+          <span className="hidden sm:inline">{t.teacher.createClass}</span>
         </button>
       </div>
 
@@ -390,13 +402,13 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
             maxLength={CLASS_NAME_MAX}
             placeholder={t.teacher.classNamePlaceholder}
             aria-label={t.teacher.createClass}
-            className="futuristic-input min-h-[44px] w-full px-3 text-sm sm:flex-1"
+            className="futuristic-input min-h-[48px] w-full px-3 text-base sm:flex-1"
           />
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={busy}
-              className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-3 text-xs disabled:opacity-50 sm:flex-none"
+              className="wc-btn wc-btn-primary min-h-[44px] flex-1 px-3 text-sm disabled:opacity-50 sm:flex-none"
             >
               {t.teacher.createClass}
             </button>
@@ -414,183 +426,229 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
         </form>
       )}
 
-      <section className="wc-card flex flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="truncate text-lg font-bold text-[var(--wn-12)]">{active.name}</h3>
-            <p className="text-xs text-[var(--wn-9)]">
-              {t.teacher.summary(
-                members.length,
-                members.filter((member) => member.status === 'active').length,
-              )}
-            </p>
+      <section
+        id="classPanel"
+        role="tabpanel"
+        aria-labelledby={`classTab-${active.id}`}
+        className="wc-card flex flex-col"
+      >
+        <div className="flex flex-col gap-3 border-b border-[var(--wn-4)] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-bold text-[var(--wn-12)]">{active.name}</h3>
+              <p className="text-sm text-[var(--wn-10)]">
+                {t.teacher.summary(
+                  members.length,
+                  members.filter((member) => member.status === 'active').length,
+                )}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void copyCode()}
+                className="wc-btn wc-btn-secondary min-h-[44px] px-3 text-sm"
+                title={t.teacher.copyCodeTitle}
+              >
+                <Icon name="folder" size={14} />
+                {active.joinCode}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteClass()}
+                className="wc-icon-btn"
+                aria-label={t.teacher.deleteClassAria}
+                title={t.teacher.deleteClassAria}
+              >
+                <Icon name="ban" size={16} />
+              </button>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={() => void copyCode()}
-              className="wc-btn wc-btn-secondary min-h-[44px] px-3 text-xs"
-              title={t.teacher.copyCodeTitle}
-            >
-              <Icon name="folder" size={14} />
-              {active.joinCode}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDeleteClass()}
-              className="wc-icon-btn"
-              aria-label={t.teacher.deleteClassAria}
-              title={t.teacher.deleteClassAria}
-            >
-              <Icon name="ban" size={16} />
-            </button>
-          </div>
-        </div>
 
-        <p className="text-xs text-[var(--wn-9)]">{t.teacher.addBody}</p>
-
-        <form
-          className="flex flex-col gap-2 sm:flex-row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void handleInvite();
-          }}
-        >
-          <input
-            value={inviteEmail}
-            onChange={(event) => setInviteEmail(event.target.value)}
-            type="email"
-            placeholder={t.teacher.emailPlaceholder}
-            className="futuristic-input min-h-[44px] w-full px-3 text-sm sm:flex-[2]"
-            aria-label={t.teacher.emailAria}
-          />
-          <input
-            value={inviteName}
-            onChange={(event) => setInviteName(event.target.value)}
-            placeholder={t.teacher.studentNamePlaceholder}
-            className="futuristic-input min-h-[44px] w-full px-3 text-sm sm:flex-1"
-            aria-label={t.teacher.studentNameAria}
-          />
-          <button type="submit" disabled={busy} className="wc-btn wc-btn-secondary min-h-[44px] px-3 disabled:opacity-50">
-            <Icon name="plus" size={16} />
-            {common.add}
-          </button>
-        </form>
-
-        {members.length > 0 && (
-          <ul className="flex flex-col divide-y divide-[var(--wn-4)]">
-            {members.map((member) => (
-              <li key={member.email} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-[var(--wn-11)]">{member.name}</span>
-                  <span className="block truncate text-xs text-[var(--wn-9)]">{member.email}</span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  {classes.length > 1 && (
-                    /* A student can sit in several classes at once, so moving one is a
-                       copy-then-remove, not a transfer that empties this roster. */
-                    <select
-                      value=""
-                      onChange={(event) => void handleMove(member, event.target.value)}
-                      disabled={busy}
-                      aria-label={t.teacher.moveAria(member.name)}
-                      className="futuristic-input h-9 min-h-[36px] px-2 text-xs"
-                    >
-                      <option value="">{t.teacher.moveTo}</option>
-                      {classes
-                        .filter((item) => item.id !== active.id)
-                        .map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider ${
-                      member.status === 'active'
-                        ? 'bg-neon-green/15 text-neon-green'
-                        : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
-                    }`}
-                  >
-                    {member.status === 'active' ? t.teacher.joined : t.teacher.invited}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void handleRemove(member)}
-                    className="wc-icon-btn h-9 w-9"
-                    aria-label={t.teacher.removeAria(member.name)}
-                  >
-                    <Icon name="close" size={14} />
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="wc-card flex flex-col gap-3 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--wn-9)]">
-            {t.teacher.assignments}
-          </h3>
-          <button
-            type="button"
-            onClick={() => setMode({ kind: 'editor' })}
-            className="wc-btn wc-btn-primary min-h-[44px] px-3 text-xs"
+          <div
+            className="flex rounded-[var(--r-md)] bg-[var(--wn-3)] p-1"
+            role="group"
+            aria-label={t.teacher.sectionsAria}
           >
-            <Icon name="plus" size={14} />
-            {t.teacher.newAssignment}
-          </button>
+            {([
+              ['roster', t.teacher.rosterTab(members.length)],
+              ['work', t.teacher.workTab(assignments.length)],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={pane === id}
+                onClick={() => setPane(id)}
+                className={`min-h-[44px] flex-1 rounded-[calc(var(--r-md)-2px)] px-3 text-sm font-semibold transition-colors ${
+                  pane === id
+                    ? 'bg-[var(--card-bg)] text-[var(--wn-12)] shadow-sm'
+                    : 'text-[var(--wn-9)] hover:text-[var(--wn-12)]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {assignments.length === 0 ? (
-          <p className="text-sm text-[var(--wn-9)]">{t.teacher.noAssignments}</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {assignments.map((assignment) => {
-              const stats = assignmentStats(submissions, assignment.id);
-              return (
-                <li key={assignment.id} className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[var(--wn-11)]">{assignment.title}</p>
-                      <p className="text-xs text-[var(--wn-9)]">
-                        {t.teacher.metaLine(
-                          t.kinds[assignment.kind],
-                          formatDue(assignment.dueAt),
-                          assignment.kind === 'vocabulary' ? assignment.words.length : null,
-                          assignment.kind === 'quiz' ? assignment.questions.length : null,
-                        )}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-right text-xs tabular-nums text-[var(--wn-9)]">
-                      {t.teacher.doneOf(stats.submitted, members.length)}
-                      <span className="block text-neon-green">{t.teacher.passedCount(stats.passed)}</span>
+        {pane === 'roster' ? (
+          <div className="flex flex-col gap-3 p-4">
+            <p className="text-sm text-[var(--wn-10)]">{t.teacher.addBody}</p>
+
+            <form
+              className="flex flex-col gap-2 sm:flex-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleInvite();
+              }}
+            >
+              <input
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                type="email"
+                placeholder={t.teacher.emailPlaceholder}
+                className="futuristic-input min-h-[48px] w-full px-3 text-base sm:flex-[2]"
+                aria-label={t.teacher.emailAria}
+              />
+              <input
+                value={inviteName}
+                onChange={(event) => setInviteName(event.target.value)}
+                placeholder={t.teacher.studentNamePlaceholder}
+                className="futuristic-input min-h-[48px] w-full px-3 text-base sm:flex-1"
+                aria-label={t.teacher.studentNameAria}
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="wc-btn wc-btn-secondary min-h-[48px] px-4 text-sm disabled:opacity-50"
+              >
+                <Icon name="plus" size={16} />
+                {common.add}
+              </button>
+            </form>
+
+            {members.length > 0 && (
+              <ul className="flex flex-col divide-y divide-[var(--wn-4)]">
+                {members.map((member) => (
+                  <li key={member.email} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-[var(--wn-12)]">
+                        {member.name}
+                      </span>
+                      <span className="block truncate text-xs text-[var(--wn-9)]">{member.email}</span>
                     </span>
-                  </div>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setMode({ kind: 'review', assignment })}
-                      className="wc-btn wc-btn-secondary min-h-[44px] flex-1 text-xs"
+                    <span className="flex shrink-0 items-center gap-2">
+                      {classes.length > 1 && (
+                        /* A student can sit in several classes at once, so moving one is a
+                           copy-then-remove, not a transfer that empties this roster. */
+                        <select
+                          value=""
+                          onChange={(event) => void handleMove(member, event.target.value)}
+                          disabled={busy}
+                          aria-label={t.teacher.moveAria(member.name)}
+                          className="futuristic-input h-10 min-h-[40px] px-2 text-xs"
+                        >
+                          <option value="">{t.teacher.moveTo}</option>
+                          {classes
+                            .filter((item) => item.id !== active.id)
+                            .map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                        </select>
+                      )}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider ${
+                          member.status === 'active'
+                            ? 'bg-neon-green/15 text-neon-green'
+                            : 'bg-[var(--wn-3)] text-[var(--wn-9)]'
+                        }`}
+                      >
+                        {member.status === 'active' ? t.teacher.joined : t.teacher.invited}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemove(member)}
+                        className="wc-icon-btn h-9 w-9"
+                        aria-label={t.teacher.removeAria(member.name)}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 p-4">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setMode({ kind: 'editor' })}
+                className="wc-btn wc-btn-primary min-h-[44px] w-full px-3 text-sm sm:w-auto"
+              >
+                <Icon name="plus" size={16} />
+                {t.teacher.newAssignment}
+              </button>
+            </div>
+
+            {assignments.length === 0 ? (
+              <p className="text-sm text-[var(--wn-10)]">{t.teacher.noAssignments}</p>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {assignments.map((assignment) => {
+                  const stats = assignmentStats(submissions, assignment.id);
+                  return (
+                    <li
+                      key={assignment.id}
+                      className="rounded-[var(--r-md)] border border-[var(--wn-4)] bg-[var(--field-bg)] p-3.5"
                     >
-                      {t.teacher.openReport}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteAssignment(assignment)}
-                      className="wc-icon-btn"
-                      aria-label={t.teacher.deleteAssignmentAria(assignment.title)}
-                    >
-                      <Icon name="ban" size={16} />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-[0.9375rem] font-semibold text-[var(--wn-12)]">
+                            {assignment.title}
+                          </p>
+                          <p className="text-xs text-[var(--wn-9)]">
+                            {t.teacher.metaLine(
+                              t.kinds[assignment.kind],
+                              formatDue(assignment.dueAt),
+                              assignment.kind === 'vocabulary' ? assignment.words.length : null,
+                              assignment.kind === 'quiz' ? assignment.questions.length : null,
+                            )}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-right text-xs tabular-nums text-[var(--wn-10)]">
+                          {t.teacher.doneOf(stats.submitted, members.length)}
+                          <span className="block text-neon-green">
+                            {t.teacher.passedCount(stats.passed)}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMode({ kind: 'review', assignment })}
+                          className="wc-btn wc-btn-secondary min-h-[44px] flex-1 text-sm"
+                        >
+                          {t.teacher.openReport}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteAssignment(assignment)}
+                          className="wc-icon-btn"
+                          aria-label={t.teacher.deleteAssignmentAria(assignment.title)}
+                        >
+                          <Icon name="ban" size={16} />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         )}
       </section>
     </div>

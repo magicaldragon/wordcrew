@@ -64,6 +64,10 @@ export const myClass: Dictionary['myClass'] = {
 
     assignments: 'Bài tập',
     newAssignment: 'Giao bài mới',
+    // Hai tab con trong một lớp, để danh sách học sinh dài không đẩy phần bài tập xuống.
+    rosterTab: (count: number) => `Học sinh · ${count}`,
+    workTab: (count: number) => `Bài tập · ${count}`,
+    sectionsAria: 'Các mục trong lớp',
     noAssignments:
       'Chưa giao bài nào. Bộ từ, trắc nghiệm hay đề viết — cả ba đều kết thúc bằng một báo cáo.',
     metaLine: (kind: string, due: string, words: number | null, questions: number | null) => {

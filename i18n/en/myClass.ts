@@ -62,6 +62,10 @@ export const myClass = {
 
     assignments: 'Assignments',
     newAssignment: 'New Assignment',
+    // Two panes inside one class tab, so a full roster never pushes the work below it.
+    rosterTab: (count: number) => `Students · ${count}`,
+    workTab: (count: number) => `Assignments · ${count}`,
+    sectionsAria: 'Class sections',
     noAssignments:
       'Nothing set yet. A word set, a multiple-choice quiz or a writing prompt — all three end in a report.',
     metaLine: (kind: string, due: string, words: number | null, questions: number | null) => {
