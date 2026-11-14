@@ -35,17 +35,17 @@ export const AUDIO_BASE = './audio/';
 // ** 1. SETUP SCREEN MUSIC (Previously Background Music) **
 // Array of URLs for setup screen music. One will be chosen randomly.
 export const BACKGROUND_MUSIC_URL = [
-  AUDIO_BASE + 'setup-music-1.m4a',
-  AUDIO_BASE + 'setup-music-2.m4a',
-  AUDIO_BASE + 'setup-music-3.m4a',
+  AUDIO_BASE + 'setup-music-1.mp3',
+  AUDIO_BASE + 'setup-music-2.mp3',
+  AUDIO_BASE + 'setup-music-3.mp3',
 ];
 
 // ** 2. GAME PLAY MUSIC **
 // Array of URLs for game play music. One will be chosen randomly.
 export const GAME_MUSIC_URL = [
-  AUDIO_BASE + 'game-music-1.m4a',
-  AUDIO_BASE + 'game-music-2.m4a',
-  AUDIO_BASE + 'game-music-3.m4a',
+  AUDIO_BASE + 'game-music-1.mp3',
+  AUDIO_BASE + 'game-music-2.mp3',
+  AUDIO_BASE + 'game-music-3.mp3',
 ];
 
 export const DEFAULT_MUSIC_VOLUME = 0.5; // 50%
@@ -169,13 +169,13 @@ export const SKIP_SOUNDS = [
 // This is an object where each key has a URL to a specific sound effect.
 export const SINGLE_SOUND_EFFECTS = {
   // ** 5a. TIME'S UP SOUND **
-  TIMES_UP_WORD: AUDIO_BASE + 'times-up.wav',
+  TIMES_UP_WORD: AUDIO_BASE + 'times-up.mp3',
   
   // ** 5b. GAME OVER SOUND (for when the game ends, typically a win/completion) **
-  GAME_OVER: AUDIO_BASE + 'result.wav',
+  GAME_OVER: AUDIO_BASE + 'result.mp3',
   
   // ** 5c. START GAME SOUND (for the button in setup screen) **
-  START_GAME_SOUND: AUDIO_BASE + 'start.wav',
+  START_GAME_SOUND: AUDIO_BASE + 'start.mp3',
   
   // ** 5d. PLAY AGAIN SOUND (for the button in results screen) **
   PLAY_AGAIN_SOUND: AUDIO_BASE + 'try-again.wav',
@@ -192,9 +192,9 @@ export const SINGLE_SOUND_EFFECTS = {
   POWERUP_SKIP_FREEBIE_USED: (AUDIO_BASE + 'skip-freebie-used.mp3') as string | null, 
   RUSH_HOUR_ACTIVATED: (AUDIO_BASE + 'points-doubler.mp3') as string | null,
   RUSH_HOUR_MUSIC_LOOP: [
-    AUDIO_BASE + 'rush-hour-1.m4a',
-    AUDIO_BASE + 'rush-hour-2.m4a',
-    AUDIO_BASE + 'rush-hour-3.m4a',
+    AUDIO_BASE + 'rush-hour-1.mp3',
+    AUDIO_BASE + 'rush-hour-2.mp3',
+    AUDIO_BASE + 'rush-hour-3.mp3',
   ] as string[], // Type refined to string[] as it's always initialized with an array
 };
 

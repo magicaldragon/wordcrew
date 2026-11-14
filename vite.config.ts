@@ -110,7 +110,10 @@ export default defineConfig({
             urlPattern: ({ url }) => url.pathname.includes('/audio/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'wordcrew-audio',
+              // v2 marks the SFX/music replacement: the cache is CacheFirst with a one-year
+              // TTL, so keeping the old name would leave the replaced files playing on
+              // devices that installed the PWA before the swap.
+              cacheName: 'wordcrew-audio-v2',
               expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 365 },
               cacheableResponse: { statuses: [0, 200] },
             },
