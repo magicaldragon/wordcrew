@@ -210,7 +210,7 @@ export const myClass: Dictionary['myClass'] = {
     title: 'Giao bài mới',
     typeAria: 'Loại bài tập',
     kindHints: {
-      vocabulary: 'Đề bằng tiếng Việt, trả lời bằng tiếng Anh. Chấm tự động.',
+      vocabulary: 'Một danh sách từ, hỏi theo một đến bốn kiểu. Chọn kiểu bài bên dưới.',
       quiz: 'Mỗi câu bốn lựa chọn. Thứ tự được xáo cho từng học sinh.',
       writing: 'Một đề bài và số từ tối thiểu. Bạn chấm bài.',
     },
@@ -241,7 +241,10 @@ export const myClass: Dictionary['myClass'] = {
       if (words > max) parts.push(`chỉ dùng ${max} từ đầu`);
       return parts.join(' · ');
     },
-    setSummary: (words: number) => `${words} từ trong bộ này · đề tiếng Việt, đáp án tiếng Anh.`,
+    modesHint:
+      'Chọn một hoặc nhiều kiểu. Mỗi kiểu thành một phần riêng — dễ trước — học sinh được nghỉ giữa các phần.',
+    setSummary: (words: number, parts: number) =>
+      parts > 1 ? `${words} từ × ${parts} phần = ${words * parts} câu hỏi` : `${words} từ trong bộ này.`,
     question: (number: number) => `Câu ${number}`,
     removeQuestionAria: (number: number) => `Xóa câu ${number}`,
     questionPlaceholder: 'Chọn từ có nghĩa là “cho vay”',

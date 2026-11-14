@@ -234,6 +234,53 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
       </div>
       <p className="-mt-2 text-xs text-[var(--wn-9)]">{kindTabs.find((tab) => tab.id === kind)?.hint}</p>
 
+      {/* A vocabulary assignment is one list asked one to four ways, so the styles are the
+          first choice: they decide what the student actually sees and what gets scored. */}
+      {kind === 'vocabulary' && (
+        <div className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
+            {teacherT.setup.modeTitle}
+          </span>
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {TEACHER_TEST_MODES.map((id) => {
+              const active = modes.includes(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setModes((current) => {
+                      if (!current.includes(id)) return orderTeacherModes([...current, id]);
+                      // One style must remain, otherwise there is no test to run.
+                      return current.length === 1 ? current : current.filter((item) => item !== id);
+                    });
+                  }}
+                  className={`flex min-h-[44px] flex-col items-start gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors ${
+                    active
+                      ? 'border-electric-blue bg-electric-blue/15'
+                      : 'border-[var(--wn-4)] hover:border-[var(--wn-6)]'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold ${active ? 'text-electric-blue' : 'text-[var(--wn-11)]'}`}>
+                    {teacherT.setup.modes[id].label}
+                  </span>
+                  <span className="text-[0.65rem] leading-snug text-[var(--wn-8)]">
+                    {teacherT.setup.modes[id].hint}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[0.7rem] font-semibold text-electric-blue">
+            {orderTeacherModes(modes)
+              .map((id, at) => `${at + 1}. ${teacherT.setup.modes[id].label}`)
+              .join('  →  ')}
+          </p>
+          <p className="text-[0.7rem] text-[var(--wn-8)]">{t.editor.modesHint}</p>
+        </div>
+      )}
+
       <label className="flex flex-col gap-1">
         <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
           {t.editor.titleLabel}
@@ -439,59 +486,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
             </div>
           )}
 
-          {/* The teacher fixes the question styles here, so every student in the class
-              meets the same homework instead of picking their own. Ticking more than one
-              turns the set into rounds, easiest style first. */}
-          <div className="flex flex-col gap-1.5 border-t border-[var(--wn-4)] pt-2">
-            <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-[var(--wn-9)]">
-              {teacherT.setup.modeTitle}
-            </span>
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {TEACHER_TEST_MODES.map((id) => {
-                const active = modes.includes(id);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => {
-                      setModes((current) => {
-                        if (!current.includes(id)) return orderTeacherModes([...current, id]);
-                        // One style must remain, otherwise there is no test to run.
-                        return current.length === 1 ? current : current.filter((item) => item !== id);
-                      });
-                    }}
-                    className={`flex min-h-[44px] flex-col items-start gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors ${
-                      active
-                        ? 'border-electric-blue bg-electric-blue/15'
-                        : 'border-[var(--wn-4)] hover:border-[var(--wn-6)]'
-                    }`}
-                  >
-                    <span
-                      className={`text-xs font-semibold ${
-                        active ? 'text-electric-blue' : 'text-[var(--wn-11)]'
-                      }`}
-                    >
-                      {teacherT.setup.modes[id].label}
-                    </span>
-                    <span className="text-[0.65rem] leading-snug text-[var(--wn-8)]">
-                      {teacherT.setup.modes[id].hint}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            {modes.length > 1 && (
-              <p className="text-[0.7rem] font-semibold text-electric-blue">
-                {orderTeacherModes(modes)
-                  .map((id) => teacherT.setup.modes[id].label)
-                  .join(' → ')}
-              </p>
-            )}
-            <p className="text-[0.7rem] text-[var(--wn-8)]">{teacherT.setup.modeHint}</p>
-          </div>
-
-          <p className="text-xs text-[var(--wn-9)]">{t.editor.setSummary(words.length)}</p>
+          <p className="text-xs text-[var(--wn-9)]">{t.editor.setSummary(words.length, modes.length)}</p>
         </div>
       )}
 

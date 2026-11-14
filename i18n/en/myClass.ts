@@ -213,7 +213,7 @@ export const myClass = {
     title: 'New assignment',
     typeAria: 'Assignment type',
     kindHints: {
-      vocabulary: 'Vietnamese prompt, English answer. Scored automatically.',
+      vocabulary: 'One word list, asked one to four ways. Tick the test styles below.',
       quiz: 'Four options per question. Order is shuffled for every student.',
       writing: 'A prompt and a word floor. You grade it.',
     },
@@ -244,8 +244,12 @@ export const myClass = {
       if (words > max) parts.push(`first ${max} will be used`);
       return parts.join(' · ');
     },
-    setSummary: (words: number) =>
-      `${words} ${words === 1 ? 'word' : 'words'} in this set · Vietnamese prompt, English answer.`,
+    modesHint:
+      'Tick one or more styles. Each becomes its own part — easiest first — and students can stop between parts.',
+    setSummary: (words: number, parts: number) =>
+      parts > 1
+        ? `${words} words × ${parts} parts = ${words * parts} questions`
+        : `${words} words in this set.`,
     question: (number: number) => `Question ${number}`,
     removeQuestionAria: (number: number) => `Remove question ${number}`,
     questionPlaceholder: 'Choose the word that means “to lend”',
