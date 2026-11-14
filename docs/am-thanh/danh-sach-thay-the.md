@@ -95,6 +95,11 @@ bài. Điểm cắt hai đầu rơi vào ô nhịp nên vòng lặp vẫn đúng
 Mỗi nhóm chọn ngẫu nhiên một bài mỗi ván, nên ba biến thể phải cùng “họ” âm thanh — đổi bài
 không được làm người chơi tưởng đang chơi app khác.
 
+Nhạc màn thiết lập chạy như **playlist** chứ không lặp một bài: hết bài thì app bốc bài khác
+(không trùng bài vừa phát), và mỗi lần từ dashboard vào lại wizard cũng bốc bài mới. Nhạc trong
+ván và Rush Hour vẫn `loop` đúng như phần cắt ở trên; nếu người dùng tải nhạc nền riêng lên thì
+tệp đó cũng lặp, không bị thay bằng bài trong kho.
+
 ### Mức âm lượng theo màn
 
 Thanh trượt của người dùng là **mức trần**, không phải mức của mọi màn. Hệ số nằm trong

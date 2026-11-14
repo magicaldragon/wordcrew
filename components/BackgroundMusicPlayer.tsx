@@ -6,6 +6,10 @@ import { AUDIO_DUCK_EVENT } from '../constants';
 interface BackgroundMusicPlayerProps {
   volume: number;
   musicUrl?: string | null; // Changed from customMusicUrl, can be null to stop.
+  /** false turns the player into a one-track player that reports the end via `onEnded`. */
+  loop?: boolean;
+  /** Called when a non-looping track finishes; the app answers with the next URL. */
+  onEnded?: () => void;
 }
 
 /** How far the loop drops while an announcer line is speaking. */
@@ -14,7 +18,7 @@ const DUCK_LEVEL = 0.25;
 const LEVEL_RAMP_MS = 260;
 const LEVEL_RAMP_STEPS = 8;
 
-export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ volume, musicUrl }) => {
+export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ volume, musicUrl, loop = true, onEnded }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentAudioSrcRef = useRef<string | null>(null); // Stores the src of the currently loaded audio
   const wasPlayingBeforeHiddenRef = useRef(false); // Track playback so it can resume after the tab becomes visible again
@@ -64,6 +68,17 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
     }
   }, []);
 
+  // The element is created inside the effect below, so the end handler is attached there
+  // once; the ref keeps it reading the latest callback without re-registering a listener.
+  const onEndedRef = useRef(onEnded);
+  useEffect(() => {
+    onEndedRef.current = onEnded;
+  }, [onEnded]);
+  const handleTrackEnded = useCallback(() => {
+    if (!audioRef.current || audioRef.current.loop) return;
+    onEndedRef.current?.();
+  }, []);
+
   useEffect(() => {
     const newAudioSrc = musicUrl; // The URL to play, determined by App.tsx
     let audioJustInitializedOrSrcChanged = false;
@@ -84,7 +99,8 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
     // Case 2: Audio element doesn't exist yet
     if (!audioRef.current) {
       audioRef.current = new Audio(newAudioSrc);
-      audioRef.current.loop = true;
+      audioRef.current.loop = loop;
+      audioRef.current.addEventListener('ended', handleTrackEnded);
       currentAudioSrcRef.current = newAudioSrc;
       audioJustInitializedOrSrcChanged = true;
     } 
@@ -96,6 +112,9 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
       audioRef.current.load(); // Important after changing src to ensure it's ready
       audioJustInitializedOrSrcChanged = true;
     }
+
+    // Playlist mode is decided per screen, so the flag is re-applied on every change.
+    audioRef.current.loop = loop;
 
     // Apply volume (on initial load, src change, or a plain volume change). A ducked
     // loop stays ducked until its timer restores it. A brand-new element sits at 1.0, so
@@ -116,7 +135,7 @@ export const BackgroundMusicPlayer: React.FC<BackgroundMusicPlayerProps> = ({ vo
         playAudio();
       }
     }
-  }, [volume, musicUrl, userInteracted, playAudio, rampLevelTo]);
+  }, [volume, musicUrl, loop, userInteracted, playAudio, rampLevelTo, handleTrackEnded]);
 
   // Keep the loop volume readable from the duck handler, and listen for announcer
   // callouts. Each callout re-arms the timer; when it expires the loop ramps back.

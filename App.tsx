@@ -57,6 +57,18 @@ const ScreenFallback: React.FC = () => {
     </div>
   );
 };
+
+/**
+ * Rolls the setup bed out of its three tracks. The track already playing is excluded
+ * whenever the pool allows it, so a rotation never plays the same file twice in a row.
+ */
+const pickSetupTrack = (current: string | null): string | null => {
+  const pool =
+    BACKGROUND_MUSIC_URL.length > 1
+      ? BACKGROUND_MUSIC_URL.filter((url) => url !== current)
+      : BACKGROUND_MUSIC_URL;
+  return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
+};
 import { GamePhase, GameSettings, CustomSoundFile, GameMode } from './types';
 import { 
     playSound, SINGLE_SOUND_EFFECTS, DEFAULT_MUSIC_VOLUME, CORRECT_SOUNDS, 
@@ -452,6 +464,15 @@ const App: React.FC = () => {
       ? MUSIC_GAIN_GAME
       : MUSIC_GAIN_SETUP;
 
+  // The setup / instruction bed is a playlist, not a loop: when a track runs out the next
+  // one is rolled. The in-round beds stay loops (they are trimmed to loop seamlessly), and
+  // a custom upload is a single file, so it keeps looping too.
+  const isSetupBed = musicPhase === GamePhase.SETUP || musicPhase === GamePhase.INSTRUCTION;
+  const rotatesSetupMusic = isSetupBed && !customBackgroundMusic?.data;
+  const handleSetupTrackEnded = useCallback(() => {
+    setActiveMusicUrl((current) => pickSetupTrack(current));
+  }, []);
+
   useEffect(() => {
     let newActiveMusicUrl: string | null = null; // Default to null (stop music / no change)
 
@@ -471,19 +492,15 @@ const App: React.FC = () => {
             newActiveMusicUrl = activeMusicUrl;
         }
     } else if (musicPhase === GamePhase.SETUP) {
-        // Set setup music if:
-        // 1. Coming from a phase that isn't INSTRUCTION (e.g., RESULTS, PLAYING, or initial undefined)
-        // 2. Or if custom background music has changed.
-        if (previousMusicPhase !== GamePhase.INSTRUCTION || (customBackgroundMusic && customBackgroundMusic.data !== activeMusicUrl)) {
-            if (customBackgroundMusic?.data) {
-                newActiveMusicUrl = customBackgroundMusic.data;
-            } else if (Array.isArray(BACKGROUND_MUSIC_URL) && BACKGROUND_MUSIC_URL.length > 0) {
-                newActiveMusicUrl = BACKGROUND_MUSIC_URL[Math.floor(Math.random() * BACKGROUND_MUSIC_URL.length)];
-            } else if (typeof BACKGROUND_MUSIC_URL === 'string') {
-                newActiveMusicUrl = BACKGROUND_MUSIC_URL;
-            }
+        // Roll a fresh track when entering the phase (or when the custom bed was just
+        // removed) and then keep it. Rolling on every pass of this effect would never
+        // settle: each roll changes `activeMusicUrl`, which re-runs the effect.
+        const playingPoolTrack = activeMusicUrl !== null && BACKGROUND_MUSIC_URL.includes(activeMusicUrl);
+        if (customBackgroundMusic?.data) {
+            newActiveMusicUrl = customBackgroundMusic.data;
+        } else if (previousMusicPhase !== GamePhase.SETUP || !playingPoolTrack) {
+            newActiveMusicUrl = pickSetupTrack(activeMusicUrl);
         } else {
-            // Coming from INSTRUCTION to SETUP, keep current music.
             newActiveMusicUrl = activeMusicUrl;
         }
     } else if (musicPhase === GamePhase.INSTRUCTION) {
@@ -494,18 +511,14 @@ const App: React.FC = () => {
         } else if (customBackgroundMusic && customBackgroundMusic.data !== activeMusicUrl) {
              if (customBackgroundMusic?.data) {
                 newActiveMusicUrl = customBackgroundMusic.data;
-            } else if (Array.isArray(BACKGROUND_MUSIC_URL) && BACKGROUND_MUSIC_URL.length > 0) {
-                newActiveMusicUrl = BACKGROUND_MUSIC_URL[Math.floor(Math.random() * BACKGROUND_MUSIC_URL.length)];
-            } else if (typeof BACKGROUND_MUSIC_URL === 'string') {
-                newActiveMusicUrl = BACKGROUND_MUSIC_URL;
+            } else {
+                newActiveMusicUrl = pickSetupTrack(activeMusicUrl);
             }
         } else if (activeMusicUrl === null) { // Handles initial load to INSTRUCTION or coming from a phase where music stopped (like RESULTS)
             if (customBackgroundMusic?.data) {
                 newActiveMusicUrl = customBackgroundMusic.data;
-            } else if (Array.isArray(BACKGROUND_MUSIC_URL) && BACKGROUND_MUSIC_URL.length > 0) {
-                newActiveMusicUrl = BACKGROUND_MUSIC_URL[Math.floor(Math.random() * BACKGROUND_MUSIC_URL.length)];
-            } else if (typeof BACKGROUND_MUSIC_URL === 'string') {
-                newActiveMusicUrl = BACKGROUND_MUSIC_URL;
+            } else {
+                newActiveMusicUrl = pickSetupTrack(activeMusicUrl);
             }
         } else {
             // If no conditions met to change/set, keep current
@@ -578,7 +591,12 @@ const App: React.FC = () => {
   const handleEnterGame = useCallback((mode: GameMode | 'solo' = GameMode.NORMAL) => {
     setInitialGameMode(mode);
     setShowLanding(false);
-  }, []);
+    // A fresh visit to the wizard gets a fresh bed. The phase stays SETUP while the
+    // dashboard is open, so the music effect never re-rolls on its own here.
+    if (!customBackgroundMusic?.data) {
+      setActiveMusicUrl((current) => pickSetupTrack(current));
+    }
+  }, [customBackgroundMusic]);
 
   // Dashboard "Play" — open the game (its own landing screen first).
   const handlePlayGame = useCallback(() => {
@@ -1160,6 +1178,8 @@ const App: React.FC = () => {
       <BackgroundMusicPlayer 
         volume={musicVolume * musicGain} 
         musicUrl={showLanding ? null : (activeMusicOverride || activeMusicUrl)} 
+        loop={!rotatesSetupMusic}
+        onEnded={rotatesSetupMusic ? handleSetupTrackEnded : undefined}
       />
       <FeedbackHost />
       {showMajorUpdateNotice && !isRoundInProgress && (
