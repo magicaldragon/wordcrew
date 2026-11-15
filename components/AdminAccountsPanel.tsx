@@ -224,6 +224,9 @@ export const AdminAccountsPanel: React.FC = () => {
           Date.now() - item.lastSeenAt < ONLINE_WINDOW_MS;
         return {
           ...item,
+          // A profile doc can be missing the address while D1 still knows it; without one
+          // the row could neither match a licence nor accept a grant.
+          email: item.email || owned?.email || '',
           pro: live,
           proUntil: live ? owned?.accessUntil ?? null : null,
           proLicenseKey: live ? owned?.licenseKey ?? null : null,
@@ -489,15 +492,13 @@ export const AdminAccountsPanel: React.FC = () => {
 
                     {!isEditing && (
                       <div className="flex shrink-0 flex-col items-end gap-1">
-                        {!error && (
-                          <ProGrantButton
-                            label={row.displayName || row.email || row.uid}
-                            email={row.email || null}
-                            pro={row.pro}
-                            licenseKey={row.proLicenseKey}
-                            onChanged={loadAccess}
-                          />
-                        )}
+                        <ProGrantButton
+                          label={row.displayName || row.email || row.uid}
+                          email={row.email || null}
+                          pro={row.pro}
+                          licenseKey={row.proLicenseKey}
+                          onChanged={loadAccess}
+                        />
                         {!isSelf && (
                           <button
                             type="button"
