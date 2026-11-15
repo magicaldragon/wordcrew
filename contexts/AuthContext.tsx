@@ -103,6 +103,13 @@ interface AuthContextValue {
   getIdToken: () => Promise<string | null>;
   /** Renames the signed-in player, enforcing the 30-day cooldown client-side too. */
   updateDisplayName: (name: string) => Promise<void>;
+  /**
+   * Key into the `errors` dictionary when the last `signInWithRedirect` came back
+   * without a session. The dialog that started the flow died with the page, so the
+   * next one to open is the only place this can be told.
+   */
+  redirectError: string | null;
+  clearRedirectError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -118,14 +125,23 @@ const dateLabel = (ms: number): string =>
     { day: 'numeric', month: 'long', year: 'numeric' },
   );
 
+/** The `auth/*` code on a Firebase error, or '' when it is not one. */
+const rawAuthCode = (error: unknown): string =>
+  typeof error === 'object' && error !== null ? ((error as { code?: string }).code ?? '') : '';
+
 /**
  * Maps Firebase's terse error codes onto the keys in the `errors` dictionary. The code is
  * what leaves this module — the sentence is chosen by whichever screen shows it, in the
  * reader's language.
+ *
+ * The configuration codes matter as much as the user ones: when Google's account picker
+ * finishes but the tab never gets a session, the cause is nearly always
+ * `auth/unauthorized-domain` (the deployed origin is missing from Firebase → Authentication
+ * → Settings → Authorized domains) or `auth/web-storage-unsupported` (third-party storage
+ * blocked). Collapsing those into "generic" is what made this look like a dead button.
  */
 const authErrorCode = (error: unknown): string => {
-  const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : '';
-  switch (code) {
+  switch (rawAuthCode(error)) {
     case 'auth/invalid-email':
       return 'invalidEmail';
     case 'auth/missing-password':
@@ -142,14 +158,54 @@ const authErrorCode = (error: unknown): string => {
       return 'tooManyAttempts';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
+    case 'auth/redirect-cancelled-by-user':
       return 'popupClosed';
     case 'auth/popup-blocked':
       return 'popupBlocked';
     case 'auth/network-request-failed':
       return 'networkError';
+    case 'auth/unauthorized-domain':
+      return 'unauthorizedDomain';
+    case 'auth/operation-not-allowed':
+    case 'auth/configuration-not-found':
+      return 'providerDisabled';
+    case 'auth/invalid-api-key':
+    case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
+      return 'invalidApiKey';
+    case 'auth/account-exists-with-different-credential':
+      return 'accountExistsDifferent';
+    case 'auth/user-disabled':
+      return 'userDisabled';
+    case 'auth/web-storage-unsupported':
+      return 'storageBlocked';
+    case 'auth/operation-not-supported-in-this-environment':
+      return 'webviewSignIn';
     default:
       return 'generic';
   }
+};
+
+/**
+ * Logs the real code (the only thing that tells an admin *why* Google stopped after the
+ * account picker) and hands the UI its dictionary key.
+ */
+const authFailure = (error: unknown): AppError => {
+  console.warn(`[WordCrew] Firebase auth error: ${rawAuthCode(error) || String(error)}`, error);
+  return new AppError(authErrorCode(error));
+};
+
+/**
+ * Google's handshake has to return to a real web origin: the popup is closed by
+ * `authDomain` and the session is handed back through `window.opener`/storage. A `file://`
+ * document — the offline APK build, see `base` in vite.config.ts — has neither, and an
+ * embedded Android WebView ("; wv)" in the UA) drops the hand-back as well; Google also
+ * refuses OAuth inside embedded views. Both cases can only ever end on the account picker,
+ * so report that instead of leaving a dead button behind.
+ */
+export const googleSignInAvailable = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  if (!/^https?:$/.test(window.location.protocol)) return false;
+  return !/;\s*wv\)/.test(navigator.userAgent);
 };
 
 /**
@@ -201,7 +257,7 @@ const syncUserProfile = async (user: User, displayNameOverride?: string): Promis
  * identity is simply abandoned.
  */
 const isLinkConflict = (error: unknown): boolean => {
-  const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : '';
+  const code = rawAuthCode(error);
   return (
     code === 'auth/credential-already-in-use' ||
     code === 'auth/email-already-in-use' ||
@@ -214,14 +270,12 @@ const isLinkConflict = (error: unknown): boolean => {
  * full-page redirect. Safari, in-app browsers and a freshly reset browser profile (clearing
  * a drive resets the profile too) all report the block here, and asking the reader to hunt
  * for a popup setting they never changed is a worse answer than finishing the sign-in.
+ *
+ * `operation-not-supported-in-this-environment` is deliberately *not* in this list: it
+ * means the host has no usable popup *or* redirect (a WebView, a `file://` page), so
+ * retrying as a redirect would just fail again with a less useful message.
  */
-const isPopupBlocked = (error: unknown): boolean => {
-  const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : '';
-  return (
-    code === 'auth/popup-blocked' ||
-    code === 'auth/operation-not-supported-in-this-environment'
-  );
-};
+const isPopupBlocked = (error: unknown): boolean => rawAuthCode(error) === 'auth/popup-blocked';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Firebase's own user, which may be an anonymous (guest) session. Only a real account is
@@ -229,6 +283,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [identity, setIdentity] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(firebaseConfigured);
+  // Why the last popup-blocked fallback did not come back with a session.
+  const [redirectError, setRedirectError] = useState<string | null>(null);
 
   const user = identity && !identity.isAnonymous ? identity : null;
 
@@ -239,14 +295,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     // Consume the result of a redirect sign-in. The signed-in user arrives through
     // onAuthStateChanged either way, so this only clears Firebase's pending handler and
-    // logs a failed comeback — the dialog that started the flow no longer exists.
-    void getRedirectResult(auth).catch((error) => {
-      console.warn('[WordCrew] Google redirect sign-in did not complete.', error);
-    });
+    // records a failed comeback — the dialog that started the flow no longer exists, so
+    // the reason is kept until the next dialog opens.
+    void getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) setRedirectError(null);
+      })
+      .catch((error) => {
+        console.warn('[WordCrew] Google redirect sign-in did not complete.', error);
+        setRedirectError(authErrorCode(error));
+      });
     return onAuthStateChanged(auth, (nextUser) => {
       setIdentity(nextUser);
       setLoading(false);
-      if (nextUser && !nextUser.isAnonymous) void syncUserProfile(nextUser);
+      if (nextUser && !nextUser.isAnonymous) {
+        setRedirectError(null);
+        void syncUserProfile(nextUser);
+      }
     });
   }, []);
 
@@ -312,6 +377,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithGoogle = useCallback(async () => {
     const instance = requireAuth();
     if (!googleProvider) throw new AppError('signInNotConfigured');
+    // `file://` (the offline APK) can open the Google account picker but can never receive
+    // the result, so fail with an explanation instead of a dialog stuck on "Opening Google…".
+    if (!googleSignInAvailable()) throw new AppError('webviewSignIn');
     try {
       // A guest who signs in keeps their identity: linking rewrites the anonymous session
       // into the Google account instead of throwing the uid away.
@@ -331,10 +399,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // conflict back to the click that started it, and guessing would bounce the reader
         // through Google twice. The guest identity is dropped instead; the account is the
         // identity that matters once they sign in.
-        await signInWithRedirect(instance, googleProvider);
-        return;
+        try {
+          await signInWithRedirect(instance, googleProvider);
+          return;
+        } catch (redirectFailure) {
+          throw authFailure(redirectFailure);
+        }
       }
-      throw new AppError(authErrorCode(error));
+      throw authFailure(error);
     }
   }, [requireAuth]);
 
@@ -346,7 +418,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await signInWithEmailAndPassword(instance, email.trim(), password);
       } catch (error) {
-        throw new AppError(authErrorCode(error));
+        throw authFailure(error);
       }
     },
     [requireAuth],
@@ -365,8 +437,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (name.trim()) await updateProfile(credential.user, { displayName: name.trim() });
         await syncUserProfile(credential.user, name);
       } catch (error) {
-        if (isLinkConflict(error)) throw new AppError('emailInUse');
-        throw new AppError(authErrorCode(error));
+        if (isLinkConflict(error)) {
+          console.warn(`[WordCrew] Firebase auth error: ${rawAuthCode(error)}`, error);
+          throw new AppError('emailInUse');
+        }
+        throw authFailure(error);
       }
     },
     [requireAuth],
@@ -378,7 +453,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await sendPasswordResetEmail(instance, email.trim());
       } catch (error) {
-        throw new AppError(authErrorCode(error));
+        throw authFailure(error);
       }
     },
     [requireAuth],
@@ -435,6 +510,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void refreshSoloDisplayName(uid, name);
   }, []);
 
+  const clearRedirectError = useCallback(() => setRedirectError(null), []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -450,6 +527,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       signOutUser,
       getIdToken,
       updateDisplayName,
+      redirectError,
+      clearRedirectError,
     }),
     [
       user,
@@ -464,6 +543,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       signOutUser,
       getIdToken,
       updateDisplayName,
+      redirectError,
+      clearRedirectError,
     ],
   );
 

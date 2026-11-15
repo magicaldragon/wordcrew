@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useEffect, useRef, useState } from 'react';
+import { googleSignInAvailable, useAuth } from '../contexts/AuthContext';
 import { Icon } from './Icon';
 import { useT } from '../i18n/useT';
-import { describeError } from '../i18n/errors';
+import { describeCode, describeError } from '../i18n/errors';
 
 interface AuthDialogProps {
   isOpen: boolean;
@@ -20,7 +20,15 @@ type Mode = 'signin' | 'signup';
  * derived tokens so it matches the dashboard rather than the arcade game.
  */
 export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSuccess, reason }) => {
-  const { signInWithGoogle, signInWithEmail, registerWithEmail, configured } = useAuth();
+  const {
+    user,
+    signInWithGoogle,
+    signInWithEmail,
+    registerWithEmail,
+    configured,
+    redirectError,
+    clearRedirectError,
+  } = useAuth();
   const t = useT('auth');
   const common = useT('common');
   const errors = useT('errors');
@@ -30,6 +38,11 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'google' | 'email' | null>(null);
+  // Guards the auto-finish below against running twice (once from the promise, once
+  // from the auth state actually changing).
+  const finishedRef = useRef(false);
+  // Google's popup is the only method that needs a web origin; email/password does not.
+  const googleReady = googleSignInAvailable();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -37,9 +50,27 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
     setName('');
     setEmail('');
     setPassword('');
-    setError('');
     setBusy(null);
+    finishedRef.current = false;
+    // A redirect sign-in that came back empty-handed has no dialog left to report to,
+    // so the reason was parked in the context — show it on the next open.
+    setError(redirectError ? describeCode(errors, redirectError, t.signIn.error) : '');
+    if (redirectError) clearRedirectError();
+    // Only re-run when the dialog opens: resetting on every context change would wipe
+    // whatever the reader is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // Some hosts (in-app browsers, a WebView) drop the message the popup sends back to the
+  // opener: the session appears but `signInWithGoogle()` never settles, leaving the panel
+  // stuck on "Opening Google…". The account is the outcome that matters, so close here too.
+  useEffect(() => {
+    if (!isOpen || !user || finishedRef.current) return;
+    finishedRef.current = true;
+    setBusy(null);
+    onClose();
+    onSuccess?.();
+  }, [isOpen, user, onClose, onSuccess]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -53,6 +84,8 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
   if (!isOpen) return null;
 
   const finish = () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
     onClose();
     onSuccess?.();
   };
@@ -126,10 +159,16 @@ export const AuthDialog: React.FC<AuthDialogProps> = ({ isOpen, onClose, onSucce
           </p>
         )}
 
+        {!googleReady && (
+          <p className="mt-4 rounded-xl border border-[#c9952e]/40 bg-[#c9952e]/10 px-3 py-2 text-xs text-[var(--wn-11)]">
+            {t.signIn.googleNeedsBrowser}
+          </p>
+        )}
+
         <button
           type="button"
           onClick={() => void handleGoogle()}
-          disabled={!configured || busy !== null}
+          disabled={!configured || !googleReady || busy !== null}
           className="wc-btn wc-btn-secondary mt-5 w-full"
         >
           <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">

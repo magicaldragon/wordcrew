@@ -65,6 +65,8 @@ export const auth = {
     firebaseNoticeAfter: '.',
     openingGoogle: 'Opening Google…',
     continueWithGoogle: 'Continue with Google',
+    googleNeedsBrowser:
+      'Google sign-in needs a real browser tab, so it is unavailable in this app view. Use email and password below, or open WordCrew in Chrome or Safari.',
     emailDivider: 'or use email',
     name: 'Name',
     namePlaceholder: 'Ms. Lan',

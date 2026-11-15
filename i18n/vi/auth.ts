@@ -64,6 +64,8 @@ export const auth: Dictionary['auth'] = {
     firebaseNoticeAfter: '.',
     openingGoogle: 'Đang mở Google…',
     continueWithGoogle: 'Tiếp tục với Google',
+    googleNeedsBrowser:
+      'Đăng nhập Google cần một tab trình duyệt thật nên không dùng được trong khung ứng dụng này. Hãy dùng email và mật khẩu bên dưới, hoặc mở WordCrew bằng Chrome hay Safari.',
     emailDivider: 'hoặc dùng email',
     name: 'Tên',
     namePlaceholder: 'Cô Lan',

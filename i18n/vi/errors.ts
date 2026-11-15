@@ -22,6 +22,18 @@ export const errors: Dictionary['errors'] = {
   popupClosed: 'Cửa sổ đăng nhập đã bị đóng trước khi hoàn tất.',
   popupBlocked: 'Trình duyệt chặn cửa sổ đăng nhập. Hãy cho phép popup rồi thử lại.',
   networkError: 'Lỗi mạng — kiểm tra kết nối và thử lại.',
+  unauthorizedDomain:
+    'Địa chỉ này chưa được cấp phép đăng nhập Google. Hãy thêm vào Firebase → Authentication → Settings → Authorized domains.',
+  providerDisabled:
+    'Dự án chưa bật đăng nhập Google. Hãy bật Google provider trong Firebase Authentication.',
+  invalidApiKey: 'Bản dựng này mang khóa Firebase không thuộc dự án.',
+  accountExistsDifferent:
+    'Email này đã có tài khoản bằng cách đăng nhập khác. Hãy dùng cách bạn đã đăng ký.',
+  userDisabled: 'Tài khoản này đã bị vô hiệu hóa.',
+  storageBlocked:
+    'Trình duyệt chặn vùng lưu trữ mà đăng nhập Google cần. Hãy cho phép cookie cho trang này, hoặc dùng email và mật khẩu.',
+  webviewSignIn:
+    'Đăng nhập Google không chạy được trong trình duyệt tích hợp của ứng dụng. Hãy mở WordCrew bằng Chrome hoặc Safari, hoặc dùng email và mật khẩu.',
   notConfigured: 'Tính năng này chưa được cấu hình.',
   unauthorized: 'Bạn không có quyền thực hiện thao tác này.',
 

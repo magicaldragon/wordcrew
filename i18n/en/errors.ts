@@ -20,6 +20,18 @@ export const errors = {
   popupClosed: 'Sign-in window was closed before finishing.',
   popupBlocked: 'Your browser blocked the sign-in popup. Allow popups and try again.',
   networkError: 'Network problem — check your connection and try again.',
+  unauthorizedDomain:
+    'This address is not authorised for Google sign-in. Add it under Firebase → Authentication → Settings → Authorized domains.',
+  providerDisabled:
+    'Google sign-in is turned off for this project. Enable the Google provider in Firebase Authentication.',
+  invalidApiKey: 'This build carries a Firebase key that does not belong to the project.',
+  accountExistsDifferent:
+    'That email already has an account with a different sign-in method. Use the one you signed up with.',
+  userDisabled: 'This account has been disabled.',
+  storageBlocked:
+    'Your browser blocks the storage Google sign-in needs. Allow cookies for this site, or use email and password.',
+  webviewSignIn:
+    'Google sign-in cannot run inside an app’s built-in browser. Open WordCrew in Chrome or Safari, or use email and password.',
   notConfigured: 'This feature is not configured yet.',
   unauthorized: 'You do not have access to that.',
 
