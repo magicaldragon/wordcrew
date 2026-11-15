@@ -187,7 +187,7 @@ export const dashboard = {
     pending: 'Pending',
     grant: 'Grant access',
     grantBody:
-      'Issues a lifetime licence to an email without a payment. The account picks it up the next time it signs in on any device.',
+      'Issues a dated licence to an email without a payment. The account picks it up the next time it signs in on any device; when the term ends it falls back to the free tier.',
     grantPlaceholder: 'student@example.com',
     working: 'Working…',
     grantButton: 'Grant',
@@ -197,7 +197,8 @@ export const dashboard = {
     unknown: 'Unknown account',
     revoke: 'Revoke',
     markPaid: 'Mark as paid',
-    grantDone: (email: string, key: string) => `Granted to ${email} · ${key}`,
+    grantDone: (email: string, key: string, until: string) =>
+      `Granted to ${email} · ${key} · expires ${until}`,
     grantFailed: 'Could not grant access.',
     revokeAsk: (key: string) => `Revoke ${key}? The licence stops unlocking immediately.`,
     revokeLabel: 'Revoke',

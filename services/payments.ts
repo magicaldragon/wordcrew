@@ -342,6 +342,8 @@ export interface AdminOrder {
   amount: number;
   status: string;
   licenseKey: string | null;
+  /** End of the paid window; `null` means the licence never expires. */
+  accessUntil: number | null;
   email: string | null;
   createdAt: number;
   paidAt: number | null;
@@ -382,7 +384,7 @@ export const fetchAdminOverview = async (idToken: string | null): Promise<AdminO
 /**
  * Issues a licence to an email without a payment. Throws with the worker's reason.
  *
- * `days` must be one of `GRANT_TERMS`; `null` keeps the legacy lifetime grant.
+ * `days` is 1–3650; `null` grants lifetime access.
  */
 export const grantAccess = (
   idToken: string,

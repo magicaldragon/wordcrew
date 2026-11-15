@@ -188,7 +188,7 @@ export const dashboard: Dictionary['dashboard'] = {
     pending: 'Đang chờ',
     grant: 'Cấp quyền truy cập',
     grantBody:
-      'Cấp bản quyền vĩnh viễn cho một email mà không cần thanh toán. Tài khoản sẽ nhận được ở lần đăng nhập tiếp theo trên bất kỳ thiết bị nào.',
+      'Cấp bản quyền có thời hạn cho một email mà không cần thanh toán. Tài khoản sẽ nhận được ở lần đăng nhập tiếp theo trên bất kỳ thiết bị nào; hết hạn thì tự trở về bản miễn phí.',
     grantPlaceholder: 'student@example.com',
     working: 'Đang xử lý…',
     grantButton: 'Cấp',
@@ -198,7 +198,8 @@ export const dashboard: Dictionary['dashboard'] = {
     unknown: 'Tài khoản không xác định',
     revoke: 'Thu hồi',
     markPaid: 'Đánh dấu đã trả',
-    grantDone: (email: string, key: string) => `Đã cấp cho ${email} · ${key}`,
+    grantDone: (email: string, key: string, until: string) =>
+      `Đã cấp cho ${email} · ${key} · hết hạn ${until}`,
     grantFailed: 'Không cấp được quyền truy cập.',
     revokeAsk: (key: string) => `Thu hồi ${key}? Bản quyền sẽ ngừng mở khóa ngay lập tức.`,
     revokeLabel: 'Thu hồi',

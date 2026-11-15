@@ -137,10 +137,10 @@ const DEFAULT_PLAN_ID = 'pro';
 const planOrDefault = (id: string): BillingPlan => PLANS[id] ?? PLANS[DEFAULT_PLAN_ID];
 
 /**
- * Terms an admin may grant by hand, in days. Deliberately separate from PLANS: nothing
- * here reaches /api/pricing or POST /api/orders, so a grant can never turn into a 0đ sale.
+ * Bounds for a hand-written grant, in days. Anything outside this range is refused, so a
+ * typo cannot mint a de-facto lifetime licence; `null` is still the explicit lifetime term.
  */
-const GRANT_TERM_DAYS = [10, 31, 90, 365];
+const MAX_GRANT_DAYS = 3650;
 
 /**
  * Display names for everything we sell, keyed by the `product_id` stored on orders.
@@ -618,7 +618,7 @@ const getAdminOverview = async (request: Request, env: Env): Promise<Response> =
   ).first<{ revenue: number; paid_count: number; granted_count: number; pending_count: number }>();
 
   const { results } = await env.DB.prepare(
-    `SELECT code, product_id, amount, status, license_key, user_email, created_at, paid_at
+    `SELECT code, product_id, amount, status, license_key, access_until, user_email, created_at, paid_at
        FROM orders
       ORDER BY created_at DESC
       LIMIT 100`,
@@ -628,6 +628,7 @@ const getAdminOverview = async (request: Request, env: Env): Promise<Response> =
     amount: number;
     status: string;
     license_key: string | null;
+    access_until: number | null;
     user_email: string | null;
     created_at: number;
     paid_at: number | null;
@@ -647,6 +648,7 @@ const getAdminOverview = async (request: Request, env: Env): Promise<Response> =
       amount: row.amount,
       status: row.status,
       licenseKey: row.license_key,
+      accessUntil: row.access_until,
       email: row.user_email,
       createdAt: row.created_at,
       paidAt: row.paid_at,
@@ -697,8 +699,8 @@ const getAdminAccounts = async (request: Request, env: Env): Promise<Response> =
 /**
  * Hands a product to an account without a bank transfer — the mechanism behind gift
  * licences and support fixes. The order is written already paid, so it flows through
- * the exact same entitlement lookup as a real purchase. `days` must be one of
- * GRANT_TERM_DAYS; leaving it out keeps the legacy lifetime grant.
+ * the exact same entitlement lookup as a real purchase. `days` is 1–3650; leaving it out
+ * (or null) keeps the explicit lifetime grant.
  */
 const grantAccess = async (request: Request, env: Env): Promise<Response> => {
   const denied = await requireAdmin(request, env);
@@ -713,8 +715,8 @@ const grantAccess = async (request: Request, env: Env): Promise<Response> => {
     return fail('invalidEmail', 'Enter a valid email address.', 400);
   }
   if (productId !== PRODUCT.id) return fail('unknownProduct', 'Unknown product', 400);
-  if (days !== null && !GRANT_TERM_DAYS.includes(days)) {
-    return fail('unknownTerm', 'Unknown grant term.', 400);
+  if (days !== null && (!Number.isInteger(days) || days < 1 || days > MAX_GRANT_DAYS)) {
+    return fail('unknownTerm', 'Grant term must be 1–3650 days, or null for lifetime.', 400);
   }
 
   const plan: BillingPlan =

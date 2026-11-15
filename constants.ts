@@ -98,8 +98,8 @@ export const DEMO_ROUNDS_STORAGE_KEY = 'wordcrew_demo_rounds';
 export const BILLING_ENABLED: boolean = false;
 
 /**
- * Terms an admin may hand out without a payment, in days. The worker refuses any other
- * number, so a grant always has a visible end date instead of silently becoming lifetime.
+ * One-click terms an admin can hand out without a payment, in days. The dialog also
+ * accepts a typed number of days (1…GRANT_MAX_DAYS) and a lifetime grant.
  */
 export const GRANT_TERMS = [
   { days: 10, key: 'd10' },
@@ -107,6 +107,9 @@ export const GRANT_TERMS = [
   { days: 90, key: 'm3' },
   { days: 365, key: 'y1' },
 ] as const;
+
+/** Upper bound for a typed grant: ten years, so a typo cannot mint a de-facto lifetime. */
+export const GRANT_MAX_DAYS = 3650;
 
 /**
  * What is stored: `'1'` for a permanent unlock (access code, lifetime licence), or the

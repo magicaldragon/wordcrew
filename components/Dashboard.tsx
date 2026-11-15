@@ -12,6 +12,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { confirmDialog, toast } from './Feedback';
 import { Icon, type IconName } from './Icon';
 import { AdminAccountsPanel, AdminMonthlyRecords } from './AdminAccountsPanel';
+import { CopyEmailButton, GrantProDialog, ProGrantButton } from './ProGrant';
 import { db } from '../services/firebase';
 import {
   fetchAdminOverview,
@@ -19,7 +20,6 @@ import {
   formatPrice,
   grantAccess,
   reconcileOrder,
-  revokeAccess,
   type AdminOverview,
   type EntitlementItem,
   type MyOrder,
@@ -197,6 +197,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminNotice, setAdminNotice] = useState('');
   const [grantEmail, setGrantEmail] = useState('');
+  /** True while the term picker for the typed email is open. */
+  const [grantOpen, setGrantOpen] = useState(false);
   const [showSoloBoard, setShowSoloBoard] = useState(false);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [nameDraft, setNameDraft] = useState('');
@@ -329,38 +331,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
     return t.account.planDaysLeft(days);
   };
 
-  const handleGrant = async () => {
+  const handleGrant = async (days: number | null) => {
     const email = grantEmail.trim();
     if (!email || adminBusy) return;
+    setGrantOpen(false);
     const token = await getIdToken();
     if (!token) return;
     setAdminBusy(true);
     setAdminNotice('');
     try {
-      const result = await grantAccess(token, email);
+      const result = await grantAccess(token, email, days);
       setGrantEmail('');
-      setAdminNotice(t.admin.grantDone(result.email, result.licenseKey));
+      setAdminNotice(
+        t.admin.grantDone(
+          result.email,
+          result.licenseKey,
+          result.accessUntil === null
+            ? t.account.planLifetime
+            : new Date(result.accessUntil).toLocaleDateString(locale),
+        ),
+      );
       await loadAdmin();
     } catch (err) {
       setAdminNotice(describeError(errors, err, t.admin.grantFailed));
-    } finally {
-      setAdminBusy(false);
-    }
-  };
-
-  const handleRevoke = async (licenseKey: string) => {
-    if (adminBusy) return;
-    if (!(await confirmDialog(t.admin.revokeAsk(licenseKey), { confirmLabel: t.admin.revokeLabel }))) return;
-    const token = await getIdToken();
-    if (!token) return;
-    setAdminBusy(true);
-    setAdminNotice('');
-    try {
-      await revokeAccess(token, licenseKey);
-      setAdminNotice(t.admin.revoked(licenseKey));
-      await loadAdmin();
-    } catch (err) {
-      setAdminNotice(describeError(errors, err, t.admin.revokeFailed));
     } finally {
       setAdminBusy(false);
     }
@@ -1143,7 +1136,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             />
             <button
               type="button"
-              onClick={() => void handleGrant()}
+              onClick={() => setGrantOpen(true)}
               disabled={adminBusy || !grantEmail.trim()}
               className="wc-btn wc-btn-primary shrink-0"
             >
@@ -1154,6 +1147,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
             <p role="status" className="mt-2 break-all text-xs text-[var(--wn-10)]">
               {adminNotice}
             </p>
+          )}
+          {grantOpen && (
+            <GrantProDialog
+              account={grantEmail.trim()}
+              busy={adminBusy}
+              onCancel={() => setGrantOpen(false)}
+              onGrant={(days) => void handleGrant(days)}
+            />
           )}
         </div>
 
@@ -1177,9 +1178,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                 <li key={order.code} className="rounded-[var(--r-md)] border border-[var(--wn-4)] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[var(--wn-12)]">
-                        {order.email || t.admin.unknown}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="min-w-0 truncate text-sm font-semibold text-[var(--wn-12)]">
+                          {order.email || t.admin.unknown}
+                        </p>
+                        {order.email && <CopyEmailButton email={order.email} />}
+                      </div>
                       <p className="truncate text-xs text-[var(--wn-9)]">
                         {order.productName} · {order.code} · {new Date(order.createdAt).toLocaleString(locale)}
                       </p>
@@ -1203,15 +1207,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ isUnlocked, entitlements, 
                     </div>
                   </div>
 
-                  {order.status === 'paid' && order.licenseKey && (
-                    <button
-                      type="button"
-                      onClick={() => void handleRevoke(order.licenseKey as string)}
-                      disabled={adminBusy}
-                      className="wc-btn wc-btn-secondary wc-btn-sm mt-3"
-                    >
-                      {t.admin.revoke}
-                    </button>
+                  {order.licenseKey && (
+                    <ProGrantButton
+                      label={order.email || order.code}
+                      email={order.email}
+                      pro={
+                        order.status === 'paid' &&
+                        (order.accessUntil === null || order.accessUntil > Date.now())
+                      }
+                      licenseKey={order.licenseKey}
+                      onChanged={loadAdmin}
+                      className="mt-3"
+                    />
                   )}
 
                   {(order.status === 'pending' || order.status === 'expired') && (
