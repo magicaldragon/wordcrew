@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog, toast } from './Feedback';
 import { TeacherDeckEditor } from './TeacherDeckEditor';
+import { TeacherModeDialog } from './TeacherModeDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
@@ -25,7 +26,10 @@ import {
 
 interface TeacherSetupScreenProps {
   onStartLevel: (levelId: TeacherLevelId, count: number, mode: TeacherTestMode) => void;
+  /** Study the deck's cards first; the test is offered once the last card is reached. */
   onStartDeck: (deck: TeacherDeck) => void;
+  /** Skip the cards and run the deck test straight away, in the chosen question style. */
+  onTestDeck: (deck: TeacherDeck, mode: TeacherTestMode) => void;
   onExit: () => void;
   /** Opens the sign-in dialog; only decks that are kept need an account. */
   onRequireSignIn: () => void;
@@ -41,6 +45,7 @@ type TabId = 'level' | 'decks';
 export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   onStartLevel,
   onStartDeck,
+  onTestDeck,
   onExit,
   onRequireSignIn,
 }) => {
@@ -60,6 +65,8 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   const [decksLoading, setDecksLoading] = useState(true);
   // null = list, 'new' = a deck being built, a deck = that deck being edited.
   const [editing, setEditing] = useState<TeacherDeck | 'new' | null>(null);
+  /** The deck whose "Test this deck" button opened the question-style dialog. */
+  const [testingDeck, setTestingDeck] = useState<TeacherDeck | null>(null);
 
   // The account owns its decks. The device cache paints first, the account shelf replaces
   // it a moment later — signing in (even mid-edit) reloads that shelf.
@@ -145,6 +152,9 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   if (editing) {
     return (
       <TeacherDeckEditor
+        // The editor seeds its draft from the deck once. Keying it by deck id guarantees
+        // that a different deck always opens with its own name and words.
+        key={editing === 'new' ? 'new' : editing.id}
         deck={editing === 'new' ? null : editing}
         onSave={handleSave}
         onCancel={() => setEditing(null)}
@@ -373,20 +383,41 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                       </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onStartDeck(deck)}
-                    className="wc-btn wc-btn-primary mt-2 min-h-[44px] w-full"
-                  >
-                    <Icon name="list" size={16} />
-                    {t.setup.testDeck}
-                  </button>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onStartDeck(deck)}
+                      className="wc-btn wc-btn-primary min-h-[44px] flex-1"
+                    >
+                      <Icon name="list" size={16} />
+                      {t.setup.testDeck}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestingDeck(deck)}
+                      className="wc-btn wc-btn-secondary min-h-[44px] flex-1"
+                    >
+                      <Icon name="play" size={16} />
+                      {t.setup.startDeckTest}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </>
       )}
+
+      <TeacherModeDialog
+        isOpen={testingDeck !== null}
+        wordCount={testingDeck?.words.length ?? 0}
+        onCancel={() => setTestingDeck(null)}
+        onStart={(mode) => {
+          const deck = testingDeck;
+          setTestingDeck(null);
+          if (deck) onTestDeck(deck, mode);
+        }}
+      />
     </div>
   );
 };

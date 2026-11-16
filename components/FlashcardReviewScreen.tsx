@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { SayItPractice } from './SayItPractice';
 import { SpeakButton } from './SpeakButton';
+import { TeacherModeDialog } from './TeacherModeDialog';
 import { useT } from '../i18n/useT';
 import { ipaOf, loadPronouncingDictionary } from '../services/ipa';
 import { warmWords } from '../services/tts';
-import { partOfSpeech, shuffledDeckWords, TEACHER_TEST_MODES, type TeacherDeck, type TeacherTestMode } from '../services/teacherDeck';
+import { partOfSpeech, shuffledDeckWords, type TeacherDeck, type TeacherTestMode } from '../services/teacherDeck';
 
 interface FlashcardReviewScreenProps {
   deck: TeacherDeck;
@@ -44,9 +45,8 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
   const [cards, setCards] = useState(() => shuffledDeckWords(deck.words));
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  // The test that follows can ask the same words three ways; the class picks before it starts.
-  const [pickedMode, setPickedMode] = useState<TeacherTestMode>('listen');
-  const mode = lockedMode ?? pickedMode;
+  // Studying and testing are separate decisions: the test is offered once the deck is read.
+  const [modeDialogOpen, setModeDialogOpen] = useState(false);
   // Bumped once the pronunciation dictionary resolves; `ipaOf` reads a module-level
   // cache, so this counter is what makes the card re-render with its IPA line.
   const [ipaTick, setIpaTick] = useState(0);
@@ -87,9 +87,10 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
 
   const pos = partOfSpeech(card);
   const progress = Math.round(((index + 1) / cards.length) * 100);
+  const atLastCard = index >= cards.length - 1;
 
   return (
-    <div className="flex min-h-0 flex-grow flex-col gap-3 p-3 sm:p-4 animate-fadeInScaleUp">
+    <div className="flex min-h-full flex-col gap-3 p-3 sm:p-4 animate-fadeInScaleUp">
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -121,44 +122,74 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
         />
       </div>
 
+      {/* A real card, not a panel: thick edges, a cast shadow, and the flip itself is the
+          transition — the face turns over instead of the text swapping in place. */}
       <div
-        role="button"
-        tabIndex={0}
-        onClick={toggleFlip}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          event.preventDefault();
-          toggleFlip();
-        }}
-        aria-label={flipped ? t.review.showWord : t.review.showMeaning}
-        aria-pressed={flipped}
-        className="flex min-h-[15rem] flex-1 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-electric-blue/30 bg-dark-metal/60 p-5 text-center transition-colors hover:border-electric-blue/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
+        className="group relative min-h-[16rem] flex-1 rounded-2xl has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-4 has-[:focus-visible]:outline-electric-blue"
+        style={{ perspective: '1400px' }}
       >
-        {flipped ? (
-          <>
-            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.2em] text-muted-text">
-              {card.word}
-            </p>
-            <p className="break-words text-2xl font-bold leading-snug text-neon-green sm:text-3xl">
-              {card.meaning}
-            </p>
-            {ipa && <p className="font-mono text-sm text-electric-blue">/{ipa}/</p>}
-            <SpeakButton word={card.word} size="lg" />
-            <p className="text-[0.7rem] text-muted-text">{t.review.tapToHide}</p>
-          </>
-        ) : (
-          <>
-            <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
+        {/* The shadow belongs to the desk, not to the card: a 40px blur re-rasterised inside
+            the turning layer is what stalls a flip, and a shadow painted on a face sweeps a
+            dark band across the middle of the card the instant it turns edge-on. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+        />
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={toggleFlip}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            toggleFlip();
+          }}
+          aria-label={flipped ? t.review.showWord : t.review.showMeaning}
+          aria-pressed={flipped}
+          className="absolute inset-0 cursor-pointer rounded-2xl"
+          style={{
+            transformStyle: 'preserve-3d',
+            transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+            transition: 'transform 480ms cubic-bezier(0.22, 1, 0.36, 1)',
+            // Composited up front, so the browser never re-rasterises the card mid-turn —
+            // the flip stays on the GPU even when the deck is long and the screen is busy.
+            willChange: 'transform',
+          }}
+        >
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl border-4 border-electric-blue/40 bg-dark-metal/70 px-5 py-6 text-center transition-colors duration-300 group-hover:border-electric-blue"
+            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+          >
+            <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-electric-blue">
               {pos || t.review.noPos}
             </span>
-            <p className="break-words font-heading text-3xl font-bold tracking-wide text-light-text sm:text-4xl">
+            <p className="break-words font-heading text-4xl font-bold tracking-wide text-light-text sm:text-5xl">
               {card.word}
+            </p>
+            {ipa && <p className="font-mono text-lg text-electric-blue">/{ipa}/</p>}
+            <SpeakButton word={card.word} size="lg" />
+            <p className="text-xs text-muted-text">{t.review.tapToFlip}</p>
+          </div>
+
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl border-4 border-neon-green/60 bg-dark-metal/80 px-5 py-6 text-center transition-colors duration-300 group-hover:border-neon-green"
+            style={{
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+              transform: 'rotateY(180deg)',
+            }}
+          >
+            <p className="break-words text-xl font-bold uppercase tracking-[0.15em] text-light-text sm:text-2xl">
+              {card.word}
+            </p>
+            <p className="break-words text-3xl font-bold leading-snug text-neon-green sm:text-4xl">
+              {card.meaning}
             </p>
             {ipa && <p className="font-mono text-base text-electric-blue">/{ipa}/</p>}
             <SpeakButton word={card.word} size="lg" />
-            <p className="text-[0.7rem] text-muted-text">{t.review.tapToFlip}</p>
-          </>
-        )}
+            <p className="text-xs text-muted-text">{t.review.tapToHide}</p>
+          </div>
+        </div>
       </div>
 
       {/* Say it, hear yourself, compare with the model. Practice only — the graded pass
@@ -186,44 +217,17 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
         </button>
       </div>
 
-      {!reviewOnly && (
+      {!reviewOnly && lockedMode && (
         <div>
           <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
             {t.setup.modeTitle}
           </p>
-          {lockedMode ? (
-            <p className="rounded-lg border-2 border-white/10 bg-dark-metal/40 px-2 py-2 text-center text-[0.7rem] font-bold text-electric-blue">
-              {t.setup.modes[lockedMode].label}
-              <span className="mt-0.5 block font-normal text-muted-text">
-                {t.setup.modes[lockedMode].hint}
-              </span>
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label={t.setup.modeTitle}>
-                {TEACHER_TEST_MODES.map((id) => {
-                  const active = id === mode;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() => setPickedMode(id)}
-                      className={`min-h-[44px] rounded-lg border-2 px-2 text-[0.7rem] font-bold leading-tight transition-colors ${
-                        active
-                          ? 'border-electric-blue bg-electric-blue/10 text-electric-blue'
-                          : 'border-white/10 bg-dark-metal/40 text-muted-text hover:border-electric-blue/60'
-                      }`}
-                    >
-                      {t.setup.modes[id].label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-1 text-center text-[0.7rem] text-muted-text">{t.setup.modes[mode].hint}</p>
-            </>
-          )}
+          <p className="rounded-lg border-2 border-white/10 bg-dark-metal/40 px-2 py-2 text-center text-[0.7rem] font-bold text-electric-blue">
+            {t.setup.modes[lockedMode].label}
+            <span className="mt-0.5 block font-normal text-muted-text">
+              {t.setup.modes[lockedMode].hint}
+            </span>
+          </p>
         </div>
       )}
 
@@ -235,15 +239,36 @@ export const FlashcardReviewScreen: React.FC<FlashcardReviewScreenProps> = ({
         >
           {t.review.done}
         </button>
-      ) : (
+      ) : lockedMode ? (
         <button
           type="button"
-          onClick={() => onStartTest(mode)}
+          onClick={() => onStartTest(lockedMode)}
           className="wc-btn wc-btn-primary min-h-[48px] w-full"
         >
           <Icon name="play" size={16} />
           {t.review.startTest(cards.length)}
         </button>
+      ) : atLastCard ? (
+        <button
+          type="button"
+          onClick={() => setModeDialogOpen(true)}
+          className="wc-btn wc-btn-primary min-h-[48px] w-full"
+        >
+          <Icon name="play" size={16} />
+          {t.setup.startDeckTest}
+        </button>
+      ) : null}
+
+      {!reviewOnly && !lockedMode && (
+        <TeacherModeDialog
+          isOpen={modeDialogOpen}
+          wordCount={cards.length}
+          onCancel={() => setModeDialogOpen(false)}
+          onStart={(mode) => {
+            setModeDialogOpen(false);
+            onStartTest(mode);
+          }}
+        />
       )}
     </div>
   );

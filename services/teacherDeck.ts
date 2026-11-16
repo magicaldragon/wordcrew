@@ -199,6 +199,16 @@ const wordsOfBand = (band: CEFRLevel): Array<{ word: string; pos: TeacherPos }> 
   ];
 };
 
+/**
+ * Vietnamese meanings are text, not English answers: they are compared with their
+ * letters intact. `normalizeAnswer` keeps only a–z, so a gloss made entirely of
+ * accented letters ("đá", "ô", "độ") collapsed to an empty string and could never
+ * match its own meaning, while different glosses ("cá" / "cà") collided. Folding
+ * case, Unicode form and spacing is all a meaning needs.
+ */
+const normalizeMeaning = (value: string): string =>
+  value.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+
 /** The usable pool for a level: unique words, each with a gloss and a unique meaning. */
 const poolCache = new Map<TeacherLevelId, TeacherWord[]>();
 
@@ -217,7 +227,7 @@ const levelPool = (levelId: TeacherLevelId): TeacherWord[] => {
       if (seenWords.has(wordKey)) continue;
       const meaning = getVietnameseMeaning(entry.word);
       if (!meaning) continue;
-      const meaningKey = normalizeAnswer(meaning);
+      const meaningKey = normalizeMeaning(meaning);
       if (!meaningKey || seenMeanings.has(meaningKey)) continue;
       seenWords.add(wordKey);
       seenMeanings.add(meaningKey);
@@ -256,7 +266,7 @@ const allTeacherPool = (): TeacherWord[] => {
     const all: TeacherWord[] = [];
     for (const level of TEACHER_LEVELS) {
       for (const word of levelPool(level.id)) {
-        const key = `${word.word.toLowerCase()}|${normalizeAnswer(word.meaning)}`;
+        const key = `${word.word.toLowerCase()}|${normalizeMeaning(word.meaning)}`;
         if (seen.has(key)) continue;
         seen.add(key);
         all.push(word);
@@ -279,13 +289,13 @@ export const buildChoiceOptions = (
   sessionWords: TeacherWord[],
   rng: () => number = Math.random,
 ): string[] => {
-  const seen = new Set([normalizeAnswer(word.meaning)]);
+  const seen = new Set([normalizeMeaning(word.meaning)]);
   const distractors: string[] = [];
 
   const collect = (pool: TeacherWord[]) => {
     for (const entry of shuffle(pool, rng)) {
       if (distractors.length >= CHOICE_OPTIONS - 1) return;
-      const key = normalizeAnswer(entry.meaning);
+      const key = normalizeMeaning(entry.meaning);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       distractors.push(entry.meaning);
@@ -300,8 +310,8 @@ export const buildChoiceOptions = (
 
 /** The picked option is right when it is the same meaning — no spelling involved. */
 export const judgeMeaningChoice = (guess: string, meaning: string): boolean => {
-  const picked = normalizeAnswer(guess);
-  return Boolean(picked) && picked === normalizeAnswer(meaning);
+  const picked = normalizeMeaning(guess);
+  return Boolean(picked) && picked === normalizeMeaning(meaning);
 };
 
 // ── Parts of speech ────────────────────────────────────────────────────────
@@ -606,7 +616,7 @@ export const deckWarnings = (words: TeacherWord[]): Map<number, string> => {
 
   words.forEach((entry, index) => {
     if (!entry.meaning.trim()) warnings.set(index, 'Missing meaning');
-    const key = normalizeAnswer(entry.meaning);
+    const key = normalizeMeaning(entry.meaning);
     if (!key) return;
     const bucket = meanings.get(key);
     if (bucket) bucket.push(index);

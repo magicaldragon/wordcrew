@@ -720,6 +720,12 @@ const App: React.FC = () => {
     [startTeacherSession, teacherDeckForReview],
   );
 
+  // "Test this deck" skips the cards and starts the graded pass straight from the shelf.
+  const handleTestDeck = useCallback(
+    (deck: TeacherDeck, mode: TeacherTestMode) => startTeacherSession(buildDeckTest(deck, mode)),
+    [startTeacherSession],
+  );
+
   const handleTeacherFinish = useCallback((answers: TeacherAnswer[]) => {
     setTeacherAnswers(answers);
   }, []);
@@ -1121,6 +1127,9 @@ const App: React.FC = () => {
     if (teacherDeckForReview) {
       return (
         <FlashcardReviewScreen
+          // The cards are seeded from the deck once, so a different deck must be a
+          // different screen — never the same instance handed new words.
+          key={teacherDeckForReview.id}
           deck={teacherDeckForReview}
           onStartTest={handleStartReviewedDeck}
           onExit={() => setTeacherDeckForReview(null)}
@@ -1131,6 +1140,7 @@ const App: React.FC = () => {
       <TeacherSetupScreen
         onStartLevel={handleStartLevelTest}
         onStartDeck={handleStartDeckTest}
+        onTestDeck={handleTestDeck}
         onExit={handleTeacherExit}
         onRequireSignIn={() => setShowAuthDialog(true)}
       />

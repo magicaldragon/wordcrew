@@ -64,6 +64,7 @@ export const teacher = {
     editDeckAria: (name: string) => `Edit ${name}`,
     deleteDeckAria: (name: string) => `Delete ${name}`,
     testDeck: 'Review this deck',
+    startDeckTest: 'Test this deck',
 
     savedToast: 'Deck saved to your account.',
     deletedToast: 'Deck deleted.',

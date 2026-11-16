@@ -496,12 +496,14 @@ export const TeacherTestScreen: React.FC<TeacherTestScreenProps> = ({ session, o
               className="futuristic-input min-h-[48px] w-full px-3 text-center text-lg font-semibold disabled:opacity-70"
               aria-label={t.test.answerAria}
             />
+            {/* The last word is still checked like any other; the report is offered on the
+                verdict panel below, so only one button ever offers to finish. */}
             <button
               type="submit"
               disabled={!input.trim() || Boolean(revealed) || Boolean(missed)}
               className="wc-btn wc-btn-primary min-h-[48px] w-full disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {index + 1 >= total ? t.test.finish : t.test.check}
+              {t.test.check}
             </button>
           </form>
         )}

@@ -65,6 +65,7 @@ export const teacher: Dictionary['teacher'] = {
     editDeckAria: (name: string) => `Sửa ${name}`,
     deleteDeckAria: (name: string) => `Xóa ${name}`,
     testDeck: 'Học bộ từ này',
+    startDeckTest: 'Kiểm tra bộ từ này',
 
     savedToast: 'Đã lưu bộ từ vào tài khoản.',
     deletedToast: 'Đã xóa bộ từ.',
