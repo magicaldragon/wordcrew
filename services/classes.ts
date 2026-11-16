@@ -619,8 +619,13 @@ export const watchClass = (
   let membersReady = false;
   let assignmentsReady = false;
   let submissionsReady = false;
-  /** The active-assignment ids the submission listeners currently cover. */
-  let watched = '';
+  /**
+   * The active-assignment ids the submission listeners currently cover. `null` until the
+   * first pass: a class with no open work has the key `''`, and initialising this to `''`
+   * made that first pass return early, so `submissionsReady` never flipped and the panel
+   * showed "Loading classes…" forever.
+   */
+  let watched: string | null = null;
   let closed = false;
   const classStops: Array<() => void> = [];
   let submissionStops: Array<() => void> = [];
