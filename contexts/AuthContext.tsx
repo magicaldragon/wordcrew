@@ -18,11 +18,13 @@ import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
   getRedirectResult,
+  GoogleAuthProvider,
   linkWithCredential,
   linkWithPopup,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInAnonymously,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
@@ -277,6 +279,29 @@ const isLinkConflict = (error: unknown): boolean => {
  */
 const isPopupBlocked = (error: unknown): boolean => rawAuthCode(error) === 'auth/popup-blocked';
 
+/**
+ * A Google account that already exists rejects the guest link with
+ * `auth/credential-already-in-use` — but the credential from the popup that just closed is
+ * still on the error. Signing in with it finishes the flow on the account the reader
+ * already picked, instead of falling through to a second popup and asking them to pick the
+ * same account again (which made the first click look like a dead button).
+ *
+ * Returns false for any other conflict, where the credential is not a usable session and
+ * the normal popup is still the only way forward.
+ */
+const resumeSignInFromFailedLink = async (
+  instance: NonNullable<typeof auth>,
+  error: unknown,
+): Promise<boolean> => {
+  if (rawAuthCode(error) !== 'auth/credential-already-in-use') return false;
+  const credential = GoogleAuthProvider.credentialFromError(
+    error as Parameters<typeof GoogleAuthProvider.credentialFromError>[0],
+  );
+  if (!credential) return false;
+  await signInWithCredential(instance, credential);
+  return true;
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Firebase's own user, which may be an anonymous (guest) session. Only a real account is
   // ever surfaced as `user`, so every "sign in to continue" gate keeps working untouched.
@@ -390,6 +415,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error) {
           if (isPopupBlocked(error)) throw error;
           if (!isLinkConflict(error)) throw error;
+          // The account the reader just picked already exists, so the link was refused.
+          // Finishing with that same credential means they never see the Google picker
+          // twice for one click.
+          if (await resumeSignInFromFailedLink(instance, error)) return;
         }
       }
       await signInWithPopup(instance, googleProvider);

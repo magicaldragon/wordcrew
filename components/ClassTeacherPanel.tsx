@@ -49,6 +49,16 @@ const NO_SUBMISSIONS: ClassSubmission[] = [];
 /** How many visited classes stay live at once. A teacher runs rooms, not a campus. */
 const LIVE_CLASS_LIMIT = 8;
 
+/** How long a class may show its spinner before the panel offers a retry instead. */
+const FIRST_SNAPSHOT_TIMEOUT_MS = 12_000;
+
+/** Copy of a record without one key. */
+const omitKey = <T,>(record: Record<string, T>, key: string): Record<string, T> => {
+  const next = { ...record };
+  delete next[key];
+  return next;
+};
+
 /**
  * The teacher console: one class at a time, its roster, and the work that has been set.
  * A teacher may run several classes (different years, different rooms), so the header is a
@@ -78,6 +88,10 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   /** The report's chips: the whole class, the essays waiting on a human, or who still owes work. */
   const [reportView, setReportView] = useState<'all' | 'toGrade' | 'missing'>('all');
   const [busy, setBusy] = useState(false);
+  /** The Firestore code behind a class whose listeners gave up, keyed by class. */
+  const [classFailure, setClassFailure] = useState<Record<string, string>>({});
+  /** A class whose first snapshot is overdue — the spinner must never be the last word. */
+  const [stalled, setStalled] = useState<string | null>(null);
 
   const [newClassName, setNewClassName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -214,8 +228,18 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       }
       const stop = watchClass(
         classId,
-        (snapshot) => setByClass((prev) => ({ ...prev, [classId]: snapshot })),
-        () => toast(t.teacher.loadClassFailed, 'error'),
+        (snapshot) => {
+          setByClass((prev) => ({ ...prev, [classId]: snapshot }));
+          // A snapshot means the listeners are live, so any earlier failure is history.
+          setClassFailure((prev) => (classId in prev ? omitKey(prev, classId) : prev));
+        },
+        (error) => {
+          // `permission-denied` here means the deployed rules and this class disagree,
+          // which is invisible in a toast alone — the code is what says which side.
+          console.warn(`[WordCrew] Class listeners failed (${error.code}).`, error);
+          setClassFailure((prev) => ({ ...prev, [classId]: error.code }));
+          toast(t.teacher.loadClassFailed, 'error');
+        },
       );
       watchers.current.set(classId, stop);
       recent.current = [classId, ...recent.current];
@@ -245,6 +269,32 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       return next;
     });
   }, []);
+
+  /** Rebuilds a class's listeners after a failure, or after the first one never arrived. */
+  const retryClass = useCallback(
+    (classId: string) => {
+      setStalled(null);
+      setClassFailure((prev) => omitKey(prev, classId));
+      closeClass(classId);
+      openClass(classId);
+    },
+    [closeClass, openClass],
+  );
+
+  /**
+   * A listener that never delivers its first snapshot — offline, a stale session, or rules
+   * that refused the class — used to leave this pane on the spinner forever. Waiting a few
+   * seconds and offering the retry turns a dead screen into a recoverable one, and the code
+   * logged by `watchClass` names the cause.
+   */
+  useEffect(() => {
+    if (!active || byClass[active.id]) {
+      setStalled(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setStalled(active.id), FIRST_SNAPSHOT_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [active, byClass, refreshKey]);
 
   useEffect(() => {
     void loadClasses();
@@ -681,10 +731,28 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
         </div>
 
         {!data ? (
-          <div className="flex items-center justify-center gap-2 p-8" role="status" aria-live="polite">
-            <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--wn-4)] border-t-electric-blue" />
-            <span className="text-sm text-[var(--wn-10)]">{t.teacher.loading}</span>
-          </div>
+          stalled === active.id || classFailure[active.id] ? (
+            <div className="flex flex-col items-center gap-3 p-8 text-center" role="alert">
+              <p className="text-sm text-[var(--wn-10)]">{t.teacher.loadClassFailed}</p>
+              {classFailure[active.id] && (
+                <p className="text-[0.65rem] uppercase tracking-wider text-[var(--wn-9)]">
+                  {classFailure[active.id]}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => retryClass(active.id)}
+                className="wc-btn wc-btn-secondary min-h-[44px] px-4 text-sm"
+              >
+                {common.tryAgain}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center gap-2 p-8" role="status" aria-live="polite">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--wn-4)] border-t-electric-blue" />
+              <span className="text-sm text-[var(--wn-10)]">{t.teacher.loading}</span>
+            </div>
+          )
         ) : pane === 'roster' ? (
           <div className="flex flex-col gap-3 p-4">
             <p className="text-sm text-[var(--wn-10)]">{t.teacher.addBody}</p>
