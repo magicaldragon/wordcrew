@@ -19,6 +19,8 @@ export const errors = {
   tooManyAttempts: 'Too many attempts. Please wait a moment and try again.',
   popupClosed: 'Sign-in window was closed before finishing.',
   popupBlocked: 'Your browser blocked the sign-in popup. Allow popups and try again.',
+  redirectIncomplete:
+    'Google sign-in came back without a session — this browser dropped the answer. Try again, or use email and password.',
   networkError: 'Network problem — check your connection and try again.',
   unauthorizedDomain:
     'This address is not authorised for Google sign-in. Add it under Firebase → Authentication → Settings → Authorized domains.',

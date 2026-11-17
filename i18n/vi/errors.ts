@@ -21,6 +21,8 @@ export const errors: Dictionary['errors'] = {
   tooManyAttempts: 'Bạn đã thử quá nhiều lần. Hãy đợi một lát rồi thử lại.',
   popupClosed: 'Cửa sổ đăng nhập đã bị đóng trước khi hoàn tất.',
   popupBlocked: 'Trình duyệt chặn cửa sổ đăng nhập. Hãy cho phép popup rồi thử lại.',
+  redirectIncomplete:
+    'Đăng nhập Google quay về mà không có phiên — trình duyệt đã làm mất kết quả. Hãy thử lại, hoặc dùng email và mật khẩu.',
   networkError: 'Lỗi mạng — kiểm tra kết nối và thử lại.',
   unauthorizedDomain:
     'Địa chỉ này chưa được cấp phép đăng nhập Google. Hãy thêm vào Firebase → Authentication → Settings → Authorized domains.',

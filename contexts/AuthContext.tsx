@@ -197,6 +197,14 @@ const authFailure = (error: unknown): AppError => {
 };
 
 /**
+ * User-agent tokens that only ever appear inside an app's built-in browser (Zalo, Facebook,
+ * Messenger, Instagram, TikTok, LINE, WeChat, Snapchat). Google rejects OAuth there and the
+ * hand-back never arrives, so a click can only drop the reader back on the page they came
+ * from — the "it just reloaded and signed me out" report — or on a Google error page.
+ */
+const IN_APP_BROWSER = /FBAN|FBAV|FB_IAB|Instagram|Zalo|MicroMessenger|TikTok|musical_ly|Snapchat|Line\//i;
+
+/**
  * Google's handshake has to return to a real web origin: the popup is closed by
  * `authDomain` and the session is handed back through `window.opener`/storage. A `file://`
  * document — the offline APK build, see `base` in vite.config.ts — has neither, and an
@@ -207,7 +215,8 @@ const authFailure = (error: unknown): AppError => {
 export const googleSignInAvailable = (): boolean => {
   if (typeof window === 'undefined') return false;
   if (!/^https?:$/.test(window.location.protocol)) return false;
-  return !/;\s*wv\)/.test(navigator.userAgent);
+  const userAgent = navigator.userAgent;
+  return !/;\s*wv\)/.test(userAgent) && !IN_APP_BROWSER.test(userAgent);
 };
 
 /**
@@ -280,6 +289,33 @@ const isLinkConflict = (error: unknown): boolean => {
 const isPopupBlocked = (error: unknown): boolean => rawAuthCode(error) === 'auth/popup-blocked';
 
 /**
+ * Marks a Google redirect that took this tab away. The click that started it dies with the
+ * document, so a marker that survives the round trip is the only way to tell a *dropped*
+ * hand-back from an ordinary page load — otherwise the reader comes back to a tab that
+ * looks reloaded and signed out, with nothing to explain why.
+ */
+const REDIRECT_MARKER = 'wordcrew_google_redirect_v1';
+
+const markRedirectPending = (): void => {
+  try {
+    window.sessionStorage.setItem(REDIRECT_MARKER, '1');
+  } catch {
+    /* storage blocked — the comeback simply has nothing to report */
+  }
+};
+
+/** True when this document is the return leg of a redirect; the marker is cleared. */
+const consumeRedirectMarker = (): boolean => {
+  try {
+    const pending = window.sessionStorage.getItem(REDIRECT_MARKER) === '1';
+    window.sessionStorage.removeItem(REDIRECT_MARKER);
+    return pending;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * A Google account that already exists rejects the guest link with
  * `auth/credential-already-in-use` — but the credential from the popup that just closed is
  * still on the error. Signing in with it finishes the flow on the account the reader
@@ -310,6 +346,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(firebaseConfigured);
   // Why the last popup-blocked fallback did not come back with a session.
   const [redirectError, setRedirectError] = useState<string | null>(null);
+  /**
+   * `getRedirectResult` has settled. The guest session below must not start before that:
+   * Firebase consumes a pending redirect asynchronously on the way back from Google, and an
+   * anonymous session opened first takes its place — the tab then comes back looking like it
+   * simply reloaded, signed out. Holding the guest session until that call settles removes
+   * the whole failure mode.
+   */
+  const [redirectSettled, setRedirectSettled] = useState(!firebaseConfigured);
 
   const user = identity && !identity.isAnonymous ? identity : null;
 
@@ -322,14 +366,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // onAuthStateChanged either way, so this only clears Firebase's pending handler and
     // records a failed comeback — the dialog that started the flow no longer exists, so
     // the reason is kept until the next dialog opens.
+    const returningFromRedirect = consumeRedirectMarker();
     void getRedirectResult(auth)
       .then((result) => {
-        if (result?.user) setRedirectError(null);
+        if (result?.user) {
+          setRedirectError(null);
+          return;
+        }
+        if (!returningFromRedirect) return;
+        // Resolved with nothing: the hand-back was dropped (third-party storage blocked, or
+        // the pending result was consumed before this document existed). Left alone, the tab
+        // simply looks reloaded and still signed out — which is exactly the "it kicked me
+        // back out" report. The next dialog open explains it.
+        console.warn('[WordCrew] Google redirect came back without a session.');
+        setRedirectError('redirectIncomplete');
       })
       .catch((error) => {
         console.warn('[WordCrew] Google redirect sign-in did not complete.', error);
         setRedirectError(authErrorCode(error));
-      });
+      })
+      .finally(() => setRedirectSettled(true));
     return onAuthStateChanged(auth, (nextUser) => {
       setIdentity(nextUser);
       setLoading(false);
@@ -345,13 +401,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // enabled (or the network is down) the app simply stays signed out, which is exactly how
   // it behaved before, so nothing breaks.
   useEffect(() => {
-    if (!auth || loading || identity) return;
+    if (!auth || loading || !redirectSettled || identity) return;
     void signInAnonymously(auth).catch((error) => {
       // Guests then simply stay signed out. The warning is what tells a developer the
       // Anonymous provider is not enabled in the Firebase project.
       console.warn('[WordCrew] Could not open a guest session.', error);
     });
-  }, [loading, identity]);
+  }, [loading, redirectSettled, identity]);
 
   // The profile document is live so a rename made here (or by an admin) shows up at
   // once, and so the Account tab can show the cooldown without another read.
@@ -429,9 +485,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // through Google twice. The guest identity is dropped instead; the account is the
         // identity that matters once they sign in.
         try {
+          markRedirectPending();
           await signInWithRedirect(instance, googleProvider);
           return;
         } catch (redirectFailure) {
+          consumeRedirectMarker();
           throw authFailure(redirectFailure);
         }
       }
