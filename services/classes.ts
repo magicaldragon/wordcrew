@@ -722,6 +722,41 @@ export const watchClass = (
   };
 };
 
+/**
+ * One-shot read of a class, with the same slices the live listeners use.
+ *
+ * The listeners are the normal path, but a network or WebView can let an ordinary
+ * query through while holding the streaming channel open — no snapshot, no error.
+ * The class list loads (it is a query) while the panel sits on its spinner. This
+ * reads the three collections once so the class can be painted regardless.
+ */
+export const fetchClassSnapshot = async (classId: string): Promise<ClassSnapshot> => {
+  const [membersSnap, assignmentsSnap] = await Promise.all([
+    getDocs(collection(db!, CLASSES, classId, 'members')),
+    getDocs(collection(db!, CLASSES, classId, 'assignments')),
+  ]);
+  const members = membersSnap.docs
+    .map((item) => toMember(item.id, item.data() as Record<string, unknown>))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const assignments = assignmentsSnap.docs
+    .map((item) => toAssignment(item.id, item.data() as Record<string, unknown>))
+    .sort((a, b) => a.createdAt - b.createdAt);
+  const ids = assignments.filter((item) => item.archivedAt === null).map((item) => item.id);
+  const submissions: ClassSubmission[] = [];
+  for (let start = 0; start < ids.length; start += 10) {
+    const snap = await getDocs(
+      query(
+        collection(db!, CLASSES, classId, 'submissions'),
+        where('assignmentId', 'in', ids.slice(start, start + 10)),
+      ),
+    );
+    submissions.push(
+      ...snap.docs.map((item) => toSubmission(item.id, item.data() as Record<string, unknown>)),
+    );
+  }
+  return { members, assignments, submissions };
+};
+
 export interface SubmitInput {
   classId: string;
   assignment: ClassAssignment;
