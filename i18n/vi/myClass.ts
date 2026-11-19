@@ -105,6 +105,12 @@ export const myClass: Dictionary['myClass'] = {
     assignmentSent: 'Đã giao bài cho lớp.',
     assignmentSentMany: (count: number) => `Đã giao bài cho ${count} lớp.`,
     deleteAssignmentFailed: 'Không xóa được bài tập đó.',
+    // Bài giao đã chứa sẵn danh sách từ, nên có thể dựng lại bộ từ từ đó trên bất kỳ máy nào.
+    saveAsDeck: 'Lưu thành bộ từ',
+    saveAsDeckAria: (title: string) => `Lưu “${title}” thành bộ từ`,
+    savedAsDeck: (count: number) => `Đã lưu thành bộ từ mới · ${count} từ.`,
+    saveAsDeckFailed: 'Không lưu được bộ từ — thử lại.',
+    deckLimit: (max: number) => `Mỗi tài khoản lưu tối đa ${max} bộ từ. Hãy xóa bớt một bộ trước.`,
 
     // Bài đã xong được cất đi thay vì xóa, để mở lớp lần sau vẫn nhẹ.
     archive: 'Cất đi',

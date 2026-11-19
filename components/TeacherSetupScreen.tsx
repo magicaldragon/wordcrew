@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { confirmDialog, toast } from './Feedback';
+import { ClassAssignmentEditor } from './ClassAssignmentEditor';
 import { TeacherDeckEditor } from './TeacherDeckEditor';
 import { TeacherModeDialog } from './TeacherModeDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../i18n/useLocale';
 import { useT } from '../i18n/useT';
+import { createAssignment, fetchAssignments, fetchTeacherClasses, type SchoolClass } from '../services/classes';
 import {
   cachedTeacherDecks,
   clampTestWords,
@@ -16,12 +18,15 @@ import {
   MAX_DECKS,
   MAX_TEST_WORDS,
   MIN_TEST_WORDS,
+  newTeacherDeckId,
   saveTeacherDeck,
   TEACHER_LEVELS,
   TEACHER_TEST_MODES,
   type TeacherDeck,
+  type TeacherDeckSync,
   type TeacherLevelId,
   type TeacherTestMode,
+  watchTeacherDecks,
 } from '../services/teacherDeck';
 
 interface TeacherSetupScreenProps {
@@ -36,6 +41,7 @@ interface TeacherSetupScreenProps {
 }
 
 type TabId = 'level' | 'decks';
+type DeckFilter = 'all' | 'ready' | 'draft';
 
 /**
  * Teacher Mode's front door. Two sources, one shape of test: pick a level and the words
@@ -63,27 +69,110 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
   const [countDraft, setCountDraft] = useState('10');
   const [decks, setDecks] = useState<TeacherDeck[]>(() => cachedTeacherDecks(owner));
   const [decksLoading, setDecksLoading] = useState(true);
+  /** null while the account has not answered yet; the badge tells the teacher the truth. */
+  const [sync, setSync] = useState<TeacherDeckSync | null>(null);
   // null = list, 'new' = a deck being built, a deck = that deck being edited.
   const [editing, setEditing] = useState<TeacherDeck | 'new' | null>(null);
   /** The deck whose "Test this deck" button opened the question-style dialog. */
   const [testingDeck, setTestingDeck] = useState<TeacherDeck | null>(null);
+  /** Search and filter keep a shelf of up to 40 lists usable instead of a long scroll. */
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<DeckFilter>('all');
+  /** The deck whose "Assign" button is opening the class picker. */
+  const [assigning, setAssigning] = useState<string | null>(null);
+  const [assign, setAssign] = useState<{ deck: TeacherDeck; classes: SchoolClass[] } | null>(null);
+  /** deckId → how many live class assignments were built from it. */
+  const [deckUsage, setDeckUsage] = useState<Record<string, number>>({});
 
-  // The account owns its decks. The device cache paints first, the account shelf replaces
-  // it a moment later — signing in (even mid-edit) reloads that shelf.
+  // The account owns its decks. The device cache paints first, then the account shelf
+  // follows it live — a save or delete on another device lands here without a reload.
   useEffect(() => {
     let alive = true;
     setDecksLoading(true);
+    // One explicit read as well as the stream: a stream that is waiting for the network
+    // stays silent, and the badge would keep claiming "synced" while offline.
     void loadTeacherDecks(owner)
-      .then((list) => {
-        if (alive) setDecks(list);
+      .then((shelf) => {
+        if (!alive) return;
+        setDecks(shelf.decks);
+        setSync(shelf.sync);
       })
       .finally(() => {
         if (alive) setDecksLoading(false);
       });
+    const stop = watchTeacherDecks(owner, (shelf) => {
+      if (!alive) return;
+      setDecks(shelf.decks);
+      setSync(shelf.sync);
+      setDecksLoading(false);
+    });
+    // The cache is already on screen; never let a hung stream hide it behind a spinner.
+    setDecksLoading(false);
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [owner]);
+
+  /** A failed read/write is retryable — the teacher should not have to reload the app. */
+  const retrySync = () => {
+    setDecksLoading(true);
+    void loadTeacherDecks(owner)
+      .then((shelf) => {
+        setDecks(shelf.decks);
+        setSync(shelf.sync);
+      })
+      .finally(() => setDecksLoading(false));
+  };
+
+  // Where each deck has been given. This is a hint on the card, so a class that cannot be
+  // read is skipped instead of taking the whole shelf down with it — and it is only loaded
+  // while the decks tab is open, because it costs a read per class assignment.
+  useEffect(() => {
+    if (!user || tab !== 'decks') {
+      setDeckUsage({});
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const classes = await fetchTeacherClasses(user.uid);
+        const lists = await Promise.all(
+          classes.map((item) => fetchAssignments(item.id).catch(() => [])),
+        );
+        if (!alive) return;
+        const counts: Record<string, number> = {};
+        for (const list of lists) {
+          for (const assignment of list) {
+            if (!assignment.deckId || assignment.archivedAt) continue;
+            counts[assignment.deckId] = (counts[assignment.deckId] ?? 0) + 1;
+          }
+        }
+        setDeckUsage(counts);
+      } catch {
+        /* Usage is a hint; the shelf must not fail because a class could not be read. */
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, [owner]);
+  }, [user, tab]);
+
+  // The shelf at a glance: how full it is, and what the search box is filtering.
+  const totalWords = decks.reduce((sum, deck) => sum + deck.words.length, 0);
+  const draftDeckCount = decks.filter((deck) => deckStatus(deck) === 'draft').length;
+  const visibleDecks = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return decks.filter((deck) => {
+      if (filter === 'ready' && deckStatus(deck) !== 'ready') return false;
+      if (filter === 'draft' && deckStatus(deck) !== 'draft') return false;
+      if (!needle) return true;
+      return (
+        deck.name.toLowerCase().includes(needle) ||
+        deck.words.some((word) => word.word.toLowerCase().includes(needle))
+      );
+    });
+  }, [decks, filter, query]);
 
   /** The level's real pool — A1 has fewer usable words than the 300 ceiling. */
   const maxWords = countLevelWords(levelId);
@@ -128,8 +217,16 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
     setEditing(null);
     toast(t.setup.savedToast, 'success');
     void saveTeacherDeck(owner, deck)
-      .then(setDecks)
-      .catch(() => toast(t.setup.syncFailed, 'error'));
+      .then((list) => {
+        setDecks(list);
+        setSync('cloud');
+      })
+      .catch(() => {
+        // The device copy is written first, so the deck survives — but say it did not
+        // reach the account, otherwise it silently goes missing on the next device.
+        setSync('error');
+        toast(t.setup.syncFailed, 'error');
+      });
     return true;
   };
 
@@ -143,9 +240,64 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
     setEditing(null);
     try {
       setDecks(await deleteTeacherDeck(owner, deck.id));
+      setSync('cloud');
       toast(t.setup.deletedToast, 'success');
     } catch {
+      setSync('error');
       toast(t.setup.syncFailed, 'error');
+    }
+  };
+
+  /** Teachers reuse last week's list with a few edits — a copy beats rebuilding it. */
+  const handleDuplicate = (deck: TeacherDeck) => {
+    if (!user) {
+      onRequireSignIn();
+      return;
+    }
+    if (decks.length >= MAX_DECKS) {
+      toast(t.setup.deckLimit(MAX_DECKS), 'error');
+      return;
+    }
+    const now = Date.now();
+    const copy: TeacherDeck = {
+      id: newTeacherDeckId(),
+      name: t.setup.copyName(deck.name),
+      words: deck.words.map((word) => ({ ...word })),
+      createdAt: now,
+      updatedAt: now,
+      ...(deck.status ? { status: deck.status } : {}),
+    };
+    setDecks((prev) => [copy, ...prev]);
+    toast(t.setup.duplicatedToast(copy.name), 'success');
+    void saveTeacherDeck(owner, copy)
+      .then((list) => {
+        setDecks(list);
+        setSync('cloud');
+      })
+      .catch(() => {
+        setSync('error');
+        toast(t.setup.syncFailed, 'error');
+      });
+  };
+
+  /** A deck exists to be given to a class, so the picker opens straight from its card. */
+  const handleAssign = async (deck: TeacherDeck) => {
+    if (!user) {
+      onRequireSignIn();
+      return;
+    }
+    setAssigning(deck.id);
+    try {
+      const classes = await fetchTeacherClasses(user.uid);
+      if (classes.length === 0) {
+        toast(t.setup.assignNoClasses, 'error');
+        return;
+      }
+      setAssign({ deck, classes });
+    } catch {
+      toast(t.setup.assignFailed, 'error');
+    } finally {
+      setAssigning(null);
     }
   };
 
@@ -162,6 +314,25 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       />
     );
   }
+
+  // Where the shelf actually is. Saying "saved to your account" while the write is
+  // failing is what made teachers believe their lists travelled to another device.
+  const syncLabel =
+    sync === 'cloud'
+      ? t.setup.syncCloud
+      : sync === 'device'
+        ? t.setup.syncDevice
+        : sync === 'error'
+          ? t.setup.syncError
+          : t.setup.syncChecking;
+  const syncDot =
+    sync === 'cloud'
+      ? 'bg-neon-green'
+      : sync === 'device'
+        ? 'bg-warning-yellow'
+        : sync === 'error'
+          ? 'bg-danger-red'
+          : 'animate-pulse bg-muted-text';
 
   return (
     <div className="flex flex-col gap-3 p-3 sm:p-4">
@@ -302,9 +473,22 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
       ) : (
         <>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
-              {t.setup.savedOnDevice}
-            </p>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${syncDot}`} />
+              <p className="truncate text-[0.7rem] font-medium text-muted-text" role="status">
+                {syncLabel}
+              </p>
+              {sync === 'error' && user && (
+                <button
+                  type="button"
+                  onClick={retrySync}
+                  disabled={decksLoading}
+                  className="min-h-[44px] shrink-0 px-1.5 text-[0.7rem] font-semibold text-electric-blue disabled:opacity-50"
+                >
+                  {t.setup.syncRetry}
+                </button>
+              )}
+            </div>
             {/* The empty state below already carries this action, so it only appears once
                 there is a list to add to. */}
             {decks.length > 0 && (
@@ -318,6 +502,52 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
               </button>
             )}
           </div>
+
+          {decks.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-text">
+                {t.setup.shelfSummary(decks.length, MAX_DECKS, totalWords)}
+              </p>
+              {/* A short shelf needs no search box; a term's worth of decks does. */}
+              {decks.length >= 5 && (
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={t.setup.searchPlaceholder}
+                  aria-label={t.setup.searchAria}
+                  className="futuristic-input min-h-[44px] w-full px-3 py-2 text-sm"
+                />
+              )}
+              {draftDeckCount > 0 && (
+                <div
+                  role="group"
+                  aria-label={t.setup.filterAria}
+                  className="flex gap-1 rounded-lg border border-white/10 bg-dark-metal/40 p-1"
+                >
+                  {([
+                    { id: 'all' as DeckFilter, label: t.setup.filterAll },
+                    { id: 'ready' as DeckFilter, label: t.setup.filterReady },
+                    { id: 'draft' as DeckFilter, label: t.setup.filterDraft },
+                  ]).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={filter === item.id}
+                      onClick={() => setFilter(item.id)}
+                      className={`min-h-[44px] flex-1 rounded-md px-2 text-xs font-semibold transition-colors ${
+                        filter === item.id
+                          ? 'bg-electric-blue/20 text-electric-blue'
+                          : 'text-muted-text hover:text-light-text'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {decksLoading && decks.length === 0 ? (
             <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 p-5">
@@ -346,9 +576,13 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                 </p>
               )}
             </div>
+          ) : visibleDecks.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-white/15 p-5 text-center text-xs text-muted-text">
+              {t.setup.noMatches}
+            </p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {decks.map((deck) => (
+              {visibleDecks.map((deck) => (
                 <li key={deck.id} className="rounded-lg border border-white/10 bg-dark-metal/40 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -362,6 +596,11 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                       </p>
                       <p className="mt-0.5 text-[0.7rem] text-muted-text">
                         {t.setup.deckMeta(deck.words.length, new Date(deck.updatedAt).toLocaleDateString(locale))}
+                        {(deckUsage[deck.id] ?? 0) > 0 && (
+                          <span className="ml-1.5 font-semibold text-electric-blue">
+                            · {t.setup.usedIn(deckUsage[deck.id])}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -372,6 +611,14 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                         aria-label={t.setup.editDeckAria(deck.name)}
                       >
                         <Icon name="pencil" size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDuplicate(deck)}
+                        className="flex h-11 w-11 items-center justify-center rounded-md text-muted-text hover:bg-neon-green/20 hover:text-neon-green"
+                        aria-label={t.setup.duplicateDeckAria(deck.name)}
+                      >
+                        <Icon name="copy" size={16} />
                       </button>
                       <button
                         type="button"
@@ -401,11 +648,54 @@ export const TeacherSetupScreen: React.FC<TeacherSetupScreenProps> = ({
                       {t.setup.startDeckTest}
                     </button>
                   </div>
+                  {/* Study actions stay together; giving the list to a class is a separate
+                      step, so it gets its own row instead of a third crowded button. */}
+                  {deckStatus(deck) === 'ready' && deck.words.length >= 3 && (
+                    <button
+                      type="button"
+                      onClick={() => void handleAssign(deck)}
+                      disabled={assigning === deck.id}
+                      className="wc-btn wc-btn-secondary mt-2 min-h-[44px] w-full text-sm disabled:opacity-50"
+                    >
+                      <Icon name="folder" size={16} />
+                      {t.setup.assignDeck}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </>
+      )}
+
+      {/* The class picker opens with this deck already chosen; the teacher only sets the
+          class, the due date and how the words are asked. */}
+      {assign && (
+        <ClassAssignmentEditor
+          classes={assign.classes.map((item) => ({ id: item.id, name: item.name }))}
+          activeClassId={assign.classes[0].id}
+          initialDeckId={assign.deck.id}
+          onCancel={() => setAssign(null)}
+          onCreate={async (input, classIds) => {
+            try {
+              await Promise.all(classIds.map((classId) => createAssignment(classId, input)));
+              const deckId = assign.deck.id;
+              setDeckUsage((prev) => ({
+                ...prev,
+                [deckId]: (prev[deckId] ?? 0) + classIds.length,
+              }));
+              setAssign(null);
+              toast(
+                classIds.length > 1
+                  ? t.setup.assignedMany(classIds.length)
+                  : t.setup.assignedOne,
+                'success',
+              );
+            } catch {
+              toast(t.setup.assignFailed, 'error');
+            }
+          }}
+        />
       )}
 
       <TeacherModeDialog

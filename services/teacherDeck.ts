@@ -12,7 +12,7 @@
 // review pass is deliberate — a word can carry several senses, and the gloss that
 // matters is the one from the lesson, not the most common one.
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { CEFRLevel, cefrWordLists } from '../cefrWordLists';
 import { getVietnameseMeaning } from '../vietnameseMeanings';
 import { db } from './firebase';
@@ -108,6 +108,12 @@ export interface TeacherDeck {
    * are treated as ready.
    */
   status?: TeacherDeckStatus;
+  /**
+   * A deleted deck is kept as a tombstone instead of being dropped from the shelf: a
+   * device that never saw the delete would otherwise push its stale copy back up and the
+   * deck would return. Readers hide tombstones; they are pruned after a while.
+   */
+  deletedAt?: number;
 }
 
 export type TeacherDeckStatus = 'draft' | 'ready';
@@ -513,8 +519,15 @@ export const partOfSpeech = (entry: TeacherWord): TeacherPos | '' =>
 // localStorage stays as the offline cache, and as the only store a guest can use.
 const DECKS_KEY_PREFIX = 'wordcrew_teacher_decks_v2';
 const LEGACY_DECKS_KEY = 'wordcrew_teacher_decks_v1';
+/**
+ * The shelf version this device last reconciled with the account. A deck missing from a
+ * newer account shelf is only pushed back when it was touched after this point; anything
+ * older was already uploaded once and is gone because another device deleted it.
+ */
+const SEEN_KEY_PREFIX = 'wordcrew_teacher_decks_seen_v2';
 const DECKS_COLLECTION = 'teacherDecks';
 const decksKey = (owner: string): string => `${DECKS_KEY_PREFIX}:${owner || 'guest'}`;
+const seenKey = (owner: string): string => `${SEEN_KEY_PREFIX}:${owner || 'guest'}`;
 
 // One word per line. The separator is a tab, a colon/equals sign, or a spaced dash —
 // a bare hyphen stays part of the word ("well-known", "ice-cream"), which is what a
@@ -721,6 +734,19 @@ const adoptLegacyDecks = (owner: string): void => {
 const sortDecks = (decks: TeacherDeck[]): TeacherDeck[] =>
   [...decks].sort((a, b) => b.updatedAt - a.updatedAt);
 
+/** What the teacher sees: tombstones are bookkeeping, not lists. */
+const liveDecks = (decks: TeacherDeck[]): TeacherDeck[] =>
+  decks.filter((deck) => !deck.deletedAt);
+
+/**
+ * How long a tombstone travels. Long enough for a teacher to open the app on every device
+ * they use, short enough that a shelf never fills up with ghosts.
+ */
+const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+const pruneDecks = (decks: TeacherDeck[], now = Date.now()): TeacherDeck[] =>
+  decks.filter((deck) => !deck.deletedAt || now - deck.deletedAt < TOMBSTONE_TTL_MS);
+
 /** The cache on this device — what the tab can paint before the account answers. */
 const readLocalDecks = (owner: string): TeacherDeck[] => {
   try {
@@ -742,6 +768,30 @@ const writeLocalDecks = (owner: string, decks: TeacherDeck[]): void => {
   }
 };
 
+/** null when this device has never completed a sync for the account. */
+const readSeenVersion = (owner: string): number | null => {
+  try {
+    const raw = localStorage.getItem(seenKey(owner));
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeSeenVersion = (owner: string, version: number): void => {
+  try {
+    // Only ever forward: a device whose clock runs behind must not lower the baseline and
+    // make decks it already synced look unsynced again.
+    const previous = readSeenVersion(owner) ?? 0;
+    if (version <= previous) return;
+    localStorage.setItem(seenKey(owner), String(version));
+  } catch {
+    /* Storage blocked — the next read falls back to keeping local decks. */
+  }
+};
+
 /** Firestore refuses `undefined` inside an array, so every word is rebuilt with no holes. */
 const plainDeck = (deck: TeacherDeck): TeacherDeck => ({
   id: deck.id,
@@ -749,6 +799,7 @@ const plainDeck = (deck: TeacherDeck): TeacherDeck => ({
   createdAt: deck.createdAt,
   updatedAt: deck.updatedAt,
   ...(deck.status ? { status: deck.status } : {}),
+  ...(deck.deletedAt ? { deletedAt: deck.deletedAt } : {}),
   words: deck.words.map((entry) => ({
     word: entry.word,
     meaning: entry.meaning,
@@ -760,20 +811,42 @@ const plainDeck = (deck: TeacherDeck): TeacherDeck => ({
 /** A guest has no account to write to; without a configured project there is nowhere to write. */
 const canSync = (owner: string): boolean => Boolean(db) && Boolean(owner) && owner !== 'guest';
 
-/** The account shelf, or null when this account has never saved one. */
-const fetchRemoteDecks = async (owner: string): Promise<TeacherDeck[] | null> => {
+/** The account document as stored: the shelf plus the version stamp of the whole document. */
+interface RemoteShelf {
+  decks: TeacherDeck[];
+  version: number;
+}
+
+/** The account shelf and its version, or null when this account has never saved one. */
+const fetchRemoteShelf = async (owner: string): Promise<RemoteShelf | null> => {
   const snap = await getDoc(doc(db!, DECKS_COLLECTION, owner));
   if (!snap.exists()) return null;
   const data = snap.data() as Record<string, unknown>;
   const raw = Array.isArray(data.decks) ? data.decks : [];
-  return sortDecks(raw.filter(isDeck));
+  return {
+    decks: sortDecks(raw.filter(isDeck)),
+    // A document written before the version existed reads as 0: every local deck is then
+    // newer, so the first merge keeps everything instead of dropping unseen work.
+    version: typeof data.updatedAt === 'number' ? data.updatedAt : 0,
+  };
 };
 
 const writeRemoteDecks = async (owner: string, decks: TeacherDeck[]): Promise<void> => {
+  const now = Date.now();
+  const live = sortDecks(liveDecks(pruneDecks(decks, now))).slice(0, MAX_DECKS);
+  // Tombstones only take the slots the live shelf leaves free, so a busy delete history
+  // can never push a real deck out of the document — and the 40-deck rule still holds.
+  const dead = sortDecks(pruneDecks(decks, now).filter((deck) => deck.deletedAt)).slice(
+    0,
+    MAX_DECKS - live.length,
+  );
   await setDoc(doc(db!, DECKS_COLLECTION, owner), {
-    decks: decks.slice(0, MAX_DECKS).map(plainDeck),
-    updatedAt: Date.now(),
+    decks: [...live, ...dead].map(plainDeck),
+    updatedAt: now,
   });
+  // Recorded only after the write lands: a failed sync must leave the old version in
+  // place, or decks saved during the outage would look "already synced" and be dropped.
+  writeSeenVersion(owner, now);
 };
 
 /**
@@ -782,43 +855,133 @@ const writeRemoteDecks = async (owner: string, decks: TeacherDeck[]): Promise<vo
  */
 export const cachedTeacherDecks = (owner: string): TeacherDeck[] => {
   adoptLegacyDecks(owner);
-  return readLocalDecks(owner);
+  return sortDecks(liveDecks(readLocalDecks(owner)));
+};
+
+/**
+ * Where the shelf currently lives. Guests (and a build without Firebase) only ever have
+ * the device copy, so the tab must say so instead of promising an account.
+ */
+export type TeacherDeckSync = 'cloud' | 'device' | 'error';
+
+export interface TeacherDeckShelf {
+  decks: TeacherDeck[];
+  sync: TeacherDeckSync;
+}
+
+/**
+ * Last writer wins per deck, and a tombstone is a writer like any other — that is what
+ * makes a delete on one device retire the stale copy on the next.
+ *
+ * A deck the account has no record of is only re-uploaded when it was touched after this
+ * device's last completed sync (`seen`). A tombstone is pruned 90 days after the delete,
+ * so a device that stayed offline longer than that would otherwise see "unknown deck" and
+ * push a copy that was deliberately deleted. Anything older than `seen` was already on the
+ * account once and is missing now because another device deleted it.
+ *
+ * `changed` means the shelf document is out of date; `needPush` is narrower: a *live*
+ * deck exists only here. The listener must not re-upload tombstones the cap has no room
+ * for, or it would push, get the pruned snapshot back, and loop forever.
+ */
+const mergeShelves = (
+  local: TeacherDeck[],
+  remote: TeacherDeck[],
+  seen: number | null,
+): { decks: TeacherDeck[]; changed: boolean; needPush: boolean } => {
+  const byId = new Map(remote.map((deck) => [deck.id, deck]));
+  let changed = false;
+  let needPush = false;
+  for (const deck of local) {
+    const stored = byId.get(deck.id);
+    if (stored) {
+      if (stored.updatedAt < deck.updatedAt) {
+        byId.set(deck.id, deck);
+        changed = true;
+        if (!deck.deletedAt) needPush = true;
+      }
+      continue;
+    }
+    // No record on the account. Before the first completed sync there is no yardstick, so
+    // keeping the deck is the safe choice; afterwards only newer work is ours.
+    if (seen !== null && deck.updatedAt <= seen) continue;
+    byId.set(deck.id, deck);
+    changed = true;
+    if (!deck.deletedAt) needPush = true;
+  }
+  return { decks: sortDecks(pruneDecks([...byId.values()])), changed, needPush };
 };
 
 /**
  * The shelf for this account: the account copy when there is one, the cached copy offline.
  * A deck that only exists on this device (saved before lists synced, or while the network
  * was down) is pushed up rather than dropped, and a deck edited later on either side wins.
+ *
+ * The sync state comes back with the list so the tab can show whether the account copy is
+ * real — a silent fallback to the cache is what made decks "disappear" on another device.
  */
-export const loadTeacherDecks = async (owner: string): Promise<TeacherDeck[]> => {
+export const loadTeacherDecks = async (owner: string): Promise<TeacherDeckShelf> => {
   adoptLegacyDecks(owner);
   const local = readLocalDecks(owner);
-  if (!canSync(owner)) return local;
+  if (!canSync(owner)) return { decks: sortDecks(liveDecks(local)), sync: 'device' };
 
   try {
-    const remote = await fetchRemoteDecks(owner);
+    const remote = await fetchRemoteShelf(owner);
     if (remote === null) {
       if (local.length > 0) await writeRemoteDecks(owner, local);
-      return local;
+      return { decks: sortDecks(liveDecks(local)), sync: 'cloud' };
     }
 
-    const byId = new Map(remote.map((deck) => [deck.id, deck]));
-    let changed = false;
-    for (const deck of local) {
-      const stored = byId.get(deck.id);
-      if (!stored || stored.updatedAt < deck.updatedAt) {
-        byId.set(deck.id, deck);
-        changed = true;
-      }
-    }
-    const merged = sortDecks([...byId.values()]);
-    writeLocalDecks(owner, merged);
-    if (changed) await writeRemoteDecks(owner, merged);
-    return merged;
+    const merged = mergeShelves(local, remote.decks, readSeenVersion(owner));
+    writeLocalDecks(owner, merged.decks);
+    if (merged.changed) await writeRemoteDecks(owner, merged.decks);
+    else writeSeenVersion(owner, remote.version);
+    return { decks: sortDecks(liveDecks(merged.decks)), sync: 'cloud' };
   } catch {
-    // Offline, or the rules have not been published yet — the cached shelf still opens.
-    return local;
+    // Offline, or the rules have not been published yet — the cached shelf still opens,
+    // but the tab has to tell the teacher it is not on the account.
+    return { decks: sortDecks(liveDecks(local)), sync: 'error' };
   }
+};
+
+/**
+ * The live shelf: the account document is followed, so a deck saved or deleted on another
+ * device shows up here without reopening the tab. The cache is painted by the component
+ * before this runs; every emission after that is the account's answer.
+ */
+export const watchTeacherDecks = (
+  owner: string,
+  onShelf: (shelf: TeacherDeckShelf) => void,
+): (() => void) => {
+  adoptLegacyDecks(owner);
+  if (!canSync(owner)) {
+    onShelf({ decks: sortDecks(liveDecks(readLocalDecks(owner))), sync: 'device' });
+    return () => {};
+  }
+
+  return onSnapshot(
+    doc(db!, DECKS_COLLECTION, owner),
+    (snap) => {
+      const local = readLocalDecks(owner);
+      if (!snap.exists()) {
+        // First sign-in on a device that already had a cache: this is the backfill.
+        if (local.length > 0) void writeRemoteDecks(owner, local).catch(() => {});
+        onShelf({ decks: sortDecks(liveDecks(local)), sync: 'cloud' });
+        return;
+      }
+      const data = snap.data() as Record<string, unknown>;
+      const remote = Array.isArray(data.decks) ? data.decks.filter(isDeck) : [];
+      const version = typeof data.updatedAt === 'number' ? data.updatedAt : 0;
+      const merged = mergeShelves(local, remote, readSeenVersion(owner));
+      writeLocalDecks(owner, merged.decks);
+      if (merged.needPush) void writeRemoteDecks(owner, merged.decks).catch(() => {});
+      else writeSeenVersion(owner, version);
+      onShelf({ decks: sortDecks(liveDecks(merged.decks)), sync: 'cloud' });
+    },
+    () => {
+      // Offline or the rules reject the read: keep showing the cache and say so.
+      onShelf({ decks: sortDecks(liveDecks(readLocalDecks(owner))), sync: 'error' });
+    },
+  );
 };
 
 /**
@@ -829,17 +992,31 @@ export const loadTeacherDecks = async (owner: string): Promise<TeacherDeck[]> =>
  * a rejected sync throws, and the caller can say so while the deck stays cached.
  */
 export const saveTeacherDeck = async (owner: string, deck: TeacherDeck): Promise<TeacherDeck[]> => {
-  const next = sortDecks([deck, ...readLocalDecks(owner).filter((item) => item.id !== deck.id)]);
+  const next = pruneDecks(
+    sortDecks([deck, ...readLocalDecks(owner).filter((item) => item.id !== deck.id)]),
+  );
   writeLocalDecks(owner, next);
   if (canSync(owner)) await writeRemoteDecks(owner, next);
-  return next;
+  return sortDecks(liveDecks(next));
 };
 
+/**
+ * Deleting leaves a dated tombstone rather than dropping the entry: other devices merge
+ * by `updatedAt`, and without a newer record they would keep — and re-upload — the deck.
+ */
 export const deleteTeacherDeck = async (owner: string, id: string): Promise<TeacherDeck[]> => {
-  const next = readLocalDecks(owner).filter((item) => item.id !== id);
+  const now = Date.now();
+  const local = readLocalDecks(owner);
+  const target = local.find((item) => item.id === id);
+  const next = pruneDecks(
+    sortDecks([
+      ...local.filter((item) => item.id !== id),
+      ...(target ? [{ ...target, words: [], deletedAt: now, updatedAt: now }] : []),
+    ]),
+  );
   writeLocalDecks(owner, next);
   if (canSync(owner)) await writeRemoteDecks(owner, next);
-  return next;
+  return sortDecks(liveDecks(next));
 };
 
 export const newTeacherDeckId = (): string =>

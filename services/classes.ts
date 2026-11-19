@@ -114,6 +114,12 @@ export interface ClassAssignment {
   /** writing only. */
   prompt: string;
   minWords: number;
+  /**
+   * The My-decks list this work was built from, kept so the deck card can say where it
+   * has been given. The words are still copied below — the assignment stands alone even
+   * if the deck is later edited or deleted.
+   */
+  deckId?: string;
 }
 
 export interface VocabAnswer {
@@ -180,6 +186,8 @@ export interface NewAssignment {
   questions: QuizQuestion[];
   prompt: string;
   minWords: number;
+  /** Vocabulary built from a My-decks list — lets that deck show where it was used. */
+  deckId?: string;
 }
 
 const emptyDetail = (): WorkDetail => ({ answers: [], responses: [], text: '' });
@@ -262,6 +270,7 @@ const toAssignment = (id: string, data: Record<string, unknown>): ClassAssignmen
     }),
     prompt: asString(data.prompt),
     minWords: asNumber(data.minWords, 0),
+    ...(typeof data.deckId === 'string' && data.deckId ? { deckId: data.deckId } : {}),
   };
 };
 
@@ -540,6 +549,7 @@ export const createAssignment = async (
     questions: input.kind === 'quiz' ? input.questions.slice(0, MAX_QUIZ_QUESTIONS) : [],
     prompt: input.kind === 'writing' ? input.prompt.trim() : '',
     minWords: input.kind === 'writing' ? input.minWords : 0,
+    ...(input.kind === 'vocabulary' && input.deckId ? { deckId: input.deckId } : {}),
   });
 };
 

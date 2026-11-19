@@ -29,6 +29,13 @@ import {
   type NewAssignment,
   type SchoolClass,
 } from '../services/classes';
+import {
+  loadTeacherDecks,
+  MAX_DECKS,
+  newTeacherDeckId,
+  saveTeacherDeck,
+  type TeacherDeck,
+} from '../services/teacherDeck';
 
 interface ClassTeacherPanelProps {
   viewer: { uid: string; email: string; name: string };
@@ -94,6 +101,8 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
   /** The report's chips: the whole class, the essays waiting on a human, or who still owes work. */
   const [reportView, setReportView] = useState<'all' | 'toGrade' | 'missing'>('all');
   const [busy, setBusy] = useState(false);
+  /** The assignment whose word list is being turned back into a deck. */
+  const [deckSaving, setDeckSaving] = useState<string | null>(null);
   /** The Firestore code behind a class whose listeners gave up, keyed by class. */
   const [classFailure, setClassFailure] = useState<Record<string, string>>({});
 
@@ -479,6 +488,37 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
       await deleteAssignment(active.id, assignment.id);
     } catch {
       toast(t.teacher.deleteAssignmentFailed, 'error');
+    }
+  };
+
+  /**
+   * The assignment already carries its word list, so a deck can be rebuilt on a device
+   * that never received the shelf — the assignment is the copy that always synced.
+   */
+  const handleSaveAsDeck = async (assignment: ClassAssignment) => {
+    if (assignment.kind !== 'vocabulary' || assignment.words.length === 0) return;
+    setDeckSaving(assignment.id);
+    try {
+      const { decks } = await loadTeacherDecks(viewer.uid);
+      if (decks.length >= MAX_DECKS) {
+        toast(t.teacher.deckLimit(MAX_DECKS), 'error');
+        return;
+      }
+      const now = Date.now();
+      const deck: TeacherDeck = {
+        id: newTeacherDeckId(),
+        name: assignment.title,
+        words: assignment.words.map((word) => ({ word: word.term, meaning: word.gloss })),
+        createdAt: now,
+        updatedAt: now,
+        status: 'ready',
+      };
+      await saveTeacherDeck(viewer.uid, deck);
+      toast(t.teacher.savedAsDeck(deck.words.length), 'success');
+    } catch {
+      toast(t.teacher.saveAsDeckFailed, 'error');
+    } finally {
+      setDeckSaving(null);
     }
   };
 
@@ -911,6 +951,18 @@ export const ClassTeacherPanel: React.FC<ClassTeacherPanelProps> = ({ viewer, re
                         >
                           {t.teacher.openReport}
                         </button>
+                        {assignment.kind === 'vocabulary' && assignment.words.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => void handleSaveAsDeck(assignment)}
+                            disabled={deckSaving === assignment.id}
+                            title={t.teacher.saveAsDeck}
+                            aria-label={t.teacher.saveAsDeckAria(assignment.title)}
+                            className="wc-btn wc-btn-secondary min-h-[44px] shrink-0 px-3 text-sm disabled:opacity-50"
+                          >
+                            <Icon name="save" size={14} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void handleArchive(assignment, true)}

@@ -106,6 +106,13 @@ export const myClass = {
     assignmentSent: 'Assignment sent to the class.',
     assignmentSentMany: (count: number) => `Assignment sent to ${count} classes.`,
     deleteAssignmentFailed: 'Could not delete that assignment.',
+    // The assignment already carries its word list, so a deck can be rebuilt from it on
+    // any device — the recovery path when a shelf never reached the account.
+    saveAsDeck: 'Save as deck',
+    saveAsDeckAria: (title: string) => `Save “${title}” as a deck`,
+    savedAsDeck: (count: number) => `Saved as a new deck · ${count} ${count === 1 ? 'word' : 'words'}.`,
+    saveAsDeckFailed: 'Could not save that deck — try again.',
+    deckLimit: (max: number) => `Each account keeps up to ${max} decks. Delete one before adding another.`,
 
     // Finished work is put away rather than deleted, so a class stays cheap to open.
     archive: 'Archive',

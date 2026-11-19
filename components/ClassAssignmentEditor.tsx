@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 import { toast } from './Feedback';
@@ -33,6 +33,11 @@ interface ClassAssignmentEditorProps {
   classes: { id: string; name: string }[];
   /** The class whose tab is open — selected by default. */
   activeClassId: string;
+  /**
+   * Opened from a deck card: skip the kind chooser and start on the word-set form with
+   * that deck already picked, because the deck is the reason the teacher came here.
+   */
+  initialDeckId?: string;
   onCancel: () => void;
   onCreate: (input: NewAssignment, classIds: string[]) => Promise<void>;
 }
@@ -126,6 +131,7 @@ const Dialog: React.FC<DialogProps> = ({ labelledBy, onClose, size = 'narrow', c
 export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
   classes,
   activeClassId,
+  initialDeckId,
   onCancel,
   onCreate,
 }) => {
@@ -147,7 +153,7 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
   ];
 
   /** 'pick' is the small type chooser; 'form' is the modal for the chosen kind. */
-  const [step, setStep] = useState<'pick' | 'form'>('pick');
+  const [step, setStep] = useState<'pick' | 'form'>(initialDeckId ? 'form' : 'pick');
   const [kind, setKind] = useState<ClassKind>('vocabulary');
   const [partsOpen, setPartsOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -163,28 +169,38 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
     );
 
   // vocabulary
-  const [source, setSource] = useState<'level' | 'deck' | 'paste'>('level');
+  const [source, setSource] = useState<'level' | 'deck' | 'paste'>(initialDeckId ? 'deck' : 'level');
   const [levelId, setLevelId] = useState<TeacherLevelId>('A1');
   const [count, setCount] = useState(10);
   const [modes, setModes] = useState<TeacherTestMode[]>(['listen']);
-  const [deckId, setDeckId] = useState('');
+  const [deckId, setDeckId] = useState(initialDeckId ?? '');
   const [pasted, setPasted] = useState('');
   // Only finished decks can be assigned; drafts stay in My decks until the teacher is ready.
   // The shelf lives on the teacher's account, so it arrives a moment after the tab opens.
   const [decks, setDecks] = useState<TeacherDeck[]>([]);
   useEffect(() => {
     let alive = true;
-    void loadTeacherDecks(owner).then((list) => {
-      if (alive) setDecks(list.filter((deck) => deckStatus(deck) === 'ready'));
+    void loadTeacherDecks(owner).then(({ decks: shelf }) => {
+      if (alive) setDecks(shelf.filter((deck) => deckStatus(deck) === 'ready'));
     });
     return () => {
       alive = false;
     };
   }, [owner]);
 
+  // The deck card opened this form, so the deck's name is the obvious title — but only
+  // until the teacher types one of their own.
+  const titleSeeded = useRef(false);
+  useEffect(() => {
+    if (!initialDeckId || titleSeeded.current) return;
+    const deck = decks.find((item) => item.id === initialDeckId);
+    if (!deck) return;
+    titleSeeded.current = true;
+    setTitle((current) => current || deck.name);
+  }, [decks, initialDeckId]);
+
   // quiz
   const [questions, setQuestions] = useState<QuizQuestion[]>([emptyQuestion()]);
-
   // writing
   const [prompt, setPrompt] = useState('');
   const [minWords, setMinWords] = useState(60);
@@ -262,6 +278,9 @@ export const ClassAssignmentEditor: React.FC<ClassAssignmentEditorProps> = ({
         })) : [],
         prompt: kind === 'writing' ? prompt : '',
         minWords,
+        // Only a vocabulary set built from a deck carries the link; pasted words and
+        // level sets have no deck to point back at.
+        ...(kind === 'vocabulary' && source === 'deck' && deckId ? { deckId } : {}),
       }, targets);
     } finally {
       setBusy(false);

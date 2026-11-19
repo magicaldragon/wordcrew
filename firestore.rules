@@ -223,6 +223,8 @@ service cloud.firestore {
 
     // Hình dạng tối thiểu để client hỏng không ghi rác vào tài khoản. Client đã cắt
     // ở MAX_DECKS/MAX_DECK_WORDS; rule kiểm lại để sửa client cũng không vượt được.
+    // `deletedAt` là bia mộ của bộ từ đã xoá — nhờ nó mà máy khác không "hồi sinh"
+    // bộ từ bằng bản cũ còn lưu trên thiết bị.
     function isValidDeckShelf() {
       return request.resource.data.keys().hasOnly(['decks', 'updatedAt'])
         && request.resource.data.decks is list
@@ -230,13 +232,14 @@ service cloud.firestore {
         && request.resource.data.updatedAt is number
         && request.resource.data.decks.all(deck,
             deck is map
-            && deck.keys().hasOnly(['id', 'name', 'createdAt', 'updatedAt', 'status', 'words'])
+            && deck.keys().hasOnly(['id', 'name', 'createdAt', 'updatedAt', 'status', 'words', 'deletedAt'])
             && deck.id is string
             && deck.id.size() > 0
             && deck.name is string
             && deck.createdAt is number
             && deck.updatedAt is number
             && (!deck.keys().hasAny(['status']) || deck.status in ['draft', 'ready'])
+            && (!deck.keys().hasAny(['deletedAt']) || deck.deletedAt is number)
             && deck.words is list
             && deck.words.size() <= 300);
     }
@@ -473,7 +476,8 @@ service cloud.firestore {
     // nên không cần kiểm chặt hơn; cái cần chặn là payload khổng lồ.
     function isValidAssignment(data) {
       return data.keys().hasAll(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords'])
-        && data.keys().hasOnly(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords', 'archivedAt', 'mode', 'modes'])
+        && data.keys().hasOnly(['kind', 'title', 'instructions', 'createdAt', 'dueAt', 'passScore', 'words', 'questions', 'prompt', 'minWords', 'archivedAt', 'mode', 'modes', 'deckId'])
+        && (!data.keys().hasAny(['deckId']) || (data.deckId is string && data.deckId.size() <= 128))
         && data.kind in ['vocabulary', 'quiz', 'writing']
         && (!data.keys().hasAny(['mode']) || data.mode is string)
         && (!data.keys().hasAny(['modes'])

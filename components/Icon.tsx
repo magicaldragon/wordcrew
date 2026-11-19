@@ -37,7 +37,8 @@ export type IconName =
   | 'trophy'
   | 'list'
   | 'plus'
-  | 'globe';
+  | 'globe'
+  | 'copy';
 
 interface IconProps {
   name: IconName;
@@ -98,6 +99,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   folder: <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />,
+  copy: (
+    <>
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
+  ),
   pencil: (
     <>
       <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
