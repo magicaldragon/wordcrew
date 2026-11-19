@@ -11,7 +11,7 @@
 
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { initializeFirestore, type Firestore } from 'firebase/firestore';
 
 const options: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -36,7 +36,12 @@ let googleProviderInstance: GoogleAuthProvider | null = null;
 if (firebaseConfigured) {
   app = initializeApp(options);
   authInstance = getAuth(app);
-  dbInstance = getFirestore(app);
+  // Live listeners (`onSnapshot`) default to a streaming WebChannel. School networks,
+  // WebViews and proxies routinely answer that stream with a 400 and Firestore then
+  // retries in silence — no snapshot, no error — so every screen fed by a listener
+  // sits on its spinner forever. Long polling moves the same data over ordinary
+  // requests, which those networks do let through.
+  dbInstance = initializeFirestore(app, { experimentalForceLongPolling: true });
   googleProviderInstance = new GoogleAuthProvider();
   // Always let the player pick which Google account to use — classroom machines are
   // often shared.
