@@ -13,9 +13,28 @@ import { initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import { initializeFirestore, type Firestore } from 'firebase/firestore';
 
+/**
+ * The configured auth domain, or the origin serving the app when it says `self`.
+ *
+ * Google sign-in hands its result back through storage on `authDomain`. Safari 16.1+ and
+ * Chrome M115+ partition third-party storage, so when `authDomain` is `wordcrew.firebaseapp.com`
+ * while the app is on its own domain, that storage is a different site and the hand-back is
+ * dropped — the page simply reloads, still signed out. `self` makes the Worker serve
+ * `/__/auth/*` from the app's own origin (worker/index.ts), which keeps the hand-back
+ * first-party and is the fix Firebase documents for browsers that block third-party storage.
+ */
+const authDomain = (() => {
+  const configured = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+  if (configured !== 'self') return configured;
+  if (typeof window === 'undefined' || !/^https?:$/.test(window.location.protocol)) {
+    return configured;
+  }
+  return window.location.host;
+})();
+
 const options: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  authDomain,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };

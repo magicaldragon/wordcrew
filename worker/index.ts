@@ -1213,9 +1213,54 @@ const handleApi = async (request: Request, env: Env, url: URL): Promise<Response
   return fail('notFound', 'Not found', 404);
 };
 
+/**
+ * Where Firebase hosts the sign-in helper pages this worker mirrors.
+ *
+ * The helper (`/__/auth/*`) and the project-config probe (`/__/firebase/init.json`) are
+ * normally loaded from `<project>.firebaseapp.com`, and the popup/redirect hand-back keeps
+ * its state in storage on that origin. Browsers now partition third-party storage (Safari
+ * 16.1+, Chrome M115+), so a helper on `firebaseapp.com` cannot hand a session back to an
+ * app on another domain: the redirect returns, storage looks empty, and the player lands
+ * on the home page signed out. `VITE_FIREBASE_AUTH_DOMAIN=self` (see services/firebase.ts)
+ * points the SDK at our own origin instead, and this passthrough is what makes that real.
+ */
+const firebaseAuthOrigin = (env: Env): string =>
+  `https://${env.FIREBASE_PROJECT_ID || 'wordcrew'}.firebaseapp.com`;
+
+/**
+ * Forwards a sign-in helper request to Firebase unchanged — same path, query, method and
+ * body — so the helper behaves exactly as if it were hosted here, only now first-party.
+ *
+ * The upstream response is returned as-is on purpose: the flow is a chain of redirects
+ * the *browser* must follow (Google's consent screen, then back to `/__/auth/handler`),
+ * and turning any of them into a second hop would break it.
+ */
+const proxyFirebaseAuth = async (request: Request, url: URL, env: Env): Promise<Response> => {
+  const upstream = new URL(url.pathname + url.search, firebaseAuthOrigin(env));
+  const headers = new Headers(request.headers);
+  // The Host header describes this worker; the upstream origin comes from the URL.
+  headers.delete('host');
+  const method = request.method.toUpperCase();
+  const response = await fetch(upstream.toString(), {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' ? undefined : request.body,
+    redirect: 'manual',
+  });
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    // Sign-in helpers, proxied so the Firebase hand-back stays on this origin.
+    if (url.pathname.startsWith('/__/auth/') || url.pathname.startsWith('/__/firebase/')) {
+      return proxyFirebaseAuth(request, url, env);
+    }
     // Only /api/* is routed here (see `run_worker_first` in wrangler.jsonc); every
     // other request is served directly from static assets.
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);

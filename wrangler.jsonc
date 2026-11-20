@@ -9,7 +9,9 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    // Sign-in helpers are proxied to Firebase (see worker/index.ts) so Google sign-in
+    // works on iOS/Android, where a helper on firebaseapp.com loses the hand-back.
+    "run_worker_first": ["/api/*", "/__/auth/*", "/__/firebase/*"]
   },
   "d1_databases": [
     {

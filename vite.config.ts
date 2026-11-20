@@ -89,6 +89,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // `/__/auth/*` and `/__/firebase/*` are Firebase's sign-in helper pages, proxied
+        // by the Worker onto this origin (see services/firebase.ts). They are real pages
+        // from Firebase, not the SPA, so the navigation fallback must not answer them with
+        // the cached index.html — that would leave the popup/redirect handshake with
+        // nothing to load.
+        navigateFallbackDenylist: [/^\/__\//, /^\/api\//],
         // Precache the app shell (hashed JS/CSS + fonts + icons).
         // Audio is deliberately NOT precached: it is cached on first play so the
         // install stays light, then playback keeps working offline. The pronunciation
