@@ -222,26 +222,19 @@ service cloud.firestore {
     }
 
     // Hình dạng tối thiểu để client hỏng không ghi rác vào tài khoản. Client đã cắt
-    // ở MAX_DECKS/MAX_DECK_WORDS; rule kiểm lại để sửa client cũng không vượt được.
-    // `deletedAt` là bia mộ của bộ từ đã xoá — nhờ nó mà máy khác không "hồi sinh"
-    // bộ từ bằng bản cũ còn lưu trên thiết bị.
+    // ở MAX_DECKS/MAX_DECK_WORDS; rule kiểm lại phần vỏ để sửa client cũng không
+    // vượt được trần.
+    //
+    // Rules KHÔNG có `list.all()` (chỉ có hasAll/hasAny/hasOnly/join/removeAll/
+    // size/toSet) nên không duyệt được từng bộ từ ở đây. Dùng `all()` khiến cả
+    // ruleset không publish được — và khi đó teacherDecks rơi vào rule chặn cuối
+    // cùng, tức là mọi lần lưu bộ từ đều "failed to upload". Hình dạng từng bộ
+    // (id/name/words…) do client bảo đảm và được lọc lại khi đọc (isDeck).
     function isValidDeckShelf() {
       return request.resource.data.keys().hasOnly(['decks', 'updatedAt'])
         && request.resource.data.decks is list
         && request.resource.data.decks.size() <= 40
-        && request.resource.data.updatedAt is number
-        && request.resource.data.decks.all(deck,
-            deck is map
-            && deck.keys().hasOnly(['id', 'name', 'createdAt', 'updatedAt', 'status', 'words', 'deletedAt'])
-            && deck.id is string
-            && deck.id.size() > 0
-            && deck.name is string
-            && deck.createdAt is number
-            && deck.updatedAt is number
-            && (!deck.keys().hasAny(['status']) || deck.status in ['draft', 'ready'])
-            && (!deck.keys().hasAny(['deletedAt']) || deck.deletedAt is number)
-            && deck.words is list
-            && deck.words.size() <= 300);
+        && request.resource.data.updatedAt is number;
     }
 
     // ── Bảng xếp hạng Solo (theo tháng / theo ngày) ──────────────────────
@@ -483,7 +476,9 @@ service cloud.firestore {
         && (!data.keys().hasAny(['modes'])
             || (data.modes is list
                 && data.modes.size() <= 4
-                && data.modes.all(mode, mode is string)))
+                // Không duyệt được từng phần tử (rules không có `all`), nhưng
+                // toSet().hasOnly() vẫn chặn được giá trị lạ.
+                && data.modes.toSet().hasOnly(['listen', 'choice', 'letters', 'read'])))
         && data.title is string && data.title.size() > 0 && data.title.size() <= 120
         && data.instructions is string && data.instructions.size() <= 2000
         && data.createdAt is number
@@ -514,13 +509,8 @@ service cloud.firestore {
         && data.detail.keys().hasOnly(['answers', 'responses', 'text'])
         && data.detail.answers is list
         && data.detail.answers.size() <= 60
-        && data.detail.answers.all(answer,
-            answer is map
-            && answer.keys().hasOnly(['term', 'gloss', 'guess', 'correct', 'attempts', 'hints', 'skipped', 'mode'])
-            && answer.term is string && answer.term.size() <= 80
-            && answer.gloss is string && answer.gloss.size() <= 200
-            && answer.guess is string && answer.guess.size() <= 80
-            && answer.correct is bool)
+        // Từng dòng đáp án không kiểm được: rules không có `all()` để duyệt list.
+        // Giữ trần số dòng để document không phình to; client đã chuẩn hoá dữ liệu.
         && data.detail.responses is list
         && data.detail.responses.size() <= 30
         && data.detail.text is string && data.detail.text.size() <= 4000
