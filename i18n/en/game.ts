@@ -146,11 +146,12 @@ export const game = {
       rundownLabel: 'Run rules',
       rundown: (hearts: number, skips: number, seconds: number, floor: number) =>
         `${hearts} hearts · ${skips} free skips · ${seconds}s per word, down to ${floor}s`,
-      scoring: 'Every correct word scores, plus streak bonuses and extra hearts along the way.',
+      scoring:
+        'Clean answer: 10 pts + streak bonus · Hint: 7 pts · Meaning: 3 pts · Time-out: −1 ❤️. Any help ends the streak.',
       playStyleLabel: 'Play style:',
       playStyleHint: 'pick the skill you want to train',
       blurbDescribe:
-        'Hear an English description, then type or say the word. Stuck? Open the hint, then the Vietnamese meaning — that last rung ends your streak.',
+        'Hear an English description, then type or say the word. Stuck? Open the hint (7 pts), then the Vietnamese meaning (3 pts) — both end your streak.',
       blurbMeaning:
         'Play alone against the clock — pick a track in the next step, then type or say each word from its Vietnamese meaning.',
       styles: {

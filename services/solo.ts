@@ -147,12 +147,25 @@ export const seededRng = (seed: number): (() => number) => {
 export const shortLevel = (level: CEFRLevel): string => level.replace(/\s*\(.*\)\s*$/, '');
 
 // ── Run rules ──────────────────────────────────────────────────────────────
-/** Hearts the player starts with; the run ends at zero. */
-export const SOLO_START_HEARTS = 10;
+/**
+ * Hearts the player starts with; the run ends at zero. Five is the ceiling on purpose:
+ * ten made a single sitting long enough to be a grind rather than a game, while three
+ * left no room for a bad stretch on the 30-second describe clock. Every run follows the
+ * same rule, so the leaderboard compares like for like.
+ */
+export const SOLO_START_HEARTS = 5;
 /** Skips that cost nothing; later skips cost a heart instead. */
 export const SOLO_FREE_SKIPS = 3;
-/** Points for a correct guess. */
+/** Points for a clean guess — no help opened on that word. */
 export const SOLO_CORRECT_POINTS = 10;
+/**
+ * The help ladder is priced, not forbidden: narrowing the field costs a third of the
+ * word, and seeing the Vietnamese gloss costs most of it. Both prices stay positive so
+ * asking for help is always better than timing out, and both end the streak so a board
+ * cannot be climbed on hints alone.
+ */
+export const SOLO_HINT_POINTS = 7;
+export const SOLO_MEANING_POINTS = 3;
 /** Points lost, alongside one heart, when the clock runs out on a word. */
 export const SOLO_WRONG_PENALTY = 10;
 /** The timeout penalty is floored here so a score never goes negative. */

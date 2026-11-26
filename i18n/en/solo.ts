@@ -27,8 +27,9 @@ export const solo = {
     levelUp: (level: string) => `⬆️ Level up — ${level}`,
 
     hearClue: 'Hear the clue',
-    hint: '💡 Hint',
-    meaning: '🇻🇳 Meaning',
+    /** Price is shown before the tap: the help ladder is paid for, never a surprise. */
+    hint: (points: number) => `💡 Hint (${points} pts)`,
+    meaning: (points: number) => `🇻🇳 Meaning (${points} pts)`,
     loadingClue: 'Loading clue…',
     noClue: '🤔 No clue yet — trust the letters',
     noTranslation: '🤔 No translation yet — trust the letters',

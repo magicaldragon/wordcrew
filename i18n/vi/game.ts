@@ -145,11 +145,12 @@ export const game: Dictionary['game'] = {
       rundownLabel: 'Luật chơi',
       rundown: (hearts: number, skips: number, seconds: number, floor: number) =>
         `${hearts} tim · ${skips} lượt bỏ qua miễn phí · ${seconds}s mỗi từ, giảm dần đến ${floor}s`,
-      scoring: 'Mỗi từ đúng đều có điểm, kèm thưởng chuỗi và thêm tim trên đường đi.',
+      scoring:
+        'Trả lời sạch: 10 điểm + thưởng chuỗi · Gợi ý: 7 điểm · Nghĩa: 3 điểm · Hết giờ: −1 ❤️. Dùng trợ giúp sẽ ngắt chuỗi.',
       playStyleLabel: 'Cách chơi:',
       playStyleHint: 'chọn kỹ năng bạn muốn luyện',
       blurbDescribe:
-        'Nghe mô tả tiếng Anh rồi gõ hoặc nói từ. Bí quá? Mở gợi ý, rồi đến nghĩa tiếng Việt — nấc cuối này sẽ kết thúc chuỗi thắng của bạn.',
+        'Nghe mô tả tiếng Anh rồi gõ hoặc nói từ. Bí quá? Mở gợi ý (7 điểm), rồi đến nghĩa tiếng Việt (3 điểm) — cả hai đều ngắt chuỗi.',
       blurbMeaning:
         'Chơi một mình với đồng hồ — chọn lộ trình ở bước sau, rồi gõ hoặc nói từng từ dựa trên nghĩa tiếng Việt.',
       styles: {

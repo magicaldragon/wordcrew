@@ -20,6 +20,8 @@ import {
   SOLO_CORRECT_POINTS,
   SOLO_FREE_SKIPS,
   SOLO_HEART_MILESTONES,
+  SOLO_HINT_POINTS,
+  SOLO_MEANING_POINTS,
   SOLO_MIN_SCORE,
   SOLO_START_HEARTS,
   SOLO_STYLE_TIME,
@@ -713,9 +715,15 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       resolvedRef.current = true;
 
       const s = statsRef.current;
-      const nextStreak = s.streak + 1;
+      // Help opened on this word is paid for here, not at reveal time: the ladder is
+      // priced (hint 7, meaning 3) and any help ends the streak, so the bonus can never
+      // be earned on a word the player was handed.
+      const helped = rung >= 2 ? 2 : rung >= 1 ? 1 : 0;
+      const nextStreak = helped ? 0 : s.streak + 1;
       const bonus = soloStreakBonus(nextStreak);
-      const gained = SOLO_CORRECT_POINTS + bonus;
+      const base =
+        helped === 2 ? SOLO_MEANING_POINTS : helped === 1 ? SOLO_HINT_POINTS : SOLO_CORRECT_POINTS;
+      const gained = base + bonus;
 
       let hearts = s.hearts;
       let milestones = s.milestones;
@@ -765,7 +773,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
       if (callout) playAnnouncer(callout, effectsVolume);
       scheduleAdvance(1000);
     },
-    [applyStats, customCorrectSounds, effectsVolume, scheduleAdvance, showHeartToast],
+    [applyStats, customCorrectSounds, effectsVolume, rung, scheduleAdvance, showHeartToast],
   );
 
   // A wrong guess is not a failure state for either input: the word stays open, nothing
@@ -936,14 +944,15 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
     };
   }, [current, style]);
 
-  // The help ladder. Rung 1 (the contrast sentence) is free: it narrows the field without
-  // ending the learning. Rung 2 (the Vietnamese gloss) is the last resort — the player
-  // could not get there from English, so the streak ends and the word is filed for review,
-  // but no heart is lost and the round can still be won.
+  // The help ladder. Rung 1 (the contrast sentence) narrows the field and keeps the word
+  // winnable, at the price of a shorter score (7 instead of 10) and the streak. Rung 2
+  // (the Vietnamese gloss) is the last resort — most of the word's points go, the streak
+  // ends and the word is filed for review, but no heart is lost and the round can still
+  // be won. Both are priced on their buttons before the tap, never after.
   const revealHint = useCallback(() => {
     if (rung >= 1) return;
     setRung(1);
-    applyStats((prev) => ({ ...prev, hints: prev.hints + 1 }));
+    applyStats((prev) => ({ ...prev, streak: 0, hints: prev.hints + 1 }));
   }, [applyStats, rung]);
 
   const revealMeaning = useCallback(() => {
@@ -1010,10 +1019,12 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
         ))}
       </div>
 
-      {/* Clue card — letter boxes centred, Vietnamese meaning right below */}
+      {/* Clue card — letter boxes centred, Vietnamese meaning right below. The inner
+          wrapper centres when the card has room and scrolls from the top when extra-big
+          text (or a short landscape phone) would otherwise clip it. */}
       <div
         key={wordNo}
-        className={`relative flex w-full min-h-0 flex-grow flex-col items-center justify-center gap-3 rounded-xl border-2 bg-dark-metal/60 p-3 text-center sm:p-5 ${
+        className={`relative flex w-full min-h-0 flex-grow flex-col overflow-y-auto overflow-x-hidden rounded-xl border-2 bg-dark-metal/60 p-3 text-center sm:p-5 ${
           phase === 'correct'
             ? 'border-neon-green/80 shadow-lg shadow-neon-green/30'
             : phase === 'revealed'
@@ -1021,6 +1032,7 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
               : 'border-electric-blue/30'
         }`}
       >
+        <div className="my-auto flex w-full flex-col items-center justify-center gap-3">
         <span className="rounded-full border border-electric-blue/40 bg-electric-blue/10 px-2.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-electric-blue">
           {shortLevel(current.level)}
         </span>
@@ -1068,19 +1080,19 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                     className="mt-1"
                   />
                 )}
-                <p className="min-w-0 px-1 font-heading text-xl font-bold leading-snug text-neon-green sm:text-2xl">
+                <p className="min-w-0 max-w-full break-words px-1 font-heading text-3xl font-bold leading-tight text-neon-green sm:text-4xl">
                   {hint ? hint.defs[0] : `🇻🇳 ${vietnamese}`}
                 </p>
               </div>
 
               {rung >= 1 && hint && (
-                <p className="max-w-xl animate-fadeInScaleUp px-2 text-sm leading-snug text-electric-blue sm:text-base">
+                <p className="max-w-xl animate-fadeInScaleUp break-words px-2 text-xl font-semibold leading-snug text-electric-blue sm:text-2xl">
                   💡 {hint.defs[1]}
                 </p>
               )}
 
               {rung >= 2 && vietnamese && (
-                <p className="animate-fadeInScaleUp font-heading text-xl font-bold text-warning-yellow sm:text-2xl">
+                <p className="max-w-full animate-fadeInScaleUp break-words px-1 font-heading text-3xl font-bold leading-tight text-warning-yellow sm:text-4xl">
                   🇻🇳 {vietnamese}
                 </p>
               )}
@@ -1092,9 +1104,9 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                       type="button"
                       onClick={revealHint}
                       disabled={phase !== 'guessing'}
-                      className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-electric-blue/50 bg-electric-blue/10 px-4 py-2 text-xs font-semibold text-electric-blue hover:bg-electric-blue/20 disabled:opacity-40"
+                      className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-electric-blue/50 bg-electric-blue/10 px-4 py-2 text-sm font-semibold leading-tight text-electric-blue hover:bg-electric-blue/20 disabled:opacity-40"
                     >
-                      {t.game.hint}
+                      {t.game.hint(SOLO_HINT_POINTS)}
                     </button>
                   )}
                   {rung < 2 && vietnamese && (
@@ -1102,34 +1114,37 @@ export const SoloGameScreen: React.FC<SoloGameScreenProps> = ({
                       type="button"
                       onClick={revealMeaning}
                       disabled={phase !== 'guessing'}
-                      className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-xs font-semibold text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
+                      className="futuristic-button flex min-h-[2.75rem] items-center rounded-lg border border-warning-yellow/50 bg-warning-yellow/10 px-4 py-2 text-sm font-semibold leading-tight text-warning-yellow hover:bg-warning-yellow/20 disabled:opacity-40"
                     >
-                      {t.game.meaning}
+                      {t.game.meaning(SOLO_MEANING_POINTS)}
                     </button>
                   )}
                 </div>
               ) : null}
             </div>
           ) : hintLoading ? (
-            <p className="animate-subtlePulse text-lg text-muted-text">{t.game.loadingClue}</p>
+            <p className="animate-subtlePulse text-xl text-muted-text sm:text-2xl">{t.game.loadingClue}</p>
           ) : (
-            <p className="px-2 font-heading text-lg font-bold text-muted-text">{t.game.noClue}</p>
+            <p className="max-w-full break-words px-2 font-heading text-xl font-bold text-muted-text sm:text-2xl">
+              {t.game.noClue}
+            </p>
           )
         ) : (
-          <p className="px-2 font-heading text-2xl font-bold leading-tight text-neon-green sm:text-3xl">
+          <p className="max-w-full break-words px-2 font-heading text-3xl font-bold leading-tight text-neon-green sm:text-4xl">
             {vietnamese ? `🇻🇳 ${vietnamese}` : t.game.noTranslation}
           </p>
         )}
 
         {phase === 'revealed' && (
           <div className="mt-1 flex animate-fadeInScaleUp items-center justify-center gap-2">
-            <p className="font-heading text-xl font-bold text-danger-red sm:text-2xl">
+            <p className="font-heading text-2xl font-bold text-danger-red sm:text-3xl">
               {t.game.answer(answer)}
             </p>
             {/* Hear it once it is on screen — the cheapest way to make a miss stick. */}
             <SpeakButton word={answer} />
           </div>
         )}
+        </div>
 
         {points && phase === 'correct' && (
           <span

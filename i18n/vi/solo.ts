@@ -27,8 +27,9 @@ export const solo: Dictionary['solo'] = {
     levelUp: (level: string) => `⬆️ Lên trình — ${level}`,
 
     hearClue: 'Nghe gợi ý',
-    hint: '💡 Gợi ý',
-    meaning: '🇻🇳 Nghĩa',
+    /** Giá hiện trước khi bấm: trợ giúp có giá rõ ràng, không phải bất ngờ sau khi trả lời. */
+    hint: (points: number) => `💡 Gợi ý (${points}đ)`,
+    meaning: (points: number) => `🇻🇳 Nghĩa (${points}đ)`,
     loadingClue: 'Đang tải gợi ý…',
     noClue: '🤔 Chưa có gợi ý — cứ tin vào các chữ cái',
     noTranslation: '🤔 Chưa có bản dịch — cứ tin vào các chữ cái',
