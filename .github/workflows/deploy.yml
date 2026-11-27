@@ -1,0 +1,63 @@
+name: Deploy production
+
+# Production is the Worker that serves wordcrew.app. Cloudflare Pages builds
+# wordcrew.pages.dev from this same repo, but users never visit that host, so a green
+# Pages build proves nothing about production. This workflow is the single path:
+# typecheck -> build -> deploy the Worker -> prove the live HTML serves that build.
+#
+# One-time setup in GitHub: Settings -> Secrets and variables -> Actions -> New secret
+#   CLOUDFLARE_API_TOKEN = a Cloudflare API token with "Workers Scripts: Edit"
+# Without it the job fails loudly instead of silently skipping the deploy.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two deploys race; queue them instead of cancelling a half-finished upload.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  # Public identifier, not a secret. Pinned so wrangler cannot pick another account.
+  CLOUDFLARE_ACCOUNT_ID: 218f1b4c31c6bea6bae8c8c85d4495eb
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      - name: Require the Cloudflare token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Missing repo secret CLOUDFLARE_API_TOKEN (needs Workers Scripts: Edit)."
+            exit 1
+          fi
+
+      - name: Deploy Worker (wordcrew.app)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
+
+      # Fails the run if the custom domain still serves a previous bundle — the exact
+      # mismatch that manual deploys used to hide.
+      - name: Verify wordcrew.app serves this build
+        run: npm run deploy:verify
